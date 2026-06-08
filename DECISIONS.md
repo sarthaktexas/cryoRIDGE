@@ -338,7 +338,7 @@ rewrite.
 ### Consequences
 
 - **Need:** full-box `half_map_local_metrics` on EMD-49450 (~2 min runtime,
-  produces four MRCs viewable in ChimeraX).
+  produces four MRCs for 3D overlay).
 - **Need:** `cryoem_mrc/analysis.py` and `scripts/run_analysis.py` driver.
 - **ResMap install becomes asynchronous.** Recommend setting it up on the
   user's Mac in the background while the analysis layer matures.
@@ -355,7 +355,7 @@ rewrite.
 ### Context
 
 EMD-49450 has a deposited recommended contour level of **0.116** (the density
-threshold at which the depositor's chosen ChimeraX isosurface separates
+threshold at which the depositor's chosen isosurface separates
 protein density from solvent). The current analysis pipeline runs over the
 entire 430³ box (~80M voxels), of which most are solvent or empty. Per-voxel
 correlations and feature distributions, computed without a mask, are
@@ -430,7 +430,7 @@ that is closer to the half-map processing state, but EMD-49450 does not.
 ### Decision
 
 Option **(b)** for the canonical analysis. Keep the deposited primary map as
-a secondary visualization reference (it is what ChimeraX shows users by
+a secondary visualization reference (it is what depositors show users by
 default and what the depositor wants the community to look at).
 
 ### Consequences

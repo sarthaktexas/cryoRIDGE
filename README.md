@@ -31,7 +31,7 @@ pdb/                        # fitted models (mmCIF) — sample models included f
 cohort/manifest.csv         # EMDB IDs, relative paths, contours, validation labels
 ```
 
-Download deposited and half maps from [EMDB](https://www.ebi.ac.uk/emdb/) and fitted models from [PDBe](https://www.ebi.ac.uk/pdbe/). Use the depositor-recommended contour for each entry (listed in `cohort/manifest.csv`).
+Download deposited and half maps from [EMDB](https://www.ebi.ac.uk/emdb/) and fitted models from [PDBe](https://www.ebi.ac.uk/pdbe/). Use the depositor-recommended contour for each entry (listed in `cohort/manifest.csv`). See [docs/COHORT.md](docs/COHORT.md) for download status, pipeline progress, and expansion candidates.
 
 ---
 
