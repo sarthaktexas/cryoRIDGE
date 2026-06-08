@@ -15,10 +15,12 @@ dependencies = [
     "mrcfile>=1.4",
     "matplotlib>=3.7",
     "gemmi>=0.6",
+    "seaborn>=0.13",
+    "pandas>=2.0",
 ]
 
 [tool.setuptools.packages.find]
-include = ["cryoem_mrc*"]
+include = ["cryoem_mrc*", "style*"]
 
 [project.urls]
 Repository = "https://github.com/sarthaktexas/cryoem-map-reliability"
