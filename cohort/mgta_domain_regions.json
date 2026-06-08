@@ -1,0 +1,10 @@
+{
+  "comment": "L. lactis MgtA auth_seq_id bands for PDB 9NHZ/9N5J/9MQM (EMD-49450/48923/48534). Boundaries mapped from E. coli MgtA (UniProt P0ABB8) P-type ATPase topology: N-tail, actuator (A), HAD (P+N), TM bundle, C-tail. auth = EC − 19 vs deposited numbering (auth 22–910).",
+  "regions": [
+    {"name": "N-tail", "seq_start": 22, "seq_end": 135, "color": "#4E79A7"},
+    {"name": "A-domain", "seq_start": 136, "seq_end": 395, "color": "#F28E2B"},
+    {"name": "HAD", "seq_start": 396, "seq_end": 676, "color": "#59A14F"},
+    {"name": "TM", "seq_start": 677, "seq_end": 867, "color": "#E15759"},
+    {"name": "C-tail", "seq_start": 868, "seq_end": 910, "color": "#76B7B2"}
+  ]
+}
