@@ -14,10 +14,12 @@ from .structure_validation import ResidueValidationRow
 
 COVERAGE_FLAG_THRESHOLD_PCT = 20.0
 _COHORT_DIR = Path(__file__).resolve().parent.parent / "cohort"
+CONFORMATION_PAIR_DOMAINS_PATH = _COHORT_DIR / "conformation_pair_domains.json"
 TRPV1_DOMAIN_REGIONS_PATH = _COHORT_DIR / "trpv1_domain_regions.json"
 MGTA_DOMAIN_REGIONS_PATH = _COHORT_DIR / "mgta_domain_regions.json"
 TRPV1_EMDB_IDS = frozenset({"23129", "23130"})
 MGTA_EMDB_IDS = frozenset({"49450", "48534", "48923", "48602"})
+_DOMAINS_REGISTRY_CACHE: list[dict] | None = None
 
 
 @dataclass
@@ -126,6 +128,8 @@ class DomainRegion:
     seq_start: int
     seq_end: int
     color: str
+    chains: frozenset[str] | None = None
+    chain_prefixes: tuple[str, ...] | None = None
 
 
 def is_trpv1_conformation_pair(emdb_a: str, emdb_b: str) -> bool:
@@ -136,17 +140,44 @@ def is_mgta_conformation_pair(emdb_a: str, emdb_b: str) -> bool:
     return {str(emdb_a).strip(), str(emdb_b).strip()} <= MGTA_EMDB_IDS
 
 
+def _parse_domain_region(raw: dict) -> DomainRegion:
+    chains = raw.get("chains")
+    chain_prefixes = raw.get("chain_prefixes")
+    return DomainRegion(
+        name=str(raw["name"]),
+        seq_start=int(raw["seq_start"]),
+        seq_end=int(raw["seq_end"]),
+        color=str(raw["color"]),
+        chains=frozenset(str(c) for c in chains) if chains else None,
+        chain_prefixes=tuple(str(p) for p in chain_prefixes) if chain_prefixes else None,
+    )
+
+
 def load_domain_regions_from_json(path: Path) -> list[DomainRegion]:
     raw = json.loads(path.read_text())
-    return [
-        DomainRegion(
-            name=str(r["name"]),
-            seq_start=int(r["seq_start"]),
-            seq_end=int(r["seq_end"]),
-            color=str(r["color"]),
-        )
-        for r in raw["regions"]
-    ]
+    return [_parse_domain_region(r) for r in raw["regions"]]
+
+
+def _load_domains_registry() -> list[dict]:
+    global _DOMAINS_REGISTRY_CACHE
+    if _DOMAINS_REGISTRY_CACHE is None:
+        if not CONFORMATION_PAIR_DOMAINS_PATH.is_file():
+            _DOMAINS_REGISTRY_CACHE = []
+        else:
+            data = json.loads(CONFORMATION_PAIR_DOMAINS_PATH.read_text())
+            _DOMAINS_REGISTRY_CACHE = list(data.get("entries", []))
+    return _DOMAINS_REGISTRY_CACHE
+
+
+def region_matches_residue(reg: DomainRegion, row: ResidueValidationRow) -> bool:
+    """True when auth seq_id (and optional auth chain filter) falls in ``reg``."""
+    chain = str(row.auth_chain or row.chain).strip()
+    if reg.chains is not None and chain not in reg.chains:
+        return False
+    if reg.chain_prefixes is not None and not any(chain.startswith(p) for p in reg.chain_prefixes):
+        return False
+    seq_num = int(row.auth_seq_num or row.seq_num)
+    return reg.seq_start <= seq_num <= reg.seq_end
 
 
 def load_trpv1_domain_regions() -> list[DomainRegion]:
@@ -170,8 +201,12 @@ def domain_colors_from_regions(regions: Sequence[DomainRegion]) -> dict[str, str
 
 def _merged_domain_colors() -> dict[str, str]:
     colors: dict[str, str] = {}
-    for path in _all_domain_region_paths():
-        colors.update(domain_colors_from_regions(load_domain_regions_from_json(path)))
+    for entry in _load_domains_registry():
+        for raw in entry.get("regions", []):
+            colors[str(raw["name"])] = str(raw["color"])
+    if not colors:
+        for path in _all_domain_region_paths():
+            colors.update(domain_colors_from_regions(load_domain_regions_from_json(path)))
     return colors
 
 
@@ -181,13 +216,19 @@ UNASSIGNED_DOMAIN_COLOR = "#aaaaaa"
 
 def reload_domain_colors() -> dict[str, str]:
     """Refresh DOMAIN_COLORS after JSON edits (tests / long-running sessions)."""
-    global DOMAIN_COLORS
+    global DOMAIN_COLORS, _DOMAINS_REGISTRY_CACHE
+    _DOMAINS_REGISTRY_CACHE = None
     DOMAIN_COLORS = _merged_domain_colors()
     return DOMAIN_COLORS
 
 
 def get_domain_regions_for_pair(emdb_a: str, emdb_b: str) -> list[DomainRegion]:
     """Return domain region definitions when annotated for this pair, else []."""
+    pair_ids = {str(emdb_a).strip(), str(emdb_b).strip()}
+    for entry in _load_domains_registry():
+        entry_ids = {str(x).strip() for x in entry.get("emdb_ids", [])}
+        if pair_ids <= entry_ids:
+            return [_parse_domain_region(r) for r in entry.get("regions", [])]
     if is_trpv1_conformation_pair(emdb_a, emdb_b):
         return load_trpv1_domain_regions()
     if is_mgta_conformation_pair(emdb_a, emdb_b):
@@ -204,9 +245,8 @@ def get_domain_assignments(
         return {}
     assignments: dict[str, list[int]] = {reg.name: [] for reg in regions}
     for i, (row, _) in enumerate(chain_residue_list):
-        seq_num = int(row.seq_num)
         for reg in regions:
-            if reg.seq_start <= seq_num <= reg.seq_end:
+            if region_matches_residue(reg, row):
                 assignments[reg.name].append(i)
                 break
     return assignments
@@ -255,9 +295,17 @@ def compute_domain_mean_coupling(
 def domain_residue_color(
     seq_num: int,
     regions: Sequence[DomainRegion],
+    *,
+    chain: str | None = None,
 ) -> str | None:
     """Return domain color for auth seq_id, or None when outside annotated bands."""
     for reg in regions:
+        if chain is not None and (reg.chains is not None or reg.chain_prefixes is not None):
+            ch = str(chain).strip()
+            if reg.chains is not None and ch not in reg.chains:
+                continue
+            if reg.chain_prefixes is not None and not any(ch.startswith(p) for p in reg.chain_prefixes):
+                continue
         if reg.seq_start <= int(seq_num) <= reg.seq_end:
             return DOMAIN_COLORS.get(reg.name, reg.color)
     return None
@@ -276,13 +324,9 @@ def domain_index_spans(
     for reg in regions:
         i = 0
         while i < n:
-            seq_num = int(use[i][0].seq_num)
-            if reg.seq_start <= seq_num <= reg.seq_end:
+            if region_matches_residue(reg, use[i][0]):
                 j = i + 1
-                while j < n:
-                    sn = int(use[j][0].seq_num)
-                    if not (reg.seq_start <= sn <= reg.seq_end):
-                        break
+                while j < n and region_matches_residue(reg, use[j][0]):
                     j += 1
                 spans.append(
                     (float(i) - 0.5, float(j) - 0.5, reg.name, DOMAIN_COLORS.get(reg.name, reg.color))
@@ -305,6 +349,7 @@ __all__ = [
     "domain_residue_color",
     "get_domain_assignments",
     "get_domain_regions_for_pair",
+    "region_matches_residue",
     "interior_residue_indices",
     "is_mgta_conformation_pair",
     "is_trpv1_conformation_pair",

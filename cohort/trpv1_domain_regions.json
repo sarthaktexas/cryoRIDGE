@@ -1,5 +1,5 @@
 {
-  "comment": "Rat TRPV1 auth_seq_id bands for PDB 7L2I/7L2J (EMD-23129/23130). Five contiguous fold guides (ANK, linker, TM, pore, C-term) after Zhang et al. Cell 2021 / Cao et al. Nature 2013 topology; boundaries approximate.",
+  "comment": "Legacy copy — canonical source is cohort/conformation_pair_domains.json (entry trpv1).",
   "regions": [
     {"name": "ANK", "seq_start": 198, "seq_end": 363, "color": "#4E79A7"},
     {"name": "linker", "seq_start": 364, "seq_end": 415, "color": "#76B7B2"},
