@@ -1,7 +1,8 @@
 """Compare ΔB vs Δreliability across two conformations (matched Cα, separate maps/models).
 
 Each state uses its own deposited map, contour, reliability.npz, and fitted PDB.
-Residues are matched by (chain, seq_num, seq_icode). Δ statistics use per-map
+Residues are matched by mmCIF (label_asym_id, label_seq_id, insertion); domain
+bands use auth chain/seq from the deposited model. Δ statistics use per-map
 coordinates (no superposition).
 
 Example (when both maps are processed)::

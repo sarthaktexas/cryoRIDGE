@@ -28,9 +28,12 @@ class CaResidue:
     y: float
     z: float
     b_iso: float
+    auth_chain: str = ""
+    auth_seq_num: int = 0
 
     @property
     def residue_key(self) -> tuple[str, int, str]:
+        """Deposit-stable match key: mmCIF (label_asym_id, label_seq_id, insertion)."""
         return (self.chain, self.seq_num, self.seq_icode)
 
 
@@ -52,9 +55,12 @@ class ResidueValidationRow:
     in_contour_mask: bool
     local_cross_correlation: float = float("nan")
     local_variance: float = float("nan")
+    auth_chain: str = ""
+    auth_seq_num: int = 0
 
     @property
     def residue_key(self) -> tuple[str, int, str]:
+        """Deposit-stable match key: mmCIF (label_asym_id, label_seq_id, insertion)."""
         return (self.chain, self.seq_num, self.seq_icode)
 
 
@@ -98,7 +104,12 @@ def physical_xyz_to_voxel_indices(
 
 
 def iter_ca_residues(structure_path: str | Path) -> list[CaResidue]:
-    """Load a deposited model and return one Cα per residue (first altloc)."""
+    """Load a deposited model and return one Cα per residue (first altloc).
+
+    ``chain`` / ``seq_num`` use mmCIF label_asym_id and label_seq_id so conformation
+    pairs match across deposits with different auth chain naming. ``auth_chain`` /
+    ``auth_seq_num`` retain PDB auth ids for domain-band annotations.
+    """
     import gemmi
 
     path = Path(structure_path)
@@ -114,16 +125,22 @@ def iter_ca_residues(structure_path: str | Path) -> list[CaResidue]:
                 ca = residue.find_atom("CA", "\0")
                 if ca is None:
                     continue
+                label_chain = str(residue.subchain).strip() or chain.name
+                auth_chain = chain.name
+                auth_seq = int(residue.seqid.num)
+                label_seq = int(residue.label_seq) if residue.label_seq else auth_seq
                 residues.append(
                     CaResidue(
-                        chain=chain.name,
-                        seq_num=int(residue.seqid.num),
+                        chain=label_chain,
+                        seq_num=label_seq,
                         seq_icode=str(residue.seqid.icode).strip(),
                         res_name=residue.name,
                         x=float(ca.pos.x),
                         y=float(ca.pos.y),
                         z=float(ca.pos.z),
                         b_iso=float(ca.b_iso),
+                        auth_chain=auth_chain,
+                        auth_seq_num=auth_seq,
                     )
                 )
         break  # first model only
@@ -350,9 +367,17 @@ def build_residue_validation_table(
                 in_contour_mask=bool(in_mask_s[i] >= 0.5),
                 local_cross_correlation=float(cc_s[i]) if cc_s is not None else float("nan"),
                 local_variance=float(var_s[i]) if var_s is not None else float("nan"),
+                auth_chain=res.auth_chain or res.chain,
+                auth_seq_num=res.auth_seq_num or res.seq_num,
             )
         )
     return rows
+
+
+def _b_iso_is_uniform(b: np.ndarray) -> bool:
+    """True when deposited B-factors carry no in-mask variation (Spearman undefined)."""
+    bf = b[np.isfinite(b)]
+    return bf.size < 2 or np.unique(bf).size < 2
 
 
 def _partial_spearman(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> float:
@@ -393,6 +418,28 @@ def compute_bfactor_validation_stats(
     zones = np.array([r.build_zone for r in use], dtype=np.float64)
     var = np.array([r.local_variance for r in use], dtype=np.float64)
 
+    med_by_zone: dict[int, float] = {}
+    for z in (0, 1, 2):
+        zb = b[zones == z]
+        if zb.size:
+            med_by_zone[z] = float(np.median(zb))
+
+    if _b_iso_is_uniform(b):
+        return BfactorValidationStats(
+            emdb_id=emdb_id,
+            n_residues=n_all,
+            n_in_mask=n_use,
+            spearman_b_vs_reliability=float("nan"),
+            spearman_b_vs_H_repro=float("nan"),
+            spearman_b_vs_build_zone=float("nan"),
+            partial_b_vs_reliability_given_variance=float("nan"),
+            median_b_by_zone=med_by_zone,
+            notes=(
+                "Uniform deposited B-factors (B_iso has zero variance in mask); "
+                "Spearman correlations skipped."
+            ),
+        )
+
     rho_rel, _ = stats.spearmanr(b, rel)
     rho_h, _ = stats.spearmanr(b, h)
     rho_z, _ = stats.spearmanr(b, zones)
@@ -401,12 +448,6 @@ def compute_bfactor_validation_stats(
     if np.isfinite(var).sum() >= 10:
         ok = np.isfinite(var)
         partial = _partial_spearman(b[ok], rel[ok], var[ok])
-
-    med_by_zone: dict[int, float] = {}
-    for z in (0, 1, 2):
-        zb = b[zones == z]
-        if zb.size:
-            med_by_zone[z] = float(np.median(zb))
 
     return BfactorValidationStats(
         emdb_id=emdb_id,
@@ -619,6 +660,8 @@ def write_residue_validation_csv(path: str | Path, rows: Sequence[ResidueValidat
     fieldnames = [
         "chain",
         "seq_num",
+        "auth_chain",
+        "auth_seq_num",
         "seq_icode",
         "res_name",
         "x",
@@ -640,6 +683,8 @@ def write_residue_validation_csv(path: str | Path, rows: Sequence[ResidueValidat
                 {
                     "chain": r.chain,
                     "seq_num": r.seq_num,
+                    "auth_chain": r.auth_chain or r.chain,
+                    "auth_seq_num": r.auth_seq_num or r.seq_num,
                     "seq_icode": r.seq_icode,
                     "res_name": r.res_name,
                     "x": f"{r.x:.3f}",
@@ -683,7 +728,7 @@ def match_residue_rows_by_key(
     rows_a: Sequence[ResidueValidationRow],
     rows_b: Sequence[ResidueValidationRow],
 ) -> list[tuple[ResidueValidationRow, ResidueValidationRow]]:
-    """Pair residues by (chain, seq_num, seq_icode) for conformation comparisons."""
+    """Pair residues by mmCIF (label_asym_id, label_seq_id, insertion) for conformation comparisons."""
     index_b = {r.residue_key: r for r in rows_b}
     pairs: list[tuple[ResidueValidationRow, ResidueValidationRow]] = []
     for ra in rows_a:
@@ -764,6 +809,8 @@ def read_residue_validation_csv(path: str | Path) -> list[ResidueValidationRow]:
                     in_contour_mask=bool(int(row["in_contour_mask"])),
                     local_cross_correlation=float(row["local_cross_correlation"] or "nan"),
                     local_variance=float(row["local_variance"] or "nan"),
+                    auth_chain=row.get("auth_chain") or row["chain"],
+                    auth_seq_num=int(row.get("auth_seq_num") or row["seq_num"]),
                 )
             )
     return rows
@@ -893,6 +940,7 @@ and local order, while reliability_score reflects half-map agreement inside the 
 
 **Sign note:** Higher B_iso ↔ more displacement; higher reliability_score ↔ more reliable map.
 A **negative** ρ(B, reliability) is the naive expectation if both proxy local order.
+{f"\\n\\n**Caveat:** {stats.notes}" if stats.notes else ""}
 
 ---
 
@@ -910,9 +958,6 @@ A **negative** ρ(B, reliability) is the naive expectation if both proxy local o
 |------|-------------|
 | `residue_validation.csv` | Per-residue table |
 | `figures/bfactor_vs_reliability.png` | Scatter (in-mask) |
-| `figures/bfactor_by_build_zone.png` | Median B by zone |
-
-{stats.notes}
 """
     path.write_text(text)
 
@@ -942,7 +987,7 @@ Flag (>20% missing):{flag}
 """
     text = f"""# Conformation pair — EMD-{pair_stats.emdb_a} vs EMD-{pair_stats.emdb_b}
 
-Matched Cα by (chain, seq_num, seq_icode). Δ = state B − state A.
+Matched Cα by mmCIF (label_asym_id, label_seq_id, insertion). Δ = state B − state A.
 
 | Metric | Value |
 |--------|------:|
