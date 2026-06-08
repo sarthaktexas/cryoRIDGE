@@ -23,7 +23,7 @@ def test_bbox_crop_roundtrip() -> None:
     cropped = crop_array(vol, bbox)
     back = embed_array(vol.shape, bbox, cropped, dtype=vol.dtype)
     assert np.array_equal(back[bbox.slices], cropped)
-    assert (back == 0).sum() == full_n - bbox.n_voxels if (full_n := vol.size) else True
+    assert int((back == 0).sum()) == vol.size - bbox.n_voxels
 
 
 def test_half_map_metrics_bbox_matches_full_in_mask_interior() -> None:
@@ -49,5 +49,6 @@ def test_half_map_metrics_bbox_matches_full_in_mask_interior() -> None:
         b = cropped[key][check]
         np.testing.assert_allclose(a, b, rtol=1e-4, atol=1e-5)
 
-    outside = ~mask
-    assert np.all(cropped["local_cross_correlation"][outside] == 0)
+    outside_bbox = np.ones(shape, dtype=bool)
+    outside_bbox[bbox.slices] = False
+    assert np.all(cropped["local_cross_correlation"][outside_bbox] == 0)
