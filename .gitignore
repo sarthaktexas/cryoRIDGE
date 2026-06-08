@@ -10,3 +10,6 @@ AGENTS.md
 # Local SSD symlinks (maps + pipeline outputs live on external volume)
 data
 outputs
+
+# Runtime pipeline logs
+cohort/pipeline_pending.log
