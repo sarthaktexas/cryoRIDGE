@@ -11,5 +11,5 @@ AGENTS.md
 data
 outputs
 
-# Runtime pipeline logs
-cohort/pipeline_pending.log
+# Runtime logs
+*.log
