@@ -32,6 +32,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
+from style.nature import apply, savefig as save_nature
+
 from cryoem_mrc.analysis import build_contour_mask, compute_feature_target_correlations, write_correlation_csv
 from cryoem_mrc.io import load_mrc
 from cryoem_mrc.map_grid import load_full_and_half_maps
@@ -164,6 +166,7 @@ def _plot_comparison_bar(rows: list[dict], out_path: Path) -> None:
         vals.append(abs(float(by_name[name]["correlation"])))
         colors.append("#d62728" if name == "rigidity" else "#1f77b4" if name != "local_variance" else "#7f7f7f")
     fig, ax = plt.subplots(figsize=(10, 4.5))
+    apply(ax)
     ax.barh(np.arange(len(labels)), vals, color=colors, alpha=0.85)
     ax.set_yticks(np.arange(len(labels)), labels)
     ax.set_xlabel("|Spearman r| vs local_cross_correlation")
@@ -171,7 +174,7 @@ def _plot_comparison_bar(rows: list[dict], out_path: Path) -> None:
     ax.set_xlim(0, 1.0)
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
+    save_nature(fig, out_path)
     plt.close(fig)
 
 

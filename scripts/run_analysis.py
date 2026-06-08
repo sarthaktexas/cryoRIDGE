@@ -17,7 +17,7 @@ End-to-end on EMD-49450 (after the user-side rerun documented in DECISIONS.md):
 What it produces under ``--out-dir``:
 
 - ``halfmap_metrics/`` — four MRC volumes (CC, MSE, var-diff, repro-SNR) on the
-  reference grid, viewable in ChimeraX.
+  reference grid for volume overlay.
 - ``halfmap_metrics.npz`` — same arrays, single-file load for downstream notebooks.
 - ``correlations.csv`` — tidy per-feature Pearson + Spearman against the chosen
   target signal (default ``local_cross_correlation``).
@@ -45,11 +45,13 @@ from cryoem_mrc.analysis import (
     build_contour_mask,
     compute_feature_target_correlations,
     half_map_local_metrics_chunked,
+    half_map_local_metrics_chunked_bbox,
     plot_feature_vs_target_scatter,
     plot_halfmap_metric_histogram,
     write_correlation_csv,
     write_summary_text,
 )
+from cryoem_mrc.mask_bbox import format_bbox_log, pad_voxels_for_filters
 from cryoem_mrc.half_map_repro import save_half_map_metrics_mrc
 from cryoem_mrc.local_resolution_io import (
     load_local_resolution_map,
@@ -82,6 +84,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--out-dir", required=True, type=Path)
     p.add_argument("--skip-halfmap-metrics", action="store_true",
                    help="If outputs/halfmap_metrics.npz already exists, skip recompute")
+    p.add_argument(
+        "--no-crop-to-contour",
+        action="store_true",
+        help="Compute half-map metrics on the full grid (default: tight bbox around contour mask)",
+    )
     p.add_argument("--local-res", type=Path, default=None,
                    help="Å-valued local_fsc MRC from scripts/run_local_fsc.py")
     p.add_argument(
@@ -208,24 +215,39 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[run_analysis] WARNING: {name} required resampling: {rep.messages}",
                   file=sys.stderr)
 
-    # -- half-map metrics ------------------------------------------------------
+    print(f"[run_analysis] contour mask >= {args.contour}")
+    mask = build_contour_mask(bundle.full.data, args.contour)
+
     if args.skip_halfmap_metrics and metrics_npz.exists():
         print(f"[run_analysis] reusing existing {metrics_npz}")
         data = np.load(metrics_npz, allow_pickle=False)
         metrics = {k: data[k] for k in data.files}
     else:
-        print(f"[run_analysis] computing half-map metrics window={args.window} chunk_z={args.chunk_z}")
-        metrics = half_map_local_metrics_chunked(
-            bundle.half1.data, bundle.half2.data,
-            window=args.window, chunk_z=args.chunk_z,
-        )
+        pad = pad_voxels_for_filters(window=args.window)
+        if args.no_crop_to_contour:
+            print(
+                f"[run_analysis] computing half-map metrics window={args.window} "
+                f"chunk_z={args.chunk_z} (full grid)",
+            )
+            metrics = half_map_local_metrics_chunked(
+                bundle.half1.data, bundle.half2.data,
+                window=args.window, chunk_z=args.chunk_z,
+            )
+        else:
+            from cryoem_mrc.mask_bbox import bbox_from_mask
+
+            bbox = bbox_from_mask(mask, pad=pad)
+            print(
+                f"[run_analysis] computing half-map metrics window={args.window} "
+                f"chunk_z={args.chunk_z}; {format_bbox_log(bbox, bundle.full.data.shape, pad=pad)}",
+            )
+            metrics = half_map_local_metrics_chunked_bbox(
+                bundle.half1.data, bundle.half2.data, mask,
+                window=args.window, chunk_z=args.chunk_z, pad=pad,
+            )
         np.savez_compressed(metrics_npz, **metrics)
         save_half_map_metrics_mrc(metrics, args.reference, metrics_mrc_dir)
         print(f"[run_analysis] wrote {metrics_npz} and MRCs under {metrics_mrc_dir}")
-
-    # -- mask ------------------------------------------------------------------
-    print(f"[run_analysis] contour mask >= {args.contour}")
-    mask = build_contour_mask(bundle.full.data, args.contour)
     n_total, n_in = int(mask.size), int(mask.sum())
     pct = 100.0 * n_in / max(1, n_total)
     print(f"[run_analysis] mask: {n_in:,}/{n_total:,} voxels ({pct:.2f}%)")

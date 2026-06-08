@@ -28,9 +28,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from style.nature import apply, label_panel, savefig as save_nature
+
 from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.io import load_mrc
-from cryoem_mrc.local_fsc import save_local_fsc_resolution_mrc
 from cryoem_mrc.local_resolution_io import load_local_resolution_map
 from cryoem_mrc.map_grid import load_map_grid
 from cryoem_mrc.repo_paths import DATA_ROOT, analysis_dir, thesis_overview_dir
@@ -105,12 +106,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Scale bar length in Å (default 20 when zoomed, 50 when not)",
     )
-    p.add_argument(
-        "--export-local-res-mrc",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Write contour-masked local FSC MRC for ChimeraX overlay (default: on)",
-    )
     p.add_argument("--emd-id", type=str, default="49450")
     p.add_argument(
         "--skip-existing",
@@ -149,14 +144,19 @@ def _resolve_paths(args: argparse.Namespace) -> dict[str, Path]:
     }
 
 
-def _png(out_dir: Path, stem: str) -> Path:
-    return out_dir / f"{stem}.png"
+def _fig_export(out_dir: Path, stem: str) -> Path:
+    """Canonical export path (save_nature writes ``.pdf`` + 600 dpi ``.png``)."""
+    return out_dir / f"{stem}.pdf"
+
+
+def _fig_export_done(path: Path) -> bool:
+    return path.with_suffix(".pdf").exists() and path.with_suffix(".png").exists()
 
 
 def _should_run(job: str, path: Path, *, skip_existing: bool, only: set[str] | None) -> bool:
     if only is not None and job not in only:
         return False
-    if skip_existing and path.exists():
+    if skip_existing and _fig_export_done(path):
         print(f"[thesis_figures] skip existing {path.name}")
         return False
     return True
@@ -200,7 +200,7 @@ def _load_or_compute_rigidity(
 
 def _save_fig(fig: plt.Figure, path: Path, dpi: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white")
+    save_nature(fig, path, dpi=dpi)
     plt.close(fig)
     gc.collect()
 
@@ -284,33 +284,10 @@ def main(argv: list[str] | None = None) -> int:
     dpi = args.dpi
     saved: list[Path] = []
 
-    if args.export_local_res_mrc:
-        emd = f"emd_{args.emd_id}"
-        out_mrc = out_dir / f"{emd}_local_fsc_chimerax.mrc"
-        if not (args.skip_existing and out_mrc.exists()):
-            print(f"[thesis_figures] exporting local FSC MRC for ChimeraX -> {out_mrc.name}")
-            local_raw = np.asarray(
-                load_local_resolution_map(paths["local_fsc"]).data, dtype=np.float32
-            )
-            save_local_fsc_resolution_mrc(
-                local_raw,
-                paths["reference"],
-                out_mrc,
-                fsc_threshold=0.143,
-                patch_size=17,
-                stride=4,
-                mask=mask,
-                solvent_value=0.0,
-            )
-            print(f"[thesis_figures] wrote {out_mrc}")
-        else:
-            print(f"[thesis_figures] skip existing {out_mrc.name}")
-        saved.append(out_mrc)
-
     def run_job(job: str, fn: Callable[[], None]) -> None:
-        dest = _png(out_dir, job)
+        dest = _fig_export(out_dir, job)
         if not _should_run(job, dest, skip_existing=args.skip_existing, only=only):
-            if dest.exists():
+            if _fig_export_done(dest):
                 saved.append(dest)
             return
         print(f"[thesis_figures] generating {job}")
@@ -320,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- local FSC + half-map CC (load once, used by several jobs) ---
     need_cc_res = any(
-        _should_run(j, _png(out_dir, j), skip_existing=args.skip_existing, only=only)
+        _should_run(j, _fig_export(out_dir, j), skip_existing=args.skip_existing, only=only)
         for j in (
             "local_resolution_slice",
             "parallel_readouts_density_cc_localres",
@@ -362,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
                 crop_bbox=crop_bbox,
                 scale_bar_a=scale_bar_a,
             )
-            _save_fig(fig, _png(out_dir, "local_resolution_slice"), dpi)
+            _save_fig(fig, _fig_export(out_dir, "local_resolution_slice"), dpi)
 
         run_job("local_resolution_slice", _local_res_slice)
 
@@ -380,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
                 crop_bbox=crop_bbox,
                 scale_bar_a=scale_bar_a,
             )
-            _save_fig(fig, _png(out_dir, "parallel_readouts_density_cc_localres"), dpi)
+            _save_fig(fig, _fig_export(out_dir, "parallel_readouts_density_cc_localres"), dpi)
 
         run_job("parallel_readouts_density_cc_localres", _parallel_3)
 
@@ -394,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
                 dpi=dpi,
                 crop_bbox=crop_bbox,
             )
-            _save_fig(fig, _png(out_dir, "parallel_readouts_cc_localres"), dpi)
+            _save_fig(fig, _fig_export(out_dir, "parallel_readouts_cc_localres"), dpi)
 
         run_job("parallel_readouts_cc_localres", _parallel_2)
 
@@ -431,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
             ncol=2,
             crop_bbox=crop_bbox,
         )
-        _save_fig(fig, _png(out_dir, "feature_family_local_stats"), dpi)
+        _save_fig(fig, _fig_export(out_dir, "feature_family_local_stats"), dpi)
         del feats
 
     run_job("feature_family_local_stats", _family_local_stats)
@@ -456,7 +433,7 @@ def main(argv: list[str] | None = None) -> int:
             ncol=2,
             crop_bbox=crop_bbox,
         )
-        _save_fig(fig, _png(out_dir, "feature_family_multiscale"), dpi)
+        _save_fig(fig, _fig_export(out_dir, "feature_family_multiscale"), dpi)
         del feats
 
     run_job("feature_family_multiscale", _family_multiscale)
@@ -494,13 +471,14 @@ def main(argv: list[str] | None = None) -> int:
             ncol=3,
             crop_bbox=crop_bbox,
         )
-        _save_fig(fig, _png(out_dir, "feature_family_rigidity"), dpi)
+        _save_fig(fig, _fig_export(out_dir, "feature_family_rigidity"), dpi)
         del feats
 
     run_job("feature_family_rigidity", _family_rigidity)
 
     def _density_slice() -> None:
         fig, ax = plt.subplots(figsize=(6.0, 5.5))
+        apply(ax)
         plot_masked_slice(
             ax,
             d_sl,
@@ -511,19 +489,20 @@ def main(argv: list[str] | None = None) -> int:
             crop_bbox=crop_bbox,
         )
         _add_scale_bar(ax, voxel_size_a=voxel_size_a, length_a=scale_bar_a)
-        _save_fig(fig, _png(out_dir, "density_reference_slice"), dpi)
+        _save_fig(fig, _fig_export(out_dir, "density_reference_slice"), dpi)
 
     run_job("density_reference_slice", _density_slice)
 
     def _mask_slice() -> None:
         msl_show = crop_slice_2d(msl.astype(float), crop_bbox) if crop_bbox else msl.astype(float)
         fig, ax = plt.subplots(figsize=(6.0, 5.5))
+        apply(ax)
         ax.imshow(msl_show, cmap="Greys", origin="lower", vmin=0, vmax=1)
         ax.set_title(f"Contour mask (ρ ≥ {args.contour}) Z={z}")
         ax.set_xticks([])
         ax.set_yticks([])
         fig.tight_layout()
-        _save_fig(fig, _png(out_dir, "mask_slice"), dpi)
+        _save_fig(fig, _fig_export(out_dir, "mask_slice"), dpi)
 
     run_job("mask_slice", _mask_slice)
 
@@ -532,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
             print("[thesis_figures] skip spearman (no correlations.csv)", file=sys.stderr)
             return
         fig = plot_spearman_top_bar(paths["correlations"], dpi=dpi)
-        _save_fig(fig, _png(out_dir, "spearman_top_features"), dpi)
+        _save_fig(fig, _fig_export(out_dir, "spearman_top_features"), dpi)
 
     run_job("spearman_top_features", _spearman)
 
@@ -573,7 +552,7 @@ def main(argv: list[str] | None = None) -> int:
             (extract_slice(lv["gauss_s2"], axis=0, index=z), "inferno", "Gσ mid"),
             (extract_slice(rigidity_vol, axis=0, index=z), "viridis", "rigidity"),
         ]
-        for ax, (sl, cm, title) in zip(axes, panels):
+        for letter, (ax, (sl, cm, title)) in zip("abcdef", zip(axes, panels)):
             kw: dict = {"cmap": cm, "crop_bbox": crop_bbox, "already_contoured": True}
             if title == "half-map CC":
                 kw.update(vmin=0.0, vmax=1.0, robust=False)
@@ -586,17 +565,18 @@ def main(argv: list[str] | None = None) -> int:
                     robust=False,
                 )
             plot_masked_slice(ax, sl, msl, title=title, **kw)
+            label_panel(ax, letter)
         fig.suptitle(
             f"EMD-{args.emd_id} overview row (Z={z}, mask ρ≥{args.contour})",
             fontsize=12,
         )
         fig.tight_layout()
-        _save_fig(fig, _png(out_dir, "overview_composite_row"), dpi)
+        _save_fig(fig, _fig_export(out_dir, "overview_composite_row"), dpi)
 
     run_job("overview_composite_row", _composite)
 
-    # Manifest lists every expected PNG (whether skipped or written this run).
-    expected = [_png(out_dir, job) for job in FIGURE_JOBS]
+    # Manifest lists every expected PDF from save_nature (thesis overview = all 2D).
+    expected = [_fig_export(out_dir, job) for job in FIGURE_JOBS]
     manifest = out_dir / "MANIFEST.txt"
     manifest.write_text(
         "\n".join(
@@ -609,16 +589,16 @@ def main(argv: list[str] | None = None) -> int:
                 "",
                 "Files:",
                 *[
-                    f"  {p.name}  ({'ok' if p.exists() else 'MISSING'})"
+                    f"  {p.name}  ({'ok' if _fig_export_done(p) else 'MISSING'})"
                     for p in expected
                 ],
             ]
         )
         + "\n"
     )
-    n_ok = sum(1 for p in expected if p.exists())
-    print(f"[thesis_figures] done: {n_ok}/{len(expected)} PNGs present under {out_dir}")
-    missing = [p.name for p in expected if not p.exists()]
+    n_ok = sum(1 for p in expected if _fig_export_done(p))
+    print(f"[thesis_figures] done: {n_ok}/{len(expected)} PDF+PNG pairs present under {out_dir}")
+    missing = [p.name for p in expected if not _fig_export_done(p)]
     if missing:
         print(f"[thesis_figures] still missing: {', '.join(missing)}", file=sys.stderr)
         return 1

@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
+from style.nature import apply, label_panel, savefig as save_nature
+
 from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.half_map_repro import half_map_local_metrics
 from cryoem_mrc.local_fsc import compute_local_fsc_resolution, save_local_fsc_resolution_mrc
@@ -118,21 +120,24 @@ def main(argv: list[str] | None = None) -> int:
     for i, t in enumerate(thresholds):
         for j, p in enumerate(patch_sizes):
             ax = axes[i, j]
+            apply(ax)
             sl = maps[(p, t)][z_mid, :, :]
             im = ax.imshow(sl, cmap="viridis_r", vmin=vmin, vmax=vmax, origin="lower")
             ax.set_title(f"P={p}, t={t}")
             ax.axis("off")
+            label_panel(ax, chr(ord("a") + i * len(patch_sizes) + j))
     fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.6, label="resolution (Å)")
     fig.suptitle(f"Local FSC midplane Z={z_mid} (contour {args.contour})")
     fig.tight_layout()
     panel_path = fig_dir / "midplane_panel_2x3.png"
-    fig.savefig(panel_path, dpi=150, bbox_inches="tight")
+    save_nature(fig, panel_path)
     plt.close(fig)
     print(f"[sensitivity] wrote {panel_path}")
 
     labels = [f"P={r['patch_size']} t={r['fsc_threshold']}" for r in records]
     rhos = [r["spearman_vs_local_cc"] for r in records]
     fig2, ax2 = plt.subplots(figsize=(8, 4))
+    apply(ax2)
     colors = ["steelblue" if r["fsc_threshold"] == 0.143 else "coral" for r in records]
     ax2.bar(range(len(labels)), rhos, color=colors)
     ax2.axhline(0.0, color="k", linewidth=0.8)
@@ -142,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     ax2.set_title("Agreement with windowed half-map CC proxy")
     fig2.tight_layout()
     bar_path = fig_dir / "spearman_vs_cc_bar.png"
-    fig2.savefig(bar_path, dpi=150, bbox_inches="tight")
+    save_nature(fig2, bar_path)
     plt.close(fig2)
     print(f"[sensitivity] wrote {bar_path}")
     return 0

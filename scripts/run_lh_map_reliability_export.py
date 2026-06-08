@@ -3,7 +3,7 @@
 Generates under ``outputs/emd_<ID>/lh_map_reliability/``:
 
 - ``reliability.npz`` — reliability_score, H_repro, LH maps (T, V, L), build_zone
-- ``*.mrc`` — ChimeraX overlays on deposited reference grid
+- ``*.mrc`` — volume overlays on deposited reference grid
 - ``figures/`` — slice panels, correlation bars, build-zone map, CC vs reliability
 - ``LH_MAP_RELIABILITY_RESULTS.md`` — per-map results (methods in docs/LH_MAP_RELIABILITY.md)
 
@@ -26,6 +26,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+from style.nature import PALETTES, apply, label_panel, savefig as save_nature
 from scipy import stats
 
 from cryoem_mrc.analysis import (
@@ -41,6 +43,13 @@ from cryoem_mrc.reliability import (
     save_reliability_mrc,
 )
 from cryoem_mrc.repo_paths import DATA_ROOT, halfmap_metrics_npz, lh_map_reliability_dir
+from cryoem_mrc.mask_bbox import (
+    bbox_from_mask,
+    crop_array,
+    embed_array,
+    format_bbox_log,
+    pad_voxels_for_filters,
+)
 from cryoem_mrc.thesis_figures import (
     extract_slice,
     mask_slice_values,
@@ -65,6 +74,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--out-dir", type=Path, default=lh_map_reliability_dir("49450"))
     p.add_argument("--dpi", type=int, default=200)
     p.add_argument("--zoom-padding", type=int, default=24)
+    p.add_argument(
+        "--no-crop-to-contour",
+        action="store_true",
+        help="Compute H_repro on the full grid (default: tight bbox around contour mask)",
+    )
     return p.parse_args(argv)
 
 
@@ -91,8 +105,9 @@ def _load_rho_var(features_path: Path) -> tuple[np.ndarray, np.ndarray]:
 def _plot_build_zones(ax, zones_sl: np.ndarray, mask_sl: np.ndarray, *, title: str) -> None:
     from matplotlib.colors import ListedColormap
 
+    apply(ax)
     show = np.ma.masked_where(~mask_sl, zones_sl.astype(float))
-    cmap = ListedColormap(["#d62728", "#ffbb78", "#2ca02c"])  # omit, caution, build
+    cmap = ListedColormap(PALETTES["categorical"][:3])  # omit, caution, build
     im = ax.imshow(show, cmap=cmap, vmin=0, vmax=2, origin="lower")
     ax.set_title(title, fontsize=11)
     ax.set_xticks([])
@@ -114,13 +129,14 @@ def _plot_spearman_bar(spearman: dict[str, float], out: Path) -> None:
     vals = [abs(spearman[k]) for k in labels]
     colors = ["#9467bd" if k == "reliability_score" else "#7f7f7f" for k in labels]
     fig, ax = plt.subplots(figsize=(8, 4))
+    apply(ax)
     ax.barh(np.arange(len(labels)), vals, color=colors, alpha=0.9)
     ax.set_yticks(np.arange(len(labels)), labels)
     ax.set_xlabel("|Spearman r| vs half-map CC")
     ax.set_title("Reliability predictors (EMD-49450, mask ρ≥0.116)")
     ax.set_xlim(0, 1)
     fig.tight_layout()
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor="white")
+    save_nature(fig, out)
     plt.close(fig)
 
 
@@ -128,12 +144,13 @@ def _plot_partial_bar(rows: list[tuple[str, float]], out: Path) -> None:
     labels = [r[0] for r in rows]
     vals = [abs(r[1]) for r in rows]
     fig, ax = plt.subplots(figsize=(7, 3.5))
-    ax.barh(np.arange(len(labels)), vals, color="#1f77b4", alpha=0.85)
+    apply(ax)
+    ax.barh(np.arange(len(labels)), vals, color=PALETTES["categorical"][0], alpha=0.85)
     ax.set_yticks(np.arange(len(labels)), labels)
     ax.set_xlabel("|partial Spearman| vs CC | local_variance")
     ax.set_title("Incremental value beyond local variance")
     fig.tight_layout()
-    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor="white")
+    save_nature(fig, out)
     plt.close(fig)
 
 
@@ -205,7 +222,7 @@ Partial Spearman vs CC controlling for local_variance:
 | File | Description |
 |------|-------------|
 | `reliability.npz` | reliability_score, H_repro, build_zone |
-| `emd_{emd_id}_reliability.mrc` | ChimeraX overlay (0–1 score) |
+| `emd_{emd_id}_reliability.mrc` | Reliability overlay (0–1 score) |
 | `emd_{emd_id}_build_zones.mrc` | 0/1/2 zone labels |
 | `figures/model_building_row.png` | CC, reliability, zones, variance |
 | `figures/spearman_predictors.png` | Correlation bar chart |
@@ -246,10 +263,42 @@ def main(argv: list[str] | None = None) -> int:
         paths["reference"], paths["half1"], paths["half2"],
         reference="full", dtype=np.float32, resample_if_needed=True,
     )
-    feats: dict[str, np.ndarray] = {"density_normalized": rho, "local_variance": local_var}
-    attach_reliability_to_features(
-        feats, bundle.half1.data, bundle.half2.data, window=args.window, mask=mask
-    )
+    full_shape = reference.shape
+    pad = pad_voxels_for_filters(window=args.window)
+    if args.no_crop_to_contour:
+        work: dict[str, np.ndarray] = {"density_normalized": rho, "local_variance": local_var}
+        attach_reliability_to_features(
+            work, bundle.half1.data, bundle.half2.data, window=args.window, mask=mask
+        )
+        feats = work
+    else:
+        bbox = bbox_from_mask(mask, pad=pad)
+        print(
+            f"[lh_map_reliability] contour crop: {format_bbox_log(bbox, full_shape, pad=pad)}",
+            flush=True,
+        )
+        work = {
+            "density_normalized": crop_array(rho, bbox),
+            "local_variance": crop_array(local_var, bbox),
+        }
+        attach_reliability_to_features(
+            work,
+            crop_array(bundle.half1.data, bbox),
+            crop_array(bundle.half2.data, bbox),
+            window=args.window,
+            mask=crop_array(mask, bbox),
+        )
+        rel_keys = (
+            "reliability_score",
+            "reliability_H_repro",
+            "reliability_fluctuation",
+            "reliability_smoothness",
+            "build_zone",
+        )
+        feats = {
+            k: embed_array(full_shape, bbox, work[k], dtype=work[k].dtype)
+            for k in rel_keys
+        }
     del bundle
     gc.collect()
 
@@ -317,16 +366,17 @@ def main(argv: list[str] | None = None) -> int:
         (extract_slice(zones.astype(float), axis=0, index=z), None, "build zones", {}),
         (extract_slice(local_var, axis=0, index=z), "magma", "local variance", kw),
     ]
-    for ax, (sl, cm, title, pkw) in zip(axes, panels):
+    for letter, (ax, (sl, cm, title, pkw)) in zip("abcd", zip(axes, panels)):
         if title == "build zones":
             sl_c = sl if crop is None else sl[crop[0]:crop[1], crop[2]:crop[3]]
             m_c = msl if crop is None else msl[crop[0]:crop[1], crop[2]:crop[3]]
             _plot_build_zones(ax, sl_c, m_c, title=f"{title}\nZ={z}")
         else:
             plot_masked_slice(ax, sl, msl, cmap=cm, title=f"{title}\nZ={z}", **pkw)
+        label_panel(ax, letter)
     fig.suptitle(f"EMD-{args.emd_id} model-building guidance (mask ρ≥{args.contour})", fontsize=12)
     fig.tight_layout()
-    fig.savefig(fig_dir / "model_building_row.png", dpi=args.dpi, bbox_inches="tight", facecolor="white")
+    save_nature(fig, fig_dir / "model_building_row.png", dpi=args.dpi)
     plt.close(fig)
 
     _plot_spearman_bar(spearman, fig_dir / "spearman_predictors.png")
@@ -337,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         feature_name="reliability_score", target_name="local_cross_correlation", n_bins=10,
     )
     fig, ax = plt.subplots(figsize=(6, 4))
+    apply(ax)
     ok = np.isfinite(binned.mean_feature)
     ax.errorbar(
         binned.bin_centers[ok], binned.mean_feature[ok],
@@ -346,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
     ax.set_ylabel("mean reliability_score")
     ax.set_title("Reliability vs half-map agreement (binned)")
     fig.tight_layout()
-    fig.savefig(fig_dir / "reliability_vs_cc_binned.png", dpi=args.dpi, bbox_inches="tight", facecolor="white")
+    save_nature(fig, fig_dir / "reliability_vs_cc_binned.png", dpi=args.dpi)
     plt.close(fig)
 
     paths_meta = {**paths, "halfmap_npz": args.halfmap_npz}

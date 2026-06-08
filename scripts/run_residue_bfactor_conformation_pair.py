@@ -2,7 +2,7 @@
 
 Each state uses its own deposited map, contour, reliability.npz, and fitted PDB.
 Residues are matched by (chain, seq_num, seq_icode). Δ statistics use per-map
-coordinates (no superposition). Kabsch alignment is for visualization / ChimeraX only.
+coordinates (no superposition).
 
 Example (when both maps are processed)::
 
@@ -25,14 +25,9 @@ import numpy as np
 from cryoem_mrc.conformation_pair import (
     compute_conformation_pair_coverage,
     kabsch_align_coords,
-    residue_key_to_coupling_map,
-    write_aligned_ca_pdb,
-    write_chimerax_coupling_script,
-    write_coupling_colored_pdb,
 )
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, bfactor_conformation_pairs_dir
 from cryoem_mrc.structure_validation import (
-    CaResidue,
     compute_conformation_pair_stats,
     default_reliability_out_dir,
     iter_ca_residues,
@@ -43,11 +38,11 @@ from cryoem_mrc.structure_validation import (
     write_conformation_pair_md,
 )
 from cryoem_mrc.thesis_figures import (
+    DEFAULT_CLUSTER_SEPARATION_THRESHOLD,
     compute_conformation_coupling,
-    plot_conformation_delta_joint_heatmap,
-    plot_conformation_pair_coupling_heatmap,
+    compute_coupling_cluster_separation_score,
+    plot_conformation_pair_domain_coupling_supplement,
     plot_conformation_pair_summary_triptych,
-    plot_conformation_sequence_strip,
 )
 
 
@@ -59,6 +54,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--out-dir", type=Path, default=bfactor_conformation_pairs_dir())
     p.add_argument("--window-radius", type=int, default=0)
     p.add_argument("--dpi", type=int, default=150)
+    p.add_argument(
+        "--layout",
+        choices=("auto", "block", "domain"),
+        default="auto",
+        help="Main figure layout: auto from cluster separation score, or force block/domain",
+    )
+    p.add_argument(
+        "--cluster-threshold",
+        type=float,
+        default=None,
+        help="Block vs domain threshold (default: cryoem_mrc DEFAULT_CLUSTER_SEPARATION_THRESHOLD)",
+    )
     return p.parse_args(argv)
 
 
@@ -78,8 +85,6 @@ def main(argv: list[str] | None = None) -> int:
     pair_name = f"emd_{args.emd_a}_vs_{args.emd_b}"
     out_dir = args.out_dir / pair_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    chimerax_dir = out_dir / "chimerax"
-    chimerax_dir.mkdir(parents=True, exist_ok=True)
 
     row_a = load_cohort_manifest_row(args.manifest, args.emd_a)
     row_b = load_cohort_manifest_row(args.manifest, args.emd_b)
@@ -122,6 +127,64 @@ def main(argv: list[str] | None = None) -> int:
         n_ca_total_b=len(iter_ca_residues(pdb_b)),
     )
     write_conformation_pair_md(out_dir / "CONFORMATION_PAIR.md", pair_stats, coverage=coverage)
+
+    use = [(a, b) for a, b in pairs if a.in_contour_mask and b.in_contour_mask]
+    cluster_sep_score = float("nan")
+    figure_layout = "block"
+    recommended_layout = "domain"
+    cluster_threshold = (
+        args.cluster_threshold
+        if args.cluster_threshold is not None
+        else DEFAULT_CLUSTER_SEPARATION_THRESHOLD
+    )
+
+    if len(use) >= 10:
+        rho = pair_stats.spearman_delta_b_vs_delta_reliability
+        cov_note = _coverage_note(coverage)
+
+        coupling_data = compute_conformation_coupling(pairs, in_mask_both=True)
+        if coupling_data is not None:
+            cluster_sep_score, _, _ = compute_coupling_cluster_separation_score(
+                coupling_data["interior_corr"]
+            )
+
+        if coupling_data is not None:
+            use_full = coupling_data["use"]
+            coords_a = np.array([[a.x, a.y, a.z] for a, _ in use_full], dtype=np.float64)
+            coords_b = np.array([[b.x, b.y, b.z] for _, b in use_full], dtype=np.float64)
+            coords_b_aligned, _ = kabsch_align_coords(coords_b, coords_a)
+
+            triptych, recommended_layout = plot_conformation_pair_summary_triptych(
+                pairs,
+                emdb_a=args.emd_a,
+                emdb_b=args.emd_b,
+                in_mask_both=True,
+                spearman_rho=rho,
+                spearman_rho_h=pair_stats.spearman_delta_b_vs_delta_H_repro,
+                coverage_note=cov_note,
+                coords_b_aligned=coords_b_aligned,
+                cluster_separation_threshold=cluster_threshold,
+                layout=args.layout,
+                manifest=args.manifest,
+                save_path=out_dir / "conformation_pair_summary_triptych.png",
+                dpi=args.dpi,
+            )
+            if triptych is not None:
+                plt.close(triptych)
+
+            supplement = plot_conformation_pair_domain_coupling_supplement(
+                pairs,
+                emdb_a=args.emd_a,
+                emdb_b=args.emd_b,
+                in_mask_both=True,
+                coverage_note=cov_note,
+                manifest=args.manifest,
+                save_path=out_dir / "conformation_pair_domain_coupling_supplement.png",
+                dpi=args.dpi,
+            )
+            if supplement is not None:
+                plt.close(supplement)
+
     (out_dir / "conformation_pair_stats.json").write_text(
         json.dumps(
             {
@@ -131,6 +194,10 @@ def main(argv: list[str] | None = None) -> int:
                 "n_matched_in_mask_both": pair_stats.n_matched_in_mask_both,
                 "spearman_delta_b_vs_delta_reliability": pair_stats.spearman_delta_b_vs_delta_reliability,
                 "spearman_delta_b_vs_delta_H_repro": pair_stats.spearman_delta_b_vs_delta_H_repro,
+                "cluster_separation_score": cluster_sep_score,
+                "cluster_separation_threshold": cluster_threshold,
+                "figure_layout": figure_layout,
+                "recommended_layout": recommended_layout,
                 "n_ca_total_a": coverage.n_ca_total_a,
                 "n_ca_total_b": coverage.n_ca_total_b,
                 "frac_analysis_of_a": coverage.frac_analysis_of_a,
@@ -144,136 +211,16 @@ def main(argv: list[str] | None = None) -> int:
         + "\n"
     )
 
-    use = [(a, b) for a, b in pairs if a.in_contour_mask and b.in_contour_mask]
-    if len(use) >= 10:
-        db = np.array([b.b_iso - a.b_iso for a, b in use])
-        drel = np.array([b.reliability_score - a.reliability_score for a, b in use])
-        fig, ax = plt.subplots(figsize=(6, 5))
-        ax.scatter(db, drel, s=8, alpha=0.35, c="#9467bd", edgecolors="none")
-        ax.axhline(0, color="0.5", lw=0.8)
-        ax.axvline(0, color="0.5", lw=0.8)
-        ax.set_xlabel(f"ΔB_iso ({args.emd_b} − {args.emd_a})")
-        ax.set_ylabel(f"Δreliability_score ({args.emd_b} − {args.emd_a})")
-        ax.set_title(f"Conformation pair: matched in-mask Cα (n={len(use)})")
-        fig.tight_layout()
-        fig.savefig(out_dir / "delta_b_vs_delta_reliability.png", dpi=args.dpi, bbox_inches="tight")
-        plt.close(fig)
-
-        rho = pair_stats.spearman_delta_b_vs_delta_reliability
-        cov_note = _coverage_note(coverage)
-
-        strip = plot_conformation_sequence_strip(
-            pairs,
-            emdb_a=args.emd_a,
-            emdb_b=args.emd_b,
-            in_mask_both=True,
-            save_path=out_dir / "conformation_sequence_strip.png",
-            dpi=args.dpi,
-        )
-        if strip is not None:
-            plt.close(strip)
-
-        coupling = plot_conformation_pair_coupling_heatmap(
-            pairs,
-            emdb_a=args.emd_a,
-            emdb_b=args.emd_b,
-            in_mask_both=True,
-            spearman_rho=rho,
-            save_path=out_dir / "conformation_coupling_heatmap.png",
-            dpi=args.dpi,
-        )
-        if coupling is not None:
-            plt.close(coupling)
-
-        joint = plot_conformation_delta_joint_heatmap(
-            pairs,
-            emdb_a=args.emd_a,
-            emdb_b=args.emd_b,
-            in_mask_both=True,
-            spearman_rho=rho,
-            save_path=out_dir / "conformation_delta_joint_heatmap.png",
-            dpi=args.dpi,
-        )
-        if joint is not None:
-            plt.close(joint)
-
-        coupling_data = compute_conformation_coupling(pairs, in_mask_both=True)
-        coords_b_aligned = None
-        if coupling_data is not None:
-            use_full = coupling_data["use"]
-            row_mean = np.asarray(coupling_data["row_mean_abs"], dtype=np.float64)
-            coords_a = np.array([[a.x, a.y, a.z] for a, _ in use_full], dtype=np.float64)
-            coords_b = np.array([[b.x, b.y, b.z] for _, b in use_full], dtype=np.float64)
-            coords_b_aligned, _ = kabsch_align_coords(coords_b, coords_a)
-
-            interior_use = coupling_data["interior_use"]
-            idx = coupling_data["interior_indices"]
-            coords_b_int = coords_b_aligned[idx]
-
-            triptych = plot_conformation_pair_summary_triptych(
-                pairs,
-                emdb_a=args.emd_a,
-                emdb_b=args.emd_b,
-                in_mask_both=True,
-                spearman_rho=rho,
-                coverage_note=cov_note,
-                coords_b_aligned=coords_b_int,
-                save_path=out_dir / "conformation_pair_summary_triptych.png",
-                dpi=args.dpi,
-            )
-            if triptych is not None:
-                plt.close(triptych)
-
-            coupling_map = residue_key_to_coupling_map(use_full, row_mean)
-            colored_pdb = write_coupling_colored_pdb(
-                pdb_a,
-                chimerax_dir / f"emd_{args.emd_a}_coupling_colored.pdb",
-                coupling_map,
-            )
-            aligned_res = [
-                CaResidue(
-                    chain=a.chain,
-                    seq_num=a.seq_num,
-                    seq_icode=a.seq_icode,
-                    res_name=a.res_name,
-                    x=float(xyz[0]),
-                    y=float(xyz[1]),
-                    z=float(xyz[2]),
-                    b_iso=0.0,
-                )
-                for (a, _), xyz in zip(use_full, coords_b_aligned)
-            ]
-            aligned_pdb = write_aligned_ca_pdb(
-                aligned_res,
-                coords_b_aligned,
-                chimerax_dir / f"emd_{args.emd_b}_aligned_to_{args.emd_a}.pdb",
-            )
-            write_chimerax_coupling_script(
-                colored_pdb_a=colored_pdb,
-                aligned_pdb_b=aligned_pdb,
-                session_path=chimerax_dir / "coupling_view.cxc",
-                emdb_a=args.emd_a,
-                emdb_b=args.emd_b,
-            )
-        else:
-            triptych = plot_conformation_pair_summary_triptych(
-                pairs,
-                emdb_a=args.emd_a,
-                emdb_b=args.emd_b,
-                in_mask_both=True,
-                spearman_rho=rho,
-                coverage_note=cov_note,
-                save_path=out_dir / "conformation_pair_summary_triptych.png",
-                dpi=args.dpi,
-            )
-            if triptych is not None:
-                plt.close(triptych)
-
     flag = " [COVERAGE FLAG]" if coverage.coverage_flag else ""
+    layout_txt = (
+        f" main=cluster_matrix recommended={recommended_layout} block_score={cluster_sep_score:+.3f}"
+        if len(use) >= 10
+        else ""
+    )
     print(
         f"[conformation_pair] matched={pair_stats.n_matched} in-mask={pair_stats.n_matched_in_mask_both} "
         f"ρ(ΔB,Δrel)={pair_stats.spearman_delta_b_vs_delta_reliability:+.3f} "
-        f"missing A={coverage.missing_pct_a:.1f}% B={coverage.missing_pct_b:.1f}%{flag}",
+        f"missing A={coverage.missing_pct_a:.1f}% B={coverage.missing_pct_b:.1f}%{layout_txt}{flag}",
         flush=True,
     )
     return 0

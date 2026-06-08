@@ -28,6 +28,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from style.nature import PALETTES, apply, savefig as save_nature
+
 from cryoem_mrc.repo_paths import COHORT_MANIFEST
 from cryoem_mrc.structure_validation import (
     BfactorValidationStats,
@@ -63,12 +65,13 @@ def _plot_scatter(rows_in_mask, out: Path, *, emd_id: str, dpi: int) -> None:
     b = np.array([r.b_iso for r in rows_in_mask])
     rel = np.array([r.reliability_score for r in rows_in_mask])
     fig, ax = plt.subplots(figsize=(6, 5))
-    ax.scatter(b, rel, s=8, alpha=0.35, c="#1f77b4", edgecolors="none")
+    apply(ax)
+    ax.scatter(b, rel, s=8, alpha=0.35, c=PALETTES["categorical"][0], edgecolors="none")
     ax.set_xlabel("Deposited B_iso (model)")
     ax.set_ylabel("reliability_score (map)")
     ax.set_title(f"EMD-{emd_id}: B-factor vs reliability (in-mask Cα)")
     fig.tight_layout()
-    fig.savefig(out, dpi=dpi, bbox_inches="tight", facecolor="white")
+    save_nature(fig, out, dpi=dpi)
     plt.close(fig)
 
 
@@ -76,11 +79,12 @@ def _plot_zone_medians(stats: BfactorValidationStats, out: Path, *, emd_id: str,
     labels = ["omit", "caution", "build"]
     vals = [stats.median_b_by_zone.get(z, float("nan")) for z in (0, 1, 2)]
     fig, ax = plt.subplots(figsize=(5, 4))
-    ax.bar(labels, vals, color=["#d62728", "#ffbb78", "#2ca02c"], alpha=0.9)
+    apply(ax)
+    ax.bar(labels, vals, color=PALETTES["categorical"][:3], alpha=0.9)
     ax.set_ylabel("Median B_iso")
     ax.set_title(f"EMD-{emd_id}: B-factor by build zone")
     fig.tight_layout()
-    fig.savefig(out, dpi=dpi, bbox_inches="tight", facecolor="white")
+    save_nature(fig, out, dpi=dpi)
     plt.close(fig)
 
 

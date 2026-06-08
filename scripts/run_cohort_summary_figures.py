@@ -22,6 +22,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import style.nature  # noqa: F401 — apply Nature rcParams before thesis figure imports
+
 from cryoem_mrc.repo_paths import OUTPUTS_ROOT
 from cryoem_mrc.thesis_figures import (
     collect_cohort_metrics,
