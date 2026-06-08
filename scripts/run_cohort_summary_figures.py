@@ -1,12 +1,8 @@
-"""Cohort-wide summary heatmap from per-map LH reliability exports.
+"""Cohort-wide summary from per-map LH reliability exports.
 
-Reads ``outputs/emd_<ID>/lh_map_reliability/run_metadata.json`` (and optional
-``bfactor_validation_stats.json``) and writes:
-
-- ``outputs/cohort_summary/cohort_metrics.csv``
-- ``outputs/cohort_summary/cohort_metrics_heatmap.png``
-- ``outputs/cohort_summary/cohort_size_vs_reliability.png``
-- ``outputs/cohort_summary/cohort_reliability_by_class.png``
+Writes ``outputs/cohort_summary/cohort_metrics.csv`` plus a small set of
+figures that show clear cohort-level structure (variance coupling, resolution
+bins, protein class). Weak or redundant diagnostics are omitted.
 
 Example::
 
@@ -31,8 +27,36 @@ from cryoem_mrc.thesis_figures import (
     collect_cohort_metrics,
     plot_cohort_metrics_heatmap,
     plot_cohort_reliability_by_class,
-    plot_cohort_size_vs_reliability,
+    plot_cohort_reliability_by_resolution_bin,
+    plot_cohort_reliability_by_resolution_bin_by_na_fraction,
+    plot_cohort_reliability_by_var_cc_bin,
+    plot_cohort_variance_vs_reliability_cc,
     write_cohort_metrics_csv,
+)
+
+# Figures no longer exported — removed from disk when this script runs.
+_RETIRED_FIGURE_STEMS = (
+    "cohort_resolution_vs_reliability",
+    "cohort_resolution_vs_reliability_by_na_fraction",
+    "cohort_mask_size_vs_reliability",
+    "cohort_mask_size_vs_reliability_by_na_fraction",
+    "cohort_contour_vs_reliability",
+    "cohort_contour_vs_reliability_by_na_fraction",
+    "cohort_size_vs_reliability",
+    "cohort_size_vs_reliability_by_na_fraction",
+    "cohort_partial_reliability_by_class",
+    "cohort_partial_reliability_by_class_by_na_fraction",
+    "cohort_partial_reliability_by_resolution_bin",
+    "cohort_partial_reliability_by_resolution_bin_by_na_fraction",
+    "cohort_partial_reliability_by_var_cc_bin",
+    "cohort_partial_reliability_by_var_cc_bin_by_na_fraction",
+    "cohort_reliability_by_flexibility_source",
+    "cohort_reliability_by_flexibility_source_by_na_fraction",
+    "cohort_bfactor_vs_reliability_cc",
+    "cohort_bfactor_vs_reliability_cc_by_na_fraction",
+    "cohort_reliability_by_class_by_na_fraction",
+    "cohort_reliability_by_var_cc_bin_by_na_fraction",
+    "cohort_variance_vs_reliability_cc_by_na_fraction",
 )
 
 
@@ -51,6 +75,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _retire_old_figures(out_dir: Path) -> None:
+    for stem in _RETIRED_FIGURE_STEMS:
+        for path in (out_dir / f"{stem}.png", out_dir / f"{stem}.pdf"):
+            if path.is_file():
+                path.unlink()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     rows = collect_cohort_metrics(args.outputs_root)
@@ -63,23 +94,39 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    _retire_old_figures(args.out_dir)
     csv_path = args.out_dir / "cohort_metrics.csv"
-    heatmap_path = args.out_dir / "cohort_metrics_heatmap.png"
-    size_path = args.out_dir / "cohort_size_vs_reliability.png"
-    class_path = args.out_dir / "cohort_reliability_by_class.png"
+    figure_jobs: list[tuple[str, object]] = [
+        ("cohort_metrics_heatmap.png", lambda: plot_cohort_metrics_heatmap(
+            rows,
+            save_path=args.out_dir / "cohort_metrics_heatmap.png",
+            dpi=args.dpi,
+            include_b_factor=not args.no_b_factor,
+        )),
+        ("cohort_variance_vs_reliability_cc.png", lambda: plot_cohort_variance_vs_reliability_cc(
+            rows, save_path=args.out_dir / "cohort_variance_vs_reliability_cc.png", dpi=args.dpi,
+        )),
+        ("cohort_reliability_by_var_cc_bin.png", lambda: plot_cohort_reliability_by_var_cc_bin(
+            rows, save_path=args.out_dir / "cohort_reliability_by_var_cc_bin.png", dpi=args.dpi,
+        )),
+        ("cohort_reliability_by_resolution_bin.png", lambda: plot_cohort_reliability_by_resolution_bin(
+            rows, save_path=args.out_dir / "cohort_reliability_by_resolution_bin.png", dpi=args.dpi,
+        )),
+        ("cohort_reliability_by_resolution_bin_by_na_fraction.png", lambda: plot_cohort_reliability_by_resolution_bin_by_na_fraction(
+            rows, save_path=args.out_dir / "cohort_reliability_by_resolution_bin_by_na_fraction.png", dpi=args.dpi,
+        )),
+        ("cohort_reliability_by_class.png", lambda: plot_cohort_reliability_by_class(
+            rows, save_path=args.out_dir / "cohort_reliability_by_class.png", dpi=args.dpi,
+        )),
+    ]
+
     write_cohort_metrics_csv(rows, csv_path)
-    plot_cohort_metrics_heatmap(
-        rows,
-        save_path=heatmap_path,
-        dpi=args.dpi,
-        include_b_factor=not args.no_b_factor,
-    )
-    plot_cohort_size_vs_reliability(rows, save_path=size_path, dpi=args.dpi)
-    plot_cohort_reliability_by_class(rows, save_path=class_path, dpi=args.dpi)
-    print(
-        f"[cohort_summary] {len(rows)} maps -> {csv_path}, {heatmap_path}, {size_path}, {class_path}",
-        flush=True,
-    )
+    written = [csv_path.name]
+    for name, plot_fn in figure_jobs:
+        plot_fn()
+        written.append(name)
+
+    print(f"[cohort_summary] {len(rows)} maps -> {', '.join(written)}", flush=True)
     return 0
 
 

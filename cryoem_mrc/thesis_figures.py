@@ -6,6 +6,7 @@ import csv
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Mapping, Sequence
 
 import matplotlib.pyplot as plt
@@ -24,6 +25,7 @@ from .conformation_pair import (
     region_matches_residue,
     reload_domain_colors,
 )
+from .cohort_composition import resolve_cohort_na_residue_fraction
 from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
 from .structure_validation import load_cohort_manifest_row
 
@@ -555,6 +557,9 @@ class CohortMetricRow:
     flexibility_source: str = ""
     n_mask: int = 0
     n_residues: float = float("nan")
+    global_resolution_a: float = float("nan")
+    contour: float = float("nan")
+    na_residue_fraction: float = float("nan")
 
 
 def _load_manifest_index(manifest_path: Path = COHORT_MANIFEST) -> dict[str, dict[str, str]]:
@@ -635,6 +640,42 @@ def cohort_protein_size(row: CohortMetricRow) -> float:
     return float("nan")
 
 
+def cohort_global_resolution_a(row: CohortMetricRow) -> float:
+    """Deposited global map resolution (Å) from ``cohort/manifest.csv``."""
+    if np.isfinite(row.global_resolution_a) and row.global_resolution_a > 0:
+        return float(row.global_resolution_a)
+    return float("nan")
+
+
+RESOLUTION_BIN_ORDER: tuple[str, ...] = ("≤2.5 Å", "2.5–4 Å", "4–6 Å", ">6 Å")
+VAR_CC_BIN_ORDER: tuple[str, ...] = ("low (<0.5)", "mid (0.5–0.8)", "high (>0.8)")
+
+
+def cohort_resolution_bin_label(row: CohortMetricRow) -> str:
+    """Coarse global-resolution bin for cohort stratification plots."""
+    res_a = cohort_global_resolution_a(row)
+    if not np.isfinite(res_a):
+        return "unknown"
+    if res_a <= 2.5:
+        return "≤2.5 Å"
+    if res_a <= 4.0:
+        return "2.5–4 Å"
+    if res_a <= 6.0:
+        return "4–6 Å"
+    return ">6 Å"
+
+
+def cohort_var_cc_bin_label(row: CohortMetricRow) -> str:
+    """Coarse local-variance ↔ CC coupling bin (primary success predictor)."""
+    if not np.isfinite(row.var_vs_cc):
+        return "unknown"
+    if row.var_vs_cc < 0.5:
+        return "low (<0.5)"
+    if row.var_vs_cc < 0.8:
+        return "mid (0.5–0.8)"
+    return "high (>0.8)"
+
+
 def collect_cohort_metrics(
     outputs_root: Path | None = None,
     *,
@@ -667,6 +708,15 @@ def collect_cohort_metrics(
         mrow = manifest.get(emdb_id, {})
         display_name = str(mrow.get("display_name", "")).strip() or f"EMD-{emdb_id}"
         flex_src = str(mrow.get("flexibility_source", "")).strip()
+        res_raw = str(mrow.get("global_resolution_a", "")).strip()
+        global_resolution_a = float(res_raw) if res_raw else float("nan")
+        contour_raw = str(mrow.get("contour", "")).strip()
+        contour = float(contour_raw) if contour_raw and contour_raw.upper() != "TBD" else float("nan")
+        pdb_path = str(mrow.get("flexibility_path_or_pdb", "")).strip()
+        na_residue_fraction = resolve_cohort_na_residue_fraction(
+            structure_path=pdb_path or None,
+            display_name=display_name,
+        )
         rows.append(
             CohortMetricRow(
                 emdb_id=emdb_id,
@@ -679,6 +729,9 @@ def collect_cohort_metrics(
                 flexibility_source=flex_src,
                 n_mask=n_mask,
                 n_residues=n_residues,
+                global_resolution_a=global_resolution_a,
+                contour=contour,
+                na_residue_fraction=na_residue_fraction,
             )
         )
     return rows
@@ -692,6 +745,11 @@ def write_cohort_metrics_csv(rows: Sequence[CohortMetricRow], path: str | Path) 
         "display_name",
         "protein_class",
         "flexibility_source",
+        "global_resolution_a",
+        "contour",
+        "na_residue_fraction",
+        "resolution_bin",
+        "var_cc_bin",
         "n_residues",
         "n_mask",
         "var_vs_cc",
@@ -709,6 +767,23 @@ def write_cohort_metrics_csv(rows: Sequence[CohortMetricRow], path: str | Path) 
                     "display_name": row.display_name,
                     "protein_class": row.protein_class,
                     "flexibility_source": row.flexibility_source,
+                    "global_resolution_a": (
+                        f"{row.global_resolution_a:.2f}"
+                        if np.isfinite(row.global_resolution_a) and row.global_resolution_a > 0
+                        else ""
+                    ),
+                    "contour": (
+                        f"{row.contour:.6g}"
+                        if np.isfinite(row.contour) and row.contour > 0
+                        else ""
+                    ),
+                    "na_residue_fraction": (
+                        f"{row.na_residue_fraction:.4f}"
+                        if np.isfinite(row.na_residue_fraction)
+                        else ""
+                    ),
+                    "resolution_bin": cohort_resolution_bin_label(row),
+                    "var_cc_bin": cohort_var_cc_bin_label(row),
                     "n_residues": (
                         f"{int(row.n_residues)}"
                         if np.isfinite(row.n_residues) and row.n_residues > 0
@@ -787,11 +862,291 @@ def _cohort_class_colors(classes: Sequence[str]) -> dict[str, str]:
     return {cls: palette[i % len(palette)] for i, cls in enumerate(classes)}
 
 
+def _cohort_scatter_by_class(
+    ax: plt.Axes,
+    rows: Sequence[CohortMetricRow],
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    annotate_max: int = 18,
+) -> None:
+    """Color-coded cohort scatter with optional EMD labels when n is small."""
+    classes = sorted({r.protein_class for r in rows})
+    colors = _cohort_class_colors(classes)
+    for cls in classes:
+        idx = [i for i, r in enumerate(rows) if r.protein_class == cls]
+        if not idx:
+            continue
+        ax.scatter(
+            x[idx],
+            y[idx],
+            s=36,
+            c=colors[cls],
+            alpha=0.85,
+            edgecolors="white",
+            linewidths=0.4,
+            marker="o",
+            label=cls,
+        )
+    if len(rows) <= annotate_max:
+        for i, row in enumerate(rows):
+            ax.annotate(
+                row.emdb_id,
+                (x[i], y[i]),
+                textcoords="offset points",
+                xytext=(4, 3),
+                fontsize=5,
+                color="0.35",
+            )
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(
+            handles,
+            labels,
+            loc="lower left",
+            bbox_to_anchor=(1.02, 0),
+            frameon=False,
+            fontsize=6,
+        )
+
+
+def _cohort_scatter_by_na_fraction(
+    ax: plt.Axes,
+    rows: Sequence[CohortMetricRow],
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    annotate_max: int = 18,
+) -> plt.cm.ScalarMappable | None:
+    """Continuous RNA/DNA residue-fraction coloring for cohort scatters."""
+    fracs = np.array(
+        [r.na_residue_fraction if np.isfinite(r.na_residue_fraction) else np.nan for r in rows],
+        dtype=np.float64,
+    )
+    known = np.isfinite(fracs)
+    mappable: plt.cm.ScalarMappable | None = None
+    if known.any():
+        mappable = ax.scatter(
+            x[known],
+            y[known],
+            c=fracs[known],
+            cmap="YlOrBr",
+            vmin=0.0,
+            vmax=1.0,
+            s=36,
+            edgecolors="white",
+            linewidths=0.4,
+            marker="o",
+        )
+    if (~known).any():
+        ax.scatter(
+            x[~known],
+            y[~known],
+            s=36,
+            c="#bdbdbd",
+            alpha=0.9,
+            edgecolors="white",
+            linewidths=0.4,
+            marker="s",
+            label="no deposited model",
+        )
+        ax.legend(loc="lower left", bbox_to_anchor=(1.02, 0), frameon=False, fontsize=6)
+    if len(rows) <= annotate_max:
+        for i, row in enumerate(rows):
+            ax.annotate(
+                row.emdb_id,
+                (x[i], y[i]),
+                textcoords="offset points",
+                xytext=(4, 3),
+                fontsize=5,
+                color="0.35",
+            )
+    return mappable
+
+
+def _add_na_fraction_colorbar(fig: plt.Figure, ax: plt.Axes, mappable: plt.cm.ScalarMappable | None) -> None:
+    if mappable is None:
+        return
+    cbar = fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("RNA/DNA residue fraction (deposited model)", fontsize=8)
+
+
+def _cohort_apply_scatter_colors(
+    ax: plt.Axes,
+    rows: Sequence[CohortMetricRow],
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    color_by: str,
+    annotate_max: int = 18,
+) -> plt.cm.ScalarMappable | None:
+    if color_by == "na_fraction":
+        return _cohort_scatter_by_na_fraction(ax, rows, x, y, annotate_max=annotate_max)
+    if color_by == "protein_class":
+        _cohort_scatter_by_class(ax, rows, x, y, annotate_max=annotate_max)
+        return None
+    raise ValueError(f"Unknown color_by={color_by!r}")
+
+
+def _plot_cohort_grouped_box_strip(
+    rows: Sequence[CohortMetricRow],
+    *,
+    group_attr: str = "",
+    group_fn: Callable[[CohortMetricRow], str] | None = None,
+    group_order: Sequence[str] | None = None,
+    value_attr: str,
+    ylabel: str,
+    title: str,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    ylim: tuple[float, float] = (-0.05, 1.02),
+    cohort_median_line: bool = True,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """Box-and-strip summary grouped by a string field on ``CohortMetricRow``."""
+    if not group_attr and group_fn is None:
+        raise ValueError("Provide group_attr or group_fn")
+
+    usable = [r for r in rows if np.isfinite(getattr(r, value_attr))]
+    if not usable:
+        raise ValueError(f"No maps with finite {value_attr}")
+
+    by_group: dict[str, list[CohortMetricRow]] = {}
+    for row in usable:
+        if group_fn is not None:
+            key = str(group_fn(row) or "unknown")
+        else:
+            key = str(getattr(row, group_attr, "") or "unknown")
+        by_group.setdefault(key, []).append(row)
+
+    if group_order is not None:
+        groups = [g for g in group_order if g in by_group]
+        groups.extend(
+            sorted(
+                g for g in by_group if g not in groups and g != "unknown"
+            )
+        )
+        if "unknown" in by_group:
+            groups.append("unknown")
+    else:
+        groups = sorted(
+            by_group,
+            key=lambda g: float(np.median([getattr(r, value_attr) for r in by_group[g]])),
+            reverse=True,
+        )
+    colors = _cohort_class_colors(groups)
+    data = [[getattr(r, value_attr) for r in by_group[g]] for g in groups]
+    positions = np.arange(1, len(groups) + 1, dtype=np.float64)
+
+    fig_w = max(6.0, 0.85 * len(groups) + 2.5)
+    fig, ax = plt.subplots(figsize=(fig_w, 4.5))
+    apply(ax)
+
+    bp = ax.boxplot(
+        data,
+        positions=positions,
+        widths=0.55,
+        patch_artist=True,
+        showfliers=False,
+        medianprops={"color": "0.15", "linewidth": 1.0},
+        boxprops={"linewidth": 0.6},
+        whiskerprops={"linewidth": 0.6},
+        capprops={"linewidth": 0.6},
+    )
+
+    rng = np.random.default_rng(0)
+    na_mappable: plt.cm.ScalarMappable | None = None
+    if color_by == "protein_class":
+        for patch, grp in zip(bp["boxes"], groups):
+            patch.set_facecolor(colors[grp])
+            patch.set_alpha(0.35)
+            patch.set_edgecolor(colors[grp])
+        for pos, grp, vals in zip(positions, groups, data):
+            jitter = rng.uniform(-0.12, 0.12, size=len(vals))
+            ax.scatter(
+                pos + jitter,
+                vals,
+                s=28,
+                c=colors[grp],
+                alpha=0.9,
+                edgecolors="white",
+                linewidths=0.35,
+                zorder=3,
+            )
+    elif color_by == "na_fraction":
+        for patch in bp["boxes"]:
+            patch.set_facecolor("0.88")
+            patch.set_alpha(0.45)
+            patch.set_edgecolor("0.7")
+        for pos, grp in zip(positions, groups):
+            group_rows = by_group[grp]
+            jitter = rng.uniform(-0.12, 0.12, size=len(group_rows))
+            ys = np.array([getattr(r, value_attr) for r in group_rows], dtype=np.float64)
+            fracs = np.array(
+                [
+                    r.na_residue_fraction if np.isfinite(r.na_residue_fraction) else np.nan
+                    for r in group_rows
+                ],
+                dtype=np.float64,
+            )
+            xs = pos + jitter
+            known = np.isfinite(fracs)
+            if known.any():
+                na_mappable = ax.scatter(
+                    xs[known],
+                    ys[known],
+                    c=fracs[known],
+                    cmap="YlOrBr",
+                    vmin=0.0,
+                    vmax=1.0,
+                    s=28,
+                    edgecolors="white",
+                    linewidths=0.35,
+                    zorder=3,
+                )
+            if (~known).any():
+                ax.scatter(
+                    xs[~known],
+                    ys[~known],
+                    s=28,
+                    c="#bdbdbd",
+                    alpha=0.9,
+                    edgecolors="white",
+                    linewidths=0.35,
+                    zorder=3,
+                )
+    else:
+        raise ValueError(f"Unknown color_by={color_by!r}")
+
+    if cohort_median_line:
+        cohort_median = float(np.median([getattr(r, value_attr) for r in usable]))
+        ax.axhline(
+            cohort_median,
+            color="0.45",
+            linewidth=0.7,
+            linestyle=":",
+            label=f"cohort median ({cohort_median:.2f})",
+        )
+        ax.legend(loc="lower right", frameon=False, fontsize=6)
+
+    ax.set_xticks(positions, groups, rotation=30, ha="right", fontsize=7)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.set_ylim(*ylim)
+    if color_by == "na_fraction":
+        _add_na_fraction_colorbar(fig, ax, na_mappable)
+    fig.tight_layout()
+    if save_path:
+        save_nature(fig, save_path, dpi=dpi)
+    return fig
+
+
 def plot_cohort_size_vs_reliability(
     rows: Sequence[CohortMetricRow],
     *,
     save_path: str | Path | None = None,
     dpi: int = 200,
+    color_by: str = "protein_class",
 ) -> plt.Figure:
     """
     Scatter of protein size vs masked-voxel reliability ↔ half-map CC (ρ).
@@ -812,51 +1167,56 @@ def plot_cohort_size_vs_reliability(
     if len(usable) < 2:
         raise ValueError("Need at least two maps with finite size and rel_vs_cc")
 
-    classes = sorted({r.protein_class for r in usable})
-    colors = _cohort_class_colors(classes)
-
     sizes = np.array([cohort_protein_size(r) for r in usable], dtype=np.float64)
     rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
-    has_residue = np.array(
-        [np.isfinite(r.n_residues) and r.n_residues > 0 for r in usable],
-        dtype=bool,
-    )
 
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     apply(ax)
-    for cls in classes:
-        idx = [i for i, r in enumerate(usable) if r.protein_class == cls]
-        if not idx:
-            continue
-        color = colors[cls]
-        idx_res = [i for i in idx if has_residue[i]]
-        idx_mask = [i for i in idx if not has_residue[i]]
-        labeled = False
-        if idx_res:
-            ax.scatter(
-                sizes[idx_res],
-                rels[idx_res],
-                s=36,
-                c=color,
-                alpha=0.85,
-                edgecolors="white",
-                linewidths=0.4,
-                marker="o",
-                label=cls,
-            )
-            labeled = True
-        if idx_mask:
-            ax.scatter(
-                sizes[idx_mask],
-                rels[idx_mask],
-                s=42,
-                c=color,
-                alpha=0.85,
-                edgecolors="white",
-                linewidths=0.4,
-                marker="s",
-                label=None if labeled else cls,
-            )
+    na_mappable: plt.cm.ScalarMappable | None = None
+    if color_by == "protein_class":
+        classes = sorted({r.protein_class for r in usable})
+        colors = _cohort_class_colors(classes)
+        has_residue = np.array(
+            [np.isfinite(r.n_residues) and r.n_residues > 0 for r in usable],
+            dtype=bool,
+        )
+        for cls in classes:
+            idx = [i for i, r in enumerate(usable) if r.protein_class == cls]
+            if not idx:
+                continue
+            color = colors[cls]
+            idx_res = [i for i in idx if has_residue[i]]
+            idx_mask = [i for i in idx if not has_residue[i]]
+            labeled = False
+            if idx_res:
+                ax.scatter(
+                    sizes[idx_res],
+                    rels[idx_res],
+                    s=36,
+                    c=color,
+                    alpha=0.85,
+                    edgecolors="white",
+                    linewidths=0.4,
+                    marker="o",
+                    label=cls,
+                )
+                labeled = True
+            if idx_mask:
+                ax.scatter(
+                    sizes[idx_mask],
+                    rels[idx_mask],
+                    s=42,
+                    c=color,
+                    alpha=0.85,
+                    edgecolors="white",
+                    linewidths=0.4,
+                    marker="s",
+                    label=None if labeled else cls,
+                )
+    else:
+        na_mappable = _cohort_apply_scatter_colors(
+            ax, usable, sizes, rels, color_by=color_by, annotate_max=0,
+        )
 
     rho_size, p_size = stats.spearmanr(sizes, rels)
     ax.set_xscale("log")
@@ -876,31 +1236,447 @@ def plot_cohort_size_vs_reliability(
         bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "0.85", "alpha": 0.9},
     )
 
-    for i, row in enumerate(usable):
-        if len(usable) <= 18:
-            ax.annotate(
-                row.emdb_id,
-                (sizes[i], rels[i]),
-                textcoords="offset points",
-                xytext=(4, 3),
-                fontsize=5,
-                color="0.35",
+    if color_by == "protein_class":
+        for i, row in enumerate(usable):
+            if len(usable) <= 18:
+                ax.annotate(
+                    row.emdb_id,
+                    (sizes[i], rels[i]),
+                    textcoords="offset points",
+                    xytext=(4, 3),
+                    fontsize=5,
+                    color="0.35",
+                )
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(
+                handles,
+                labels,
+                loc="lower left",
+                bbox_to_anchor=(1.02, 0),
+                frameon=False,
+                fontsize=6,
             )
-
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend(
-            handles,
-            labels,
-            loc="lower left",
-            bbox_to_anchor=(1.02, 0),
-            frameon=False,
-            fontsize=6,
-        )
+    else:
+        _add_na_fraction_colorbar(fig, ax, na_mappable)
     fig.tight_layout()
     if save_path:
         save_nature(fig, save_path, dpi=dpi)
     return fig
+
+
+def plot_cohort_resolution_vs_reliability(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """
+    Scatter of deposited global resolution vs masked-voxel reliability ↔ half-map CC (ρ).
+
+    Resolution values come from ``cohort/manifest.csv`` (EMDB author-reported Å).
+    Reports cohort Spearman ρ between resolution and ρ(rel, CC).
+    """
+    from scipy import stats
+
+    if not rows:
+        raise ValueError("No cohort metric rows to plot")
+
+    usable = [
+        r
+        for r in rows
+        if np.isfinite(r.rel_vs_cc) and np.isfinite(cohort_global_resolution_a(r))
+    ]
+    if len(usable) < 2:
+        raise ValueError("Need at least two maps with finite resolution and rel_vs_cc")
+
+    resolutions = np.array([cohort_global_resolution_a(r) for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.5))
+    apply(ax)
+    na_mappable = _cohort_apply_scatter_colors(
+        ax, usable, resolutions, rels, color_by=color_by,
+    )
+
+    rho_res, p_res = stats.spearmanr(resolutions, rels)
+    ax.set_xlabel("Global resolution (Å, EMDB deposition)")
+    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_title("Cohort: global resolution vs reliability–CC agreement")
+    ax.axhline(0.0, color="0.75", linewidth=0.6, linestyle="--")
+    ax.set_ylim(-0.05, 1.02)
+    ax.text(
+        0.03,
+        0.03,
+        f"ρ(resolution, rel vs CC) = {rho_res:+.2f}  (p = {p_res:.2g}, n = {len(usable)})",
+        transform=ax.transAxes,
+        fontsize=7,
+        va="bottom",
+        ha="left",
+        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "0.85", "alpha": 0.9},
+    )
+
+    if color_by == "na_fraction":
+        _add_na_fraction_colorbar(fig, ax, na_mappable)
+    fig.tight_layout()
+    if save_path:
+        save_nature(fig, save_path, dpi=dpi)
+    return fig
+
+
+def plot_cohort_variance_vs_reliability_cc(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """
+    Diagnostic scatter: local variance ↔ CC vs reliability ↔ CC (ρ).
+
+    Points on the y = x line indicate reliability tracks variance's CC coupling;
+    below-diagonal maps are where reliability underperforms variance alone.
+    """
+    from scipy import stats
+
+    if not rows:
+        raise ValueError("No cohort metric rows to plot")
+
+    usable = [
+        r for r in rows if np.isfinite(r.rel_vs_cc) and np.isfinite(r.var_vs_cc)
+    ]
+    if len(usable) < 2:
+        raise ValueError("Need at least two maps with finite var_vs_cc and rel_vs_cc")
+
+    vars_cc = np.array([r.var_vs_cc for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.5))
+    apply(ax)
+    na_mappable = _cohort_apply_scatter_colors(
+        ax, usable, vars_cc, rels, color_by=color_by,
+    )
+
+    lim_lo = min(float(vars_cc.min()), float(rels.min()), -0.05)
+    lim_hi = max(float(vars_cc.max()), float(rels.max()), 1.0)
+    ax.plot([lim_lo, lim_hi], [lim_lo, lim_hi], color="0.55", linewidth=0.8, linestyle="--", label="y = x")
+    rho, p = stats.spearmanr(vars_cc, rels)
+    ax.set_xlabel("Local variance vs half-map CC (Spearman ρ)")
+    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_title("Cohort: variance–CC vs reliability–CC coupling")
+    ax.set_xlim(lim_lo - 0.03, lim_hi + 0.03)
+    ax.set_ylim(lim_lo - 0.03, lim_hi + 0.03)
+    ax.text(
+        0.03,
+        0.97,
+        f"ρ(var vs CC, rel vs CC) = {rho:+.2f}  (p = {p:.2g}, n = {len(usable)})",
+        transform=ax.transAxes,
+        fontsize=7,
+        va="top",
+        ha="left",
+        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "0.85", "alpha": 0.9},
+    )
+    if color_by == "protein_class":
+        ax.legend(loc="lower right", frameon=False, fontsize=6)
+    else:
+        _add_na_fraction_colorbar(fig, ax, na_mappable)
+    fig.tight_layout()
+    if save_path:
+        save_nature(fig, save_path, dpi=dpi)
+    return fig
+
+
+def plot_cohort_partial_reliability_by_class(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """
+    Box-and-strip of partial reliability | variance by coarse protein class.
+
+    Positive values: reliability adds CC information beyond local variance.
+    """
+    return _plot_cohort_grouped_box_strip(
+        rows,
+        group_attr="protein_class",
+        value_attr="partial_rel_given_var",
+        ylabel="Partial reliability vs CC | variance (Spearman ρ)",
+        title="Cohort: partial reliability–CC agreement by protein class",
+        save_path=save_path,
+        dpi=dpi,
+        ylim=(-0.85, 0.55),
+        color_by=color_by,
+    )
+
+
+def plot_cohort_reliability_by_flexibility_source(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """Box-and-strip of reliability ↔ CC by cohort validation / flexibility source."""
+    return _plot_cohort_grouped_box_strip(
+        rows,
+        group_attr="flexibility_source",
+        value_attr="rel_vs_cc",
+        ylabel="Reliability vs half-map CC (Spearman ρ)",
+        title="Cohort: reliability–CC agreement by validation type",
+        save_path=save_path,
+        dpi=dpi,
+        color_by=color_by,
+    )
+
+
+def plot_cohort_bfactor_vs_reliability_cc(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """
+    Scatter of residue-level B_iso ↔ reliability vs map-level reliability ↔ CC.
+
+    Only maps with ``bfactor_validation_stats.json`` (deposited PDB in mask).
+    """
+    from scipy import stats
+
+    if not rows:
+        raise ValueError("No cohort metric rows to plot")
+
+    usable = [
+        r for r in rows if np.isfinite(r.rel_vs_cc) and np.isfinite(r.b_vs_rel)
+    ]
+    if len(usable) < 2:
+        raise ValueError("Need at least two maps with finite b_vs_rel and rel_vs_cc")
+
+    b_vs_rel = np.array([r.b_vs_rel for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.5))
+    apply(ax)
+    na_mappable = _cohort_apply_scatter_colors(
+        ax, usable, b_vs_rel, rels, color_by=color_by, annotate_max=24,
+    )
+
+    rho, p = stats.spearmanr(b_vs_rel, rels)
+    ax.axhline(0.0, color="0.75", linewidth=0.6, linestyle="--")
+    ax.axvline(0.0, color="0.75", linewidth=0.6, linestyle="--")
+    ax.set_xlabel("B_iso vs reliability (residue Spearman ρ)")
+    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_title("Cohort: model B-factor agreement vs reliability–CC (PDB maps)")
+    ax.set_ylim(-0.05, 1.02)
+    ax.text(
+        0.03,
+        0.03,
+        f"ρ(B vs rel, rel vs CC) = {rho:+.2f}  (p = {p:.2g}, n = {len(usable)})",
+        transform=ax.transAxes,
+        fontsize=7,
+        va="bottom",
+        ha="left",
+        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "0.85", "alpha": 0.9},
+    )
+    if color_by == "na_fraction":
+        _add_na_fraction_colorbar(fig, ax, na_mappable)
+    fig.tight_layout()
+    if save_path:
+        save_nature(fig, save_path, dpi=dpi)
+    return fig
+
+
+def plot_cohort_mask_size_vs_reliability(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """Scatter of in-mask voxel count vs reliability ↔ half-map CC (ρ)."""
+    from scipy import stats
+
+    if not rows:
+        raise ValueError("No cohort metric rows to plot")
+
+    usable = [r for r in rows if np.isfinite(r.rel_vs_cc) and r.n_mask > 0]
+    if len(usable) < 2:
+        raise ValueError("Need at least two maps with finite rel_vs_cc and n_mask")
+
+    sizes = np.array([float(r.n_mask) for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.5))
+    apply(ax)
+    na_mappable = _cohort_apply_scatter_colors(
+        ax, usable, sizes, rels, color_by=color_by,
+    )
+
+    rho, p = stats.spearmanr(sizes, rels)
+    ax.set_xscale("log")
+    ax.set_xlabel("In-mask voxels at depositor contour (log scale)")
+    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_title("Cohort: mask volume vs reliability–CC agreement")
+    ax.axhline(0.0, color="0.75", linewidth=0.6, linestyle="--")
+    ax.set_ylim(-0.05, 1.02)
+    ax.text(
+        0.03,
+        0.03,
+        f"ρ(mask size, rel vs CC) = {rho:+.2f}  (p = {p:.2g}, n = {len(usable)})",
+        transform=ax.transAxes,
+        fontsize=7,
+        va="bottom",
+        ha="left",
+        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "0.85", "alpha": 0.9},
+    )
+    if color_by == "na_fraction":
+        _add_na_fraction_colorbar(fig, ax, na_mappable)
+    fig.tight_layout()
+    if save_path:
+        save_nature(fig, save_path, dpi=dpi)
+    return fig
+
+
+def plot_cohort_contour_vs_reliability(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """Scatter of depositor mask contour vs reliability ↔ half-map CC (ρ)."""
+    from scipy import stats
+
+    if not rows:
+        raise ValueError("No cohort metric rows to plot")
+
+    usable = [
+        r for r in rows if np.isfinite(r.rel_vs_cc) and np.isfinite(r.contour) and r.contour > 0
+    ]
+    if len(usable) < 2:
+        raise ValueError("Need at least two maps with finite contour and rel_vs_cc")
+
+    contours = np.array([r.contour for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.5))
+    apply(ax)
+    na_mappable = _cohort_apply_scatter_colors(
+        ax, usable, contours, rels, color_by=color_by,
+    )
+
+    rho, p = stats.spearmanr(contours, rels)
+    ax.set_xscale("log")
+    ax.set_xlabel("Depositor contour threshold ρ (log scale)")
+    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_title("Cohort: mask contour vs reliability–CC agreement")
+    ax.axhline(0.0, color="0.75", linewidth=0.6, linestyle="--")
+    ax.set_ylim(-0.05, 1.02)
+    ax.text(
+        0.03,
+        0.03,
+        f"ρ(contour, rel vs CC) = {rho:+.2f}  (p = {p:.2g}, n = {len(usable)})",
+        transform=ax.transAxes,
+        fontsize=7,
+        va="bottom",
+        ha="left",
+        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "0.85", "alpha": 0.9},
+    )
+    if color_by == "na_fraction":
+        _add_na_fraction_colorbar(fig, ax, na_mappable)
+    fig.tight_layout()
+    if save_path:
+        save_nature(fig, save_path, dpi=dpi)
+    return fig
+
+
+def plot_cohort_reliability_by_resolution_bin(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """Box-and-strip of reliability ↔ CC by deposited global-resolution bin."""
+    return _plot_cohort_grouped_box_strip(
+        rows,
+        group_fn=cohort_resolution_bin_label,
+        group_order=RESOLUTION_BIN_ORDER,
+        value_attr="rel_vs_cc",
+        ylabel="Reliability vs half-map CC (Spearman ρ)",
+        title="Cohort: reliability–CC agreement by global resolution bin",
+        save_path=save_path,
+        dpi=dpi,
+        color_by=color_by,
+    )
+
+
+def plot_cohort_partial_reliability_by_resolution_bin(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """Partial reliability | variance by global-resolution bin."""
+    return _plot_cohort_grouped_box_strip(
+        rows,
+        group_fn=cohort_resolution_bin_label,
+        group_order=RESOLUTION_BIN_ORDER,
+        value_attr="partial_rel_given_var",
+        ylabel="Partial reliability vs CC | variance (Spearman ρ)",
+        title="Cohort: partial reliability–CC by global resolution bin",
+        save_path=save_path,
+        dpi=dpi,
+        ylim=(-0.85, 0.55),
+        color_by=color_by,
+    )
+
+
+def plot_cohort_reliability_by_var_cc_bin(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """Box-and-strip of reliability ↔ CC by local-variance ↔ CC coupling bin."""
+    return _plot_cohort_grouped_box_strip(
+        rows,
+        group_fn=cohort_var_cc_bin_label,
+        group_order=VAR_CC_BIN_ORDER,
+        value_attr="rel_vs_cc",
+        ylabel="Reliability vs half-map CC (Spearman ρ)",
+        title="Cohort: reliability–CC agreement by variance–CC coupling",
+        save_path=save_path,
+        dpi=dpi,
+        color_by=color_by,
+    )
+
+
+def plot_cohort_partial_reliability_by_var_cc_bin(
+    rows: Sequence[CohortMetricRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """Partial reliability | variance by variance–CC coupling bin."""
+    return _plot_cohort_grouped_box_strip(
+        rows,
+        group_fn=cohort_var_cc_bin_label,
+        group_order=VAR_CC_BIN_ORDER,
+        value_attr="partial_rel_given_var",
+        ylabel="Partial reliability vs CC | variance (Spearman ρ)",
+        title="Cohort: partial reliability–CC by variance–CC coupling",
+        save_path=save_path,
+        dpi=dpi,
+        ylim=(-0.85, 0.55),
+        color_by=color_by,
+    )
 
 
 def plot_cohort_reliability_by_class(
@@ -908,79 +1684,83 @@ def plot_cohort_reliability_by_class(
     *,
     save_path: str | Path | None = None,
     dpi: int = 200,
+    color_by: str = "protein_class",
 ) -> plt.Figure:
     """
     Box-and-strip summary of reliability ↔ CC by coarse protein class.
 
     Classes are ordered by median ρ; each point is one map.
     """
-    if not rows:
-        raise ValueError("No cohort metric rows to plot")
-
-    usable = [r for r in rows if np.isfinite(r.rel_vs_cc)]
-    if not usable:
-        raise ValueError("No maps with finite rel_vs_cc")
-
-    by_class: dict[str, list[CohortMetricRow]] = {}
-    for row in usable:
-        by_class.setdefault(row.protein_class, []).append(row)
-
-    classes = sorted(
-        by_class,
-        key=lambda c: float(np.median([r.rel_vs_cc for r in by_class[c]])),
-        reverse=True,
+    return _plot_cohort_grouped_box_strip(
+        rows,
+        group_attr="protein_class",
+        value_attr="rel_vs_cc",
+        ylabel="Reliability vs half-map CC (Spearman ρ)",
+        title="Cohort: reliability–CC agreement by protein class",
+        save_path=save_path,
+        dpi=dpi,
+        color_by=color_by,
     )
-    colors = _cohort_class_colors(classes)
 
-    data = [[r.rel_vs_cc for r in by_class[c]] for c in classes]
-    positions = np.arange(1, len(classes) + 1, dtype=np.float64)
 
-    fig_w = max(6.0, 0.85 * len(classes) + 2.5)
-    fig, ax = plt.subplots(figsize=(fig_w, 4.5))
-    apply(ax)
+def plot_cohort_size_vs_reliability_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_size_vs_reliability(rows, color_by="na_fraction", **kwargs)
 
-    bp = ax.boxplot(
-        data,
-        positions=positions,
-        widths=0.55,
-        patch_artist=True,
-        showfliers=False,
-        medianprops={"color": "0.15", "linewidth": 1.0},
-        boxprops={"linewidth": 0.6},
-        whiskerprops={"linewidth": 0.6},
-        capprops={"linewidth": 0.6},
-    )
-    for patch, cls in zip(bp["boxes"], classes):
-        patch.set_facecolor(colors[cls])
-        patch.set_alpha(0.35)
-        patch.set_edgecolor(colors[cls])
 
-    rng = np.random.default_rng(0)
-    for pos, cls, vals in zip(positions, classes, data):
-        jitter = rng.uniform(-0.12, 0.12, size=len(vals))
-        ax.scatter(
-            pos + jitter,
-            vals,
-            s=28,
-            c=colors[cls],
-            alpha=0.9,
-            edgecolors="white",
-            linewidths=0.35,
-            zorder=3,
-        )
+def plot_cohort_reliability_by_resolution_bin_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_reliability_by_resolution_bin(rows, color_by="na_fraction", **kwargs)
 
-    cohort_median = float(np.median([r.rel_vs_cc for r in usable]))
-    ax.axhline(cohort_median, color="0.45", linewidth=0.7, linestyle=":", label=f"cohort median ({cohort_median:.2f})")
 
-    ax.set_xticks(positions, classes, rotation=30, ha="right", fontsize=7)
-    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
-    ax.set_title("Cohort: reliability–CC agreement by protein class")
-    ax.set_ylim(-0.05, 1.02)
-    ax.legend(loc="lower right", frameon=False, fontsize=6)
-    fig.tight_layout()
-    if save_path:
-        save_nature(fig, save_path, dpi=dpi)
-    return fig
+def plot_cohort_partial_reliability_by_resolution_bin_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_partial_reliability_by_resolution_bin(rows, color_by="na_fraction", **kwargs)
+
+
+def plot_cohort_reliability_by_var_cc_bin_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_reliability_by_var_cc_bin(rows, color_by="na_fraction", **kwargs)
+
+
+def plot_cohort_partial_reliability_by_var_cc_bin_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_partial_reliability_by_var_cc_bin(rows, color_by="na_fraction", **kwargs)
+
+
+def plot_cohort_variance_vs_reliability_cc_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_variance_vs_reliability_cc(rows, color_by="na_fraction", **kwargs)
+
+
+def plot_cohort_partial_reliability_by_class_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_partial_reliability_by_class(rows, color_by="na_fraction", **kwargs)
+
+
+def plot_cohort_reliability_by_flexibility_source_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_reliability_by_flexibility_source(rows, color_by="na_fraction", **kwargs)
+
+
+def plot_cohort_bfactor_vs_reliability_cc_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_bfactor_vs_reliability_cc(rows, color_by="na_fraction", **kwargs)
+
+
+def plot_cohort_reliability_by_class_by_na_fraction(
+    rows: Sequence[CohortMetricRow], **kwargs
+) -> plt.Figure:
+    return plot_cohort_reliability_by_class(rows, color_by="na_fraction", **kwargs)
 
 
 def _sorted_conformation_deltas(
@@ -1912,11 +2692,34 @@ __all__ = [
     "CohortMetricRow",
     "collect_cohort_metrics",
     "cohort_protein_size",
+    "cohort_global_resolution_a",
+    "cohort_resolution_bin_label",
+    "cohort_var_cc_bin_label",
+    "RESOLUTION_BIN_ORDER",
+    "VAR_CC_BIN_ORDER",
     "infer_protein_class",
     "write_cohort_metrics_csv",
     "plot_cohort_metrics_heatmap",
     "plot_cohort_size_vs_reliability",
+    "plot_cohort_variance_vs_reliability_cc",
+    "plot_cohort_partial_reliability_by_class",
+    "plot_cohort_reliability_by_flexibility_source",
+    "plot_cohort_bfactor_vs_reliability_cc",
+    "plot_cohort_reliability_by_resolution_bin",
+    "plot_cohort_partial_reliability_by_resolution_bin",
+    "plot_cohort_reliability_by_var_cc_bin",
+    "plot_cohort_partial_reliability_by_var_cc_bin",
     "plot_cohort_reliability_by_class",
+    "plot_cohort_size_vs_reliability_by_na_fraction",
+    "plot_cohort_variance_vs_reliability_cc_by_na_fraction",
+    "plot_cohort_partial_reliability_by_class_by_na_fraction",
+    "plot_cohort_reliability_by_flexibility_source_by_na_fraction",
+    "plot_cohort_bfactor_vs_reliability_cc_by_na_fraction",
+    "plot_cohort_reliability_by_resolution_bin_by_na_fraction",
+    "plot_cohort_partial_reliability_by_resolution_bin_by_na_fraction",
+    "plot_cohort_reliability_by_var_cc_bin_by_na_fraction",
+    "plot_cohort_partial_reliability_by_var_cc_bin_by_na_fraction",
+    "plot_cohort_reliability_by_class_by_na_fraction",
     "plot_conformation_pair_summary_triptych",
     "plot_conformation_pair_domain_coupling_supplement",
     "compute_conformation_coupling",
