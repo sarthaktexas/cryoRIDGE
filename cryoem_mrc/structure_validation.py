@@ -79,6 +79,30 @@ class BfactorValidationStats:
     notes: str = ""
 
 
+@dataclass(frozen=True)
+class ModelPlacementAuditStats:
+    """
+    Deposited-model placement vs map reliability.
+
+    Compares tercile-based build zones (relative, per map) with absolute
+    half-map CC at Cα positions (cross-map comparable).
+    """
+
+    emdb_id: str
+    display_name: str
+    global_resolution_a: float
+    n_residues: int
+    n_in_mask: int
+    cc_threshold: float
+    frac_cc_below_threshold: float
+    frac_in_omit_zone: float
+    frac_in_caution_zone: float
+    frac_in_build_zone: float
+    median_local_cc: float
+    p10_local_cc: float
+    notes: str = ""
+
+
 def physical_xyz_to_voxel_indices(
     x: float,
     y: float,
@@ -459,6 +483,139 @@ def compute_bfactor_validation_stats(
         partial_b_vs_reliability_given_variance=partial,
         median_b_by_zone=med_by_zone,
     )
+
+
+def compute_model_placement_audit_stats(
+    rows: Sequence[ResidueValidationRow],
+    *,
+    emdb_id: str,
+    display_name: str = "",
+    global_resolution_a: float = float("nan"),
+    cc_threshold: float = 0.5,
+) -> ModelPlacementAuditStats:
+    """
+    Summarize whether deposited Cα sit in low-reliability map regions.
+
+    Tercile zone fractions describe relative placement inside each map.
+    ``frac_cc_below_threshold`` uses windowed half-map CC and is comparable
+    across the cohort at a fixed cutoff (default 0.5).
+    """
+    in_mask = [r for r in rows if r.in_contour_mask]
+    n_all = len(rows)
+    n_use = len(in_mask)
+    if n_use == 0:
+        return ModelPlacementAuditStats(
+            emdb_id=emdb_id,
+            display_name=display_name,
+            global_resolution_a=global_resolution_a,
+            n_residues=n_all,
+            n_in_mask=0,
+            cc_threshold=cc_threshold,
+            frac_cc_below_threshold=float("nan"),
+            frac_in_omit_zone=float("nan"),
+            frac_in_caution_zone=float("nan"),
+            frac_in_build_zone=float("nan"),
+            median_local_cc=float("nan"),
+            p10_local_cc=float("nan"),
+            notes="no in-mask residues",
+        )
+
+    zones = np.array([r.build_zone for r in in_mask], dtype=np.int32)
+    cc = np.array([r.local_cross_correlation for r in in_mask], dtype=np.float64)
+    finite = np.isfinite(cc)
+    notes = ""
+    if not finite.any():
+        return ModelPlacementAuditStats(
+            emdb_id=emdb_id,
+            display_name=display_name,
+            global_resolution_a=global_resolution_a,
+            n_residues=n_all,
+            n_in_mask=n_use,
+            cc_threshold=cc_threshold,
+            frac_cc_below_threshold=float("nan"),
+            frac_in_omit_zone=float((zones == 0).mean()),
+            frac_in_caution_zone=float((zones == 1).mean()),
+            frac_in_build_zone=float((zones == 2).mean()),
+            median_local_cc=float("nan"),
+            p10_local_cc=float("nan"),
+            notes="no finite local_cross_correlation at Cα",
+        )
+    if (~finite).any():
+        notes = f"{int((~finite).sum())} in-mask Cα missing local CC"
+
+    cc_f = cc[finite]
+    return ModelPlacementAuditStats(
+        emdb_id=emdb_id,
+        display_name=display_name,
+        global_resolution_a=global_resolution_a,
+        n_residues=n_all,
+        n_in_mask=n_use,
+        cc_threshold=cc_threshold,
+        frac_cc_below_threshold=float((cc_f < cc_threshold).mean()),
+        frac_in_omit_zone=float((zones == 0).mean()),
+        frac_in_caution_zone=float((zones == 1).mean()),
+        frac_in_build_zone=float((zones == 2).mean()),
+        median_local_cc=float(np.median(cc_f)),
+        p10_local_cc=float(np.percentile(cc_f, 10)),
+        notes=notes,
+    )
+
+
+def write_model_placement_audit_csv(
+    path: str | Path,
+    stats_rows: Sequence[ModelPlacementAuditStats],
+) -> Path:
+    """Write cohort model-placement audit table."""
+    path = Path(path)
+    fieldnames = [
+        "emdb_id",
+        "display_name",
+        "global_resolution_a",
+        "n_residues",
+        "n_in_mask",
+        "cc_threshold",
+        "frac_cc_below_threshold",
+        "frac_in_omit_zone",
+        "frac_in_caution_zone",
+        "frac_in_build_zone",
+        "median_local_cc",
+        "p10_local_cc",
+        "notes",
+    ]
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for s in stats_rows:
+            w.writerow(
+                {
+                    "emdb_id": s.emdb_id,
+                    "display_name": s.display_name,
+                    "global_resolution_a": (
+                        f"{s.global_resolution_a:.2f}"
+                        if np.isfinite(s.global_resolution_a)
+                        else ""
+                    ),
+                    "n_residues": s.n_residues,
+                    "n_in_mask": s.n_in_mask,
+                    "cc_threshold": f"{s.cc_threshold:.3f}",
+                    "frac_cc_below_threshold": (
+                        f"{s.frac_cc_below_threshold:.4f}"
+                        if np.isfinite(s.frac_cc_below_threshold)
+                        else ""
+                    ),
+                    "frac_in_omit_zone": f"{s.frac_in_omit_zone:.4f}",
+                    "frac_in_caution_zone": f"{s.frac_in_caution_zone:.4f}",
+                    "frac_in_build_zone": f"{s.frac_in_build_zone:.4f}",
+                    "median_local_cc": (
+                        f"{s.median_local_cc:.4f}" if np.isfinite(s.median_local_cc) else ""
+                    ),
+                    "p10_local_cc": (
+                        f"{s.p10_local_cc:.4f}" if np.isfinite(s.p10_local_cc) else ""
+                    ),
+                    "notes": s.notes,
+                }
+            )
+    return path
 
 
 @dataclass(frozen=True)
