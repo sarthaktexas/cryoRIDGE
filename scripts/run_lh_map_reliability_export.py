@@ -30,11 +30,7 @@ import numpy as np
 from style.nature import PALETTES, apply, label_panel, savefig as save_nature
 from scipy import stats
 
-from cryoem_mrc.analysis import (
-    build_contour_mask,
-    binned_feature_by_target,
-    compute_feature_target_correlations,
-)
+from cryoem_mrc.analysis import build_contour_mask, compute_feature_target_correlations
 from cryoem_mrc.io import load_mrc
 from cryoem_mrc.map_grid import load_full_and_half_maps
 from cryoem_mrc.reliability import (
@@ -117,43 +113,6 @@ def _plot_build_zones(ax, zones_sl: np.ndarray, mask_sl: np.ndarray, *, title: s
     return im
 
 
-def _plot_spearman_bar(spearman: dict[str, float], out: Path) -> None:
-    order = [
-        "local_variance",
-        "reliability_score",
-        "reliability_H_repro",
-        "local_cross_correlation",
-    ]
-    extra = [k for k in spearman if k not in order]
-    labels = [k for k in order if k in spearman] + sorted(extra)
-    vals = [abs(spearman[k]) for k in labels]
-    colors = ["#9467bd" if k == "reliability_score" else "#7f7f7f" for k in labels]
-    fig, ax = plt.subplots(figsize=(8, 4))
-    apply(ax)
-    ax.barh(np.arange(len(labels)), vals, color=colors, alpha=0.9)
-    ax.set_yticks(np.arange(len(labels)), labels)
-    ax.set_xlabel("|Spearman r| vs half-map CC")
-    ax.set_title("Reliability predictors (EMD-49450, mask ρ≥0.116)")
-    ax.set_xlim(0, 1)
-    fig.tight_layout()
-    save_nature(fig, out)
-    plt.close(fig)
-
-
-def _plot_partial_bar(rows: list[tuple[str, float]], out: Path) -> None:
-    labels = [r[0] for r in rows]
-    vals = [abs(r[1]) for r in rows]
-    fig, ax = plt.subplots(figsize=(7, 3.5))
-    apply(ax)
-    ax.barh(np.arange(len(labels)), vals, color=PALETTES["categorical"][0], alpha=0.85)
-    ax.set_yticks(np.arange(len(labels)), labels)
-    ax.set_xlabel("|partial Spearman| vs CC | local_variance")
-    ax.set_title("Incremental value beyond local variance")
-    fig.tight_layout()
-    save_nature(fig, out)
-    plt.close(fig)
-
-
 def _write_thesis_md(
     path: Path,
     *,
@@ -224,10 +183,8 @@ Partial Spearman vs CC controlling for local_variance:
 | `reliability.npz` | reliability_score, H_repro, build_zone |
 | `emd_{emd_id}_reliability.mrc` | Reliability overlay (0–1 score) |
 | `emd_{emd_id}_build_zones.mrc` | 0/1/2 zone labels |
-| `figures/model_building_row.png` | CC, reliability, zones, variance |
-| `figures/spearman_predictors.png` | Correlation bar chart |
-| `figures/partial_incremental.png` | Partial correlation bar |
-| `figures/reliability_vs_cc_binned.png` | Binned mean curve |
+| `figures/model_building_row.png` | CC, reliability score, build zones (one slice) |
+| `run_metadata.json` | Spearman / partial ρ (cohort heatmap reads this) |
 
 **Inputs:** `{paths['reference'].name}`, `{paths['features'].name}`, half-maps, `{paths.get('halfmap_npz', 'halfmap_metrics.npz')}`.
 
@@ -359,14 +316,13 @@ def main(argv: list[str] | None = None) -> int:
     crop = slice_crop_from_mask(msl, pad_voxels=args.zoom_padding) if args.zoom_padding else None
     kw = {"crop_bbox": crop, "already_contoured": True}
 
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4.2))
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4.2))
     panels = [
         (extract_slice(cc, axis=0, index=z), "RdYlGn", "half-map CC", {**kw, "vmin": 0, "vmax": 1, "robust": False}),
         (extract_slice(feats["reliability_score"], axis=0, index=z), "viridis", "reliability score", kw),
         (extract_slice(zones.astype(float), axis=0, index=z), None, "build zones", {}),
-        (extract_slice(local_var, axis=0, index=z), "magma", "local variance", kw),
     ]
-    for letter, (ax, (sl, cm, title, pkw)) in zip("abcd", zip(axes, panels)):
+    for letter, (ax, (sl, cm, title, pkw)) in zip("abc", zip(axes, panels)):
         if title == "build zones":
             sl_c = sl if crop is None else sl[crop[0]:crop[1], crop[2]:crop[3]]
             m_c = msl if crop is None else msl[crop[0]:crop[1], crop[2]:crop[3]]
@@ -377,27 +333,6 @@ def main(argv: list[str] | None = None) -> int:
     fig.suptitle(f"EMD-{args.emd_id} model-building guidance (mask ρ≥{args.contour})", fontsize=12)
     fig.tight_layout()
     save_nature(fig, fig_dir / "model_building_row.png", dpi=args.dpi)
-    plt.close(fig)
-
-    _plot_spearman_bar(spearman, fig_dir / "spearman_predictors.png")
-    _plot_partial_bar(list(partial.items()), fig_dir / "partial_incremental.png")
-
-    binned = binned_feature_by_target(
-        feats["reliability_score"], cc, mask,
-        feature_name="reliability_score", target_name="local_cross_correlation", n_bins=10,
-    )
-    fig, ax = plt.subplots(figsize=(6, 4))
-    apply(ax)
-    ok = np.isfinite(binned.mean_feature)
-    ax.errorbar(
-        binned.bin_centers[ok], binned.mean_feature[ok],
-        yerr=binned.std_feature[ok], fmt="o-", capsize=3,
-    )
-    ax.set_xlabel("half-map CC (bin center)")
-    ax.set_ylabel("mean reliability_score")
-    ax.set_title("Reliability vs half-map agreement (binned)")
-    fig.tight_layout()
-    save_nature(fig, fig_dir / "reliability_vs_cc_binned.png", dpi=args.dpi)
     plt.close(fig)
 
     paths_meta = {**paths, "halfmap_npz": args.halfmap_npz}

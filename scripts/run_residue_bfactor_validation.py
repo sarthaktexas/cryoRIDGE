@@ -75,19 +75,6 @@ def _plot_scatter(rows_in_mask, out: Path, *, emd_id: str, dpi: int) -> None:
     plt.close(fig)
 
 
-def _plot_zone_medians(stats: BfactorValidationStats, out: Path, *, emd_id: str, dpi: int) -> None:
-    labels = ["omit", "caution", "build"]
-    vals = [stats.median_b_by_zone.get(z, float("nan")) for z in (0, 1, 2)]
-    fig, ax = plt.subplots(figsize=(5, 4))
-    apply(ax)
-    ax.bar(labels, vals, color=PALETTES["categorical"][:3], alpha=0.9)
-    ax.set_ylabel("Median B_iso")
-    ax.set_title(f"EMD-{emd_id}: B-factor by build zone")
-    fig.tight_layout()
-    save_nature(fig, out, dpi=dpi)
-    plt.close(fig)
-
-
 def _run_one(
     emd_id: str,
     *,
@@ -150,7 +137,6 @@ def _run_one(
     )
     if rows_in_mask:
         _plot_scatter(rows_in_mask, fig_dir / "bfactor_vs_reliability.png", emd_id=emd_id, dpi=dpi)
-    _plot_zone_medians(stats, fig_dir / "bfactor_by_build_zone.png", emd_id=emd_id, dpi=dpi)
 
     print(
         f"[bfactor_validation] EMD-{emd_id}: n={stats.n_in_mask} in-mask, "

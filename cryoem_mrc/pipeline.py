@@ -77,6 +77,9 @@ def run_pipeline(
 
     Set ``use_float32=True`` for large maps (e.g. 10⁸ voxels) to roughly halve memory
     and speed up filtering and disk IO versus float64.
+
+    When ``crop_bbox`` is set, feature filters run on that subvolume (reference
+    contour bbox + halo) and results are embedded on the full deposited grid.
     """
     dt = np.float32 if use_float32 else np.float64
     raw = load_mrc(mrc_path, dtype=dt)

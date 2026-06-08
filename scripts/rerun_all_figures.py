@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""Regenerate all thesis/publication figures (PDF+PNG for 2D; PNG only if 3D)."""
+"""Regenerate thesis/publication figures (PDF+PNG for 2D; PNG only if 3D).
+
+Example::
+
+    uv run python scripts/rerun_all_figures.py --core-only
+"""
 
 from __future__ import annotations
 
+import argparse
 import csv
 import subprocess
 import sys
@@ -13,6 +19,22 @@ from cryoem_mrc.repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_me
 REPO = Path(__file__).resolve().parents[1]
 PY = REPO / ".venv" / "bin" / "python"
 SKIP_SOURCES = frozenset({"excluded", "optional"})
+
+# Pre-expansion validation cohort (active maps in COHORT.md).
+CORE_COHORT_IDS = frozenset({
+    "49450",
+    "11638",
+    "23129",
+    "23130",
+    "48923",
+    "48534",
+    "16091",
+    "41756",
+    "45261",
+    "61596",
+    "52525",
+    "52515",
+})
 
 CONFORMATION_PAIRS = [
     ("23129", "23130"),
@@ -29,12 +51,14 @@ def run(cmd: list[str], label: str) -> int:
     return rc
 
 
-def manifest_rows() -> list[dict[str, str]]:
+def manifest_rows(*, emdb_ids: frozenset[str] | None) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     with COHORT_MANIFEST.open(newline="") as f:
         for row in csv.DictReader(f):
             eid = str(row.get("emdb_id", "")).strip()
             if not eid:
+                continue
+            if emdb_ids is not None and eid not in emdb_ids:
                 continue
             if row.get("flexibility_source", "").strip() in SKIP_SOURCES:
                 continue
@@ -44,29 +68,52 @@ def manifest_rows() -> list[dict[str, str]]:
     return rows
 
 
-def main() -> int:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument(
+        "--core-only",
+        action="store_true",
+        help="Regenerate only the 12-map pre-expansion cohort (default: all manifest rows)",
+    )
+    return p.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     if not PY.is_file():
         print("Missing .venv/bin/python — run: uv pip install -e .", file=sys.stderr)
         return 2
 
-    rc = 0
+    emdb_ids = CORE_COHORT_IDS if args.core_only else None
+    rows = manifest_rows(emdb_ids=emdb_ids)
+    if not rows:
+        print("[figures] no manifest rows matched", file=sys.stderr)
+        return 2
 
-    rc = max(rc, run([str(PY), "scripts/run_cohort_summary_figures.py"], "cohort summary heatmap"))
+    rc = 0
+    cohort_ids_arg = ",".join(sorted(r["emdb_id"].strip() for r in rows))
+
+    rc = max(
+        rc,
+        run(
+            [str(PY), "scripts/run_cohort_summary_figures.py", "--emdb-ids", cohort_ids_arg],
+            "cohort summary heatmap",
+        ),
+    )
 
     rc = max(
         rc,
         run([str(PY), "scripts/run_thesis_overview_figures.py"], "thesis overview (EMD-49450)"),
     )
 
-    for row in manifest_rows():
+    for row in rows:
         eid = str(row["emdb_id"]).strip()
         lh_dir = lh_map_reliability_dir(eid)
         if not (lh_dir / "reliability.npz").is_file():
             print(f"[figures] skip lh_export EMD-{eid}: no reliability.npz", flush=True)
             continue
         ref = Path(row["reference_mrc"])
-        contour = float(row["contour"])
-        features = find_features_npz(ref.parent, eid, contour)
+        features = find_features_npz(ref.parent, eid, float(row["contour"]))
         if features is None:
             print(f"[figures] skip lh_export EMD-{eid}: no features NPZ", flush=True)
             continue
@@ -97,12 +144,26 @@ def main() -> int:
             ),
         )
 
-    rc = max(
-        rc,
-        run([str(PY), "scripts/run_residue_bfactor_validation.py", "--all"], "B-factor validation (--all)"),
-    )
+    for row in rows:
+        if row.get("flexibility_source", "").strip() != "b_factor":
+            continue
+        pdb = Path(row.get("flexibility_path_or_pdb", ""))
+        if not pdb.is_file():
+            continue
+        eid = str(row["emdb_id"]).strip()
+        rc = max(
+            rc,
+            run(
+                [str(PY), "scripts/run_residue_bfactor_validation.py", "--emd-id", eid],
+                f"B-factor validation EMD-{eid}",
+            ),
+        )
 
-    for emd_a, emd_b in CONFORMATION_PAIRS:
+    if args.core_only:
+        pairs = [p for p in CONFORMATION_PAIRS if p[0] in CORE_COHORT_IDS and p[1] in CORE_COHORT_IDS]
+    else:
+        pairs = CONFORMATION_PAIRS
+    for emd_a, emd_b in pairs:
         rc = max(
             rc,
             run(
