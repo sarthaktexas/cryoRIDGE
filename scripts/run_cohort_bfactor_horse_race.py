@@ -7,6 +7,7 @@ Example::
 
     source .venv/bin/activate
     python scripts/run_cohort_bfactor_horse_race.py
+    python scripts/run_cohort_bfactor_horse_race.py --figure-only
 """
 
 from __future__ import annotations
@@ -17,8 +18,14 @@ import json
 import sys
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
+
+from style.nature import PALETTES, apply, label_panel, savefig as save_nature
 
 from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, halfmap_metrics_npz, lh_map_reliability_dir
@@ -120,16 +127,126 @@ def _horse_race_one(emd_id: str, *, manifest: Path, sphere_radius_a: float) -> d
     return out
 
 
+def _load_horse_race_rows(csv_path: Path) -> list[dict]:
+    rows: list[dict] = []
+    with csv_path.open(newline="") as f:
+        for row in csv.DictReader(f):
+            rec: dict = {"emdb_id": row["emdb_id"].strip()}
+            for key in row:
+                if key == "emdb_id":
+                    continue
+                raw = row[key].strip()
+                if raw in ("", "nan"):
+                    rec[key] = float("nan")
+                else:
+                    try:
+                        rec[key] = float(raw)
+                    except ValueError:
+                        rec[key] = raw
+            rows.append(rec)
+    return rows
+
+
+def _build_figure(rows: list[dict], out_dir: Path, dpi: int) -> Path:
+    """Two-panel horse-race: marginal ρ(B,·) and partial ρ after controlling for variance."""
+    usable = [r for r in rows if int(r.get("n_in_mask", 0) or 0) >= 30]
+    if len(usable) < 3:
+        raise ValueError("Need at least three maps with n_in_mask >= 30 for horse-race figure")
+
+    def _col(key: str) -> np.ndarray:
+        return np.array([float(r[key]) for r in usable], dtype=np.float64)
+
+    fig, (ax_marg, ax_part) = plt.subplots(1, 2, figsize=(10.5, 4.5))
+
+    apply(ax_marg)
+    data_marg = [_col("rho_b_vs_V"), _col("rho_b_vs_variance"), _col("rho_b_vs_H")]
+    labels_marg = ["V", "Local variance", "H_repro"]
+    positions = np.arange(1, 4)
+    bp = ax_marg.boxplot(
+        data_marg,
+        positions=positions,
+        widths=0.55,
+        patch_artist=True,
+        showfliers=False,
+        medianprops={"color": "0.15", "linewidth": 1.0},
+    )
+    colors = PALETTES["categorical"][:3]
+    for patch, color in zip(bp["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.55)
+        patch.set_edgecolor("0.25")
+    for i, vals in enumerate(data_marg):
+        jitter = (np.random.default_rng(42).random(len(vals)) - 0.5) * 0.12
+        ax_marg.scatter(positions[i] + jitter, vals, s=14, c="0.2", alpha=0.45, edgecolors="none")
+    ax_marg.axhline(0.0, color="0.35", linewidth=0.6)
+    ax_marg.set_xticks(positions)
+    ax_marg.set_xticklabels(labels_marg, fontsize=8)
+    ax_marg.set_ylabel("Spearman ρ(B_iso, metric)")
+    ax_marg.set_title(f"Marginal B-factor coupling (n = {len(usable)} maps)")
+    label_panel(ax_marg, "a")
+
+    apply(ax_part)
+    data_part = [_col("partial_b_vs_V_given_variance"), _col("partial_b_vs_variance_given_V")]
+    positions_p = np.arange(1, 3)
+    bp2 = ax_part.boxplot(
+        data_part,
+        positions=positions_p,
+        widths=0.55,
+        patch_artist=True,
+        showfliers=False,
+        medianprops={"color": "0.15", "linewidth": 1.0},
+    )
+    colors_p = [PALETTES["categorical"][0], PALETTES["categorical"][2]]
+    for patch, color in zip(bp2["boxes"], colors_p):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.55)
+        patch.set_edgecolor("0.25")
+    for i, vals in enumerate(data_part):
+        jitter = (np.random.default_rng(43).random(len(vals)) - 0.5) * 0.12
+        ax_part.scatter(positions_p[i] + jitter, vals, s=14, c="0.2", alpha=0.45, edgecolors="none")
+    ax_part.axhline(0.0, color="0.35", linewidth=0.6)
+    med_v = float(np.nanmedian(_col("partial_b_vs_V_given_variance")))
+    med_var = float(np.nanmedian(_col("partial_b_vs_variance_given_V")))
+    ax_part.set_xticks(positions_p)
+    ax_part.set_xticklabels(["B | variance\n(V residual)", "B | V\n(variance residual)"], fontsize=8)
+    ax_part.set_ylabel("Partial Spearman ρ")
+    ax_part.set_title(
+        f"Partial horse-race (median |V|={abs(med_v):.2f}, |var|={abs(med_var):.2f})"
+    )
+    label_panel(ax_part, "b")
+
+    fig.suptitle("B-factor prediction: constraint V vs local variance", fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    out = out_dir / "bfactor_horse_race"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    save_nature(fig, out, dpi=dpi)
+    plt.close(fig)
+    return out.with_suffix(".png")
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--manifest", type=Path, default=COHORT_MANIFEST)
     p.add_argument("--out-dir", type=Path, default=OUTPUTS_ROOT / "cohort_summary")
     p.add_argument("--sphere-radius-a", type=float, default=2.0)
+    p.add_argument("--figure-only", action="store_true", help="Rebuild figure from existing CSV")
+    p.add_argument("--dpi", type=int, default=200)
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+
+    if args.figure_only:
+        csv_path = args.out_dir / "bfactor_horse_race.csv"
+        if not csv_path.is_file():
+            print(f"[horse_race] missing {csv_path}", file=sys.stderr)
+            return 2
+        rows = _load_horse_race_rows(csv_path)
+        fig_path = _build_figure(rows, args.out_dir, args.dpi)
+        print(f"[horse_race] figure → {fig_path}", flush=True)
+        return 0
+
     ids: list[str] = []
     with args.manifest.open(newline="") as f:
         for row in csv.DictReader(f):
@@ -164,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
             w.writerow({k: (f"{v:.6f}" if isinstance(v, float) and np.isfinite(v) else v) for k, v in row.items()})
     json_path.write_text(json.dumps(rows, indent=2) + "\n")
     print(f"[horse_race] {len(rows)} maps -> {csv_path}", flush=True)
+    fig_path = _build_figure(rows, args.out_dir, args.dpi)
+    print(f"[horse_race] figure → {fig_path}", flush=True)
     return 0
 
 

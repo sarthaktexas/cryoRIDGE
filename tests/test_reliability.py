@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import numpy as np
 
-from cryoem_mrc.reliability import classify_build_zones, compute_reliability_maps, percentile_rank_in_mask
+from style.nature import PALETTES
+
+from cryoem_mrc.reliability import (
+    BUILD_ZONE_COLORS,
+    BUILD_ZONE_LABELS,
+    build_zone_colormap,
+    classify_build_zones,
+    compute_reliability_maps,
+    percentile_rank_in_mask,
+)
 
 
 def test_percentile_rank_in_mask_monotone() -> None:
@@ -14,6 +23,16 @@ def test_percentile_rank_in_mask_monotone() -> None:
     assert ranks[mask].min() > 0
     assert ranks[mask].max() <= 1.0
     assert ranks[~mask].max() == 0.0
+
+
+def test_build_zone_colors_match_labels() -> None:
+    cat = PALETTES["categorical"]
+    assert BUILD_ZONE_LABELS == {0: "omit", 1: "caution", 2: "build"}
+    assert BUILD_ZONE_COLORS[0] == cat[0]  # omit = blue
+    assert BUILD_ZONE_COLORS[1] == cat[1]  # caution = red
+    assert BUILD_ZONE_COLORS[2] == cat[2]  # build = green
+    cmap = build_zone_colormap()
+    assert tuple(cmap.colors) == tuple(BUILD_ZONE_COLORS[z] for z in (0, 1, 2))
 
 
 def test_build_zones_three_labels() -> None:

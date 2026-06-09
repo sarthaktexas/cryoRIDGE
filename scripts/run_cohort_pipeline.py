@@ -55,6 +55,17 @@ def _feature_start_threshold(avg_path: Path, ref_path: Path, mask_contour: float
             flush=True,
         )
         return 0.0
+    # Unsharpened avg maps often sit just above the depositor contour (e.g. EMD-4941:
+    # max ≈ 0.0503 at contour 0.05). Thresholding at contour then z-scoring the crop
+    # leaves a near-delta spike → |z| thousands and degenerate LH constraint V.
+    headroom = 1.05
+    if avg_max_in_mask < mask_contour * headroom:
+        print(
+            f"[cohort] avg max in mask ({avg_max_in_mask:.4g}) within {headroom:g}× "
+            f"contour ({mask_contour:g}); feature --start-threshold 0",
+            flush=True,
+        )
+        return 0.0
     return mask_contour
 
 
@@ -170,6 +181,7 @@ def _process_row(row: dict[str, str], *, force: bool, skip_bfactor: bool) -> int
     # Half-map metrics depend only on the halves, not the feature threshold.
     if metrics_npz.is_file():
         analysis_cmd.append("--skip-halfmap-metrics")
+    analysis_cmd.append("--prune-scatter-figures")
     _run(analysis_cmd, label=f"EMD-{eid} analysis")
 
     _run(
@@ -188,6 +200,7 @@ def _process_row(row: dict[str, str], *, force: bool, skip_bfactor: bool) -> int
             str(metrics_npz),
             "--out-dir",
             str(lh_dir),
+            "--prune-retired-figures",
         ],
         label=f"EMD-{eid} lh_export",
     )
