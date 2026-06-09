@@ -1,5 +1,7 @@
 # cryoem-halfmap-qc
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20618527.svg)](https://doi.org/10.5281/zenodo.20618527)
+
 Python tools for **local map reliability** in cryo-EM reconstructions: density statistics, half-map reproducibility, windowed local FSC (Å), a reproducibility score (H_repro), build/caution/omit zones, and optional deposited-model B-factor checks.
 
 The goal is to test whether inexpensive map features track **half-map cross-correlation** and **local FSC** well enough to guide modeling. This is **not** a claim that density alone defines molecular flexibility.
@@ -147,21 +149,22 @@ python -m unittest discover -s tests -v
 
 ## Citation
 
-**Before the manuscript is published**, cite the software (and pin a commit hash or release tag if reproducibility matters):
+**Before the manuscript is published**, cite the software with the Zenodo concept DOI (resolves to the latest release; pin `v0.1.0` or a commit hash for exact reproducibility):
 
 ```bibtex
 @software{mohanty2026cryoem_halfmap_qc,
   author = {Mohanty, Sarthak},
   title = {cryoem-halfmap-qc: local map reliability from cryo-EM density and half-maps},
   year = {2026},
-  url = {https://github.com/sarthaktexas/cryoem-halfmap-qc},
+  doi = {10.5281/zenodo.20618527},
+  url = {https://doi.org/10.5281/zenodo.20618527},
   version = {0.1.0}
 }
 ```
 
 GitHub also reads [CITATION.cff](CITATION.cff) for the **Cite this repository** button.
 
-**After publication**, cite the paper as the primary reference. Also cite this repo (or a Zenodo archive) when you need the exact pipeline version used in the work—for example after tagging a release or minting a DOI at acceptance.
+**After publication**, cite the paper as the primary reference. Also cite this Zenodo archive when you need the exact pipeline version used in the work.
 
 When the manuscript exists, add a `preferred-citation` block to `CITATION.cff` (template included there) and drop the BibTeX for the article into this section.
 
