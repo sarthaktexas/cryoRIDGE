@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "cryoem-map-reliability: local map reliability from cryo-EM density and half-maps"
+title: "cryoem-halfmap-qc: local map reliability from cryo-EM density and half-maps"
 message: >-
   If you use this software, please cite it using the metadata in this file.
   When the associated manuscript is published, cite that article as the primary
@@ -8,8 +8,8 @@ type: software
 authors:
   - family-names: Mohanty
     given-names: Sarthak
-repository-code: "https://github.com/sarthaktexas/cryoem-map-reliability"
-url: "https://github.com/sarthaktexas/cryoem-map-reliability"
+repository-code: "https://github.com/sarthaktexas/cryoem-halfmap-qc"
+url: "https://github.com/sarthaktexas/cryoem-halfmap-qc"
 license: MIT
 version: 0.1.0
 date-released: "2026-06-07"

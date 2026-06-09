@@ -1,4 +1,4 @@
-# cryoem-map-reliability
+# cryoem-halfmap-qc
 
 Python tools for **local map reliability** in cryo-EM reconstructions: density statistics, half-map reproducibility, windowed local FSC (Å), a reproducibility score (H_repro), build/caution/omit zones, and optional deposited-model B-factor checks.
 
@@ -11,8 +11,8 @@ All volumes use NumPy 3D arrays in `(Z, Y, X)` order (section, row, column), con
 ## Install
 
 ```bash
-pip install -r requirements.txt
-# or editable:
+uv pip install -e .
+# or:
 pip install -e .
 ```
 
@@ -31,7 +31,7 @@ pdb/                        # fitted models (mmCIF) — sample models included f
 cohort/manifest.csv         # EMDB IDs, relative paths, contours, validation labels
 ```
 
-Download deposited and half maps from [EMDB](https://www.ebi.ac.uk/emdb/) and fitted models from [PDBe](https://www.ebi.ac.uk/pdbe/). Use the depositor-recommended contour for each entry (listed in `cohort/manifest.csv`). See [docs/COHORT.md](docs/COHORT.md) for download status, pipeline progress, and expansion candidates.
+Download deposited and half maps from [EMDB](https://www.ebi.ac.uk/emdb/) and fitted models from [PDBe](https://www.ebi.ac.uk/pdbe/). Use the depositor-recommended contour for each entry (listed in `cohort/manifest.csv`). See [docs/COHORT.md](docs/COHORT.md) for download status and pipeline progress.
 
 ---
 
@@ -148,11 +148,11 @@ python -m unittest discover -s tests -v
 **Before the manuscript is published**, cite the software (and pin a commit hash or release tag if reproducibility matters):
 
 ```bibtex
-@software{mohanty2026cryoem_map_reliability,
+@software{mohanty2026cryoem_halfmap_qc,
   author = {Mohanty, Sarthak},
-  title = {cryoem-map-reliability: local map reliability from cryo-EM density and half-maps},
+  title = {cryoem-halfmap-qc: local map reliability from cryo-EM density and half-maps},
   year = {2026},
-  url = {https://github.com/sarthaktexas/cryoem-map-reliability},
+  url = {https://github.com/sarthaktexas/cryoem-halfmap-qc},
   version = {0.1.0}
 }
 ```
