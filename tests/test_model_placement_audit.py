@@ -9,7 +9,13 @@ from cryoem_mrc.structure_validation import (
 )
 
 
-def _row(*, zone: int, cc: float, in_mask: bool = True) -> ResidueValidationRow:
+def _row(
+    *,
+    zone: int,
+    cc: float,
+    reliability: float = 0.5,
+    in_mask: bool = True,
+) -> ResidueValidationRow:
     return ResidueValidationRow(
         chain="A",
         seq_num=1,
@@ -19,8 +25,8 @@ def _row(*, zone: int, cc: float, in_mask: bool = True) -> ResidueValidationRow:
         y=0.0,
         z=0.0,
         b_iso=50.0,
-        reliability_score=0.5,
-        reliability_H_repro=0.5,
+        reliability_score=reliability,
+        reliability_H_repro=reliability,
         build_zone=zone,
         in_contour_mask=in_mask,
         local_cross_correlation=cc,
@@ -51,3 +57,24 @@ def test_out_of_mask_ignored() -> None:
     stats = compute_model_placement_audit_stats(rows, emdb_id="test")
     assert stats.n_in_mask == 0
     assert stats.notes == "no in-mask residues"
+
+
+def test_multi_cc_thresholds_and_coverage() -> None:
+    rows = [_row(zone=0, cc=0.45, reliability=0.1) for _ in range(3)]
+    rows += [_row(zone=2, cc=0.75, reliability=0.8) for _ in range(7)]
+    rows += [_row(zone=2, cc=0.9, reliability=0.9, in_mask=False) for _ in range(2)]
+    stats = compute_model_placement_audit_stats(rows, emdb_id="4941", cc_threshold=0.5)
+    assert stats.frac_in_contour_mask == 10 / 12
+    assert stats.frac_cc_below_0_50 == 0.3
+    assert stats.frac_cc_below_0_60 == 0.3
+    assert stats.frac_cc_below_0_70 == 0.3
+    assert stats.frac_reliability_below_threshold == 0.3
+    assert stats.spearman_reliability_vs_cc > 0.9
+
+
+def test_decoupled_reliability_vs_cc() -> None:
+    """ClpB WT-2A-like: high reliability rank can anti-track local CC."""
+    rows = [_row(zone=0, cc=0.8, reliability=0.1) for _ in range(4)]
+    rows += [_row(zone=2, cc=0.6, reliability=0.9) for _ in range(6)]
+    stats = compute_model_placement_audit_stats(rows, emdb_id="4941")
+    assert stats.spearman_reliability_vs_cc < 0

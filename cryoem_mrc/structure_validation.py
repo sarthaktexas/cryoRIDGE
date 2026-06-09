@@ -85,7 +85,9 @@ class ModelPlacementAuditStats:
     Deposited-model placement vs map reliability.
 
     Compares tercile-based build zones (relative, per map) with absolute
-    half-map CC at Cα positions (cross-map comparable).
+    half-map CC at Cα positions (cross-map comparable). Also records
+    multi-threshold CC fractions, in-mask coverage, and whether reliability
+    rank tracks local CC at deposited Cα.
     """
 
     emdb_id: str
@@ -93,8 +95,15 @@ class ModelPlacementAuditStats:
     global_resolution_a: float
     n_residues: int
     n_in_mask: int
+    frac_in_contour_mask: float
     cc_threshold: float
     frac_cc_below_threshold: float
+    frac_cc_below_0_50: float
+    frac_cc_below_0_60: float
+    frac_cc_below_0_70: float
+    reliability_threshold: float
+    frac_reliability_below_threshold: float
+    spearman_reliability_vs_cc: float
     frac_in_omit_zone: float
     frac_in_caution_zone: float
     frac_in_build_zone: float
@@ -492,6 +501,7 @@ def compute_model_placement_audit_stats(
     display_name: str = "",
     global_resolution_a: float = float("nan"),
     cc_threshold: float = 0.5,
+    reliability_threshold: float = 0.33,
 ) -> ModelPlacementAuditStats:
     """
     Summarize whether deposited Cα sit in low-reliability map regions.
@@ -499,10 +509,14 @@ def compute_model_placement_audit_stats(
     Tercile zone fractions describe relative placement inside each map.
     ``frac_cc_below_threshold`` uses windowed half-map CC and is comparable
     across the cohort at a fixed cutoff (default 0.5).
+
+    ``frac_reliability_below_threshold`` applies the same absolute logic to the
+    in-mask percentile ``reliability_score`` sampled at Cα (default < 0.33).
     """
     in_mask = [r for r in rows if r.in_contour_mask]
     n_all = len(rows)
     n_use = len(in_mask)
+    frac_cov = float(n_use / n_all) if n_all > 0 else float("nan")
     if n_use == 0:
         return ModelPlacementAuditStats(
             emdb_id=emdb_id,
@@ -510,8 +524,15 @@ def compute_model_placement_audit_stats(
             global_resolution_a=global_resolution_a,
             n_residues=n_all,
             n_in_mask=0,
+            frac_in_contour_mask=frac_cov,
             cc_threshold=cc_threshold,
             frac_cc_below_threshold=float("nan"),
+            frac_cc_below_0_50=float("nan"),
+            frac_cc_below_0_60=float("nan"),
+            frac_cc_below_0_70=float("nan"),
+            reliability_threshold=reliability_threshold,
+            frac_reliability_below_threshold=float("nan"),
+            spearman_reliability_vs_cc=float("nan"),
             frac_in_omit_zone=float("nan"),
             frac_in_caution_zone=float("nan"),
             frac_in_build_zone=float("nan"),
@@ -522,7 +543,8 @@ def compute_model_placement_audit_stats(
 
     zones = np.array([r.build_zone for r in in_mask], dtype=np.int32)
     cc = np.array([r.local_cross_correlation for r in in_mask], dtype=np.float64)
-    finite = np.isfinite(cc)
+    rel = np.array([r.reliability_score for r in in_mask], dtype=np.float64)
+    finite = np.isfinite(cc) & np.isfinite(rel)
     notes = ""
     if not finite.any():
         return ModelPlacementAuditStats(
@@ -531,8 +553,15 @@ def compute_model_placement_audit_stats(
             global_resolution_a=global_resolution_a,
             n_residues=n_all,
             n_in_mask=n_use,
+            frac_in_contour_mask=frac_cov,
             cc_threshold=cc_threshold,
             frac_cc_below_threshold=float("nan"),
+            frac_cc_below_0_50=float("nan"),
+            frac_cc_below_0_60=float("nan"),
+            frac_cc_below_0_70=float("nan"),
+            reliability_threshold=reliability_threshold,
+            frac_reliability_below_threshold=float("nan"),
+            spearman_reliability_vs_cc=float("nan"),
             frac_in_omit_zone=float((zones == 0).mean()),
             frac_in_caution_zone=float((zones == 1).mean()),
             frac_in_build_zone=float((zones == 2).mean()),
@@ -541,17 +570,26 @@ def compute_model_placement_audit_stats(
             notes="no finite local_cross_correlation at Cα",
         )
     if (~finite).any():
-        notes = f"{int((~finite).sum())} in-mask Cα missing local CC"
+        notes = f"{int((~finite).sum())} in-mask Cα missing local CC or reliability"
 
     cc_f = cc[finite]
+    rel_f = rel[finite]
+    rho, _ = stats.spearmanr(rel_f, cc_f)
     return ModelPlacementAuditStats(
         emdb_id=emdb_id,
         display_name=display_name,
         global_resolution_a=global_resolution_a,
         n_residues=n_all,
         n_in_mask=n_use,
+        frac_in_contour_mask=frac_cov,
         cc_threshold=cc_threshold,
         frac_cc_below_threshold=float((cc_f < cc_threshold).mean()),
+        frac_cc_below_0_50=float((cc_f < 0.5).mean()),
+        frac_cc_below_0_60=float((cc_f < 0.6).mean()),
+        frac_cc_below_0_70=float((cc_f < 0.7).mean()),
+        reliability_threshold=reliability_threshold,
+        frac_reliability_below_threshold=float((rel_f < reliability_threshold).mean()),
+        spearman_reliability_vs_cc=float(rho),
         frac_in_omit_zone=float((zones == 0).mean()),
         frac_in_caution_zone=float((zones == 1).mean()),
         frac_in_build_zone=float((zones == 2).mean()),
@@ -573,8 +611,15 @@ def write_model_placement_audit_csv(
         "global_resolution_a",
         "n_residues",
         "n_in_mask",
+        "frac_in_contour_mask",
         "cc_threshold",
         "frac_cc_below_threshold",
+        "frac_cc_below_0_50",
+        "frac_cc_below_0_60",
+        "frac_cc_below_0_70",
+        "reliability_threshold",
+        "frac_reliability_below_threshold",
+        "spearman_reliability_vs_cc",
         "frac_in_omit_zone",
         "frac_in_caution_zone",
         "frac_in_build_zone",
@@ -597,10 +642,41 @@ def write_model_placement_audit_csv(
                     ),
                     "n_residues": s.n_residues,
                     "n_in_mask": s.n_in_mask,
+                    "frac_in_contour_mask": (
+                        f"{s.frac_in_contour_mask:.4f}"
+                        if np.isfinite(s.frac_in_contour_mask)
+                        else ""
+                    ),
                     "cc_threshold": f"{s.cc_threshold:.3f}",
                     "frac_cc_below_threshold": (
                         f"{s.frac_cc_below_threshold:.4f}"
                         if np.isfinite(s.frac_cc_below_threshold)
+                        else ""
+                    ),
+                    "frac_cc_below_0_50": (
+                        f"{s.frac_cc_below_0_50:.4f}"
+                        if np.isfinite(s.frac_cc_below_0_50)
+                        else ""
+                    ),
+                    "frac_cc_below_0_60": (
+                        f"{s.frac_cc_below_0_60:.4f}"
+                        if np.isfinite(s.frac_cc_below_0_60)
+                        else ""
+                    ),
+                    "frac_cc_below_0_70": (
+                        f"{s.frac_cc_below_0_70:.4f}"
+                        if np.isfinite(s.frac_cc_below_0_70)
+                        else ""
+                    ),
+                    "reliability_threshold": f"{s.reliability_threshold:.3f}",
+                    "frac_reliability_below_threshold": (
+                        f"{s.frac_reliability_below_threshold:.4f}"
+                        if np.isfinite(s.frac_reliability_below_threshold)
+                        else ""
+                    ),
+                    "spearman_reliability_vs_cc": (
+                        f"{s.spearman_reliability_vs_cc:.4f}"
+                        if np.isfinite(s.spearman_reliability_vs_cc)
                         else ""
                     ),
                     "frac_in_omit_zone": f"{s.frac_in_omit_zone:.4f}",
@@ -1114,7 +1190,7 @@ A **negative** ρ(B, reliability) is the naive expectation if both proxy local o
 | File | Description |
 |------|-------------|
 | `residue_validation.csv` | Per-residue table |
-| `figures/bfactor_vs_reliability.png` | Scatter (in-mask) |
+| `figures/bfactor_validation_panel.png` | B vs reliability scatter + median B by zone |
 """
     path.write_text(text)
 
