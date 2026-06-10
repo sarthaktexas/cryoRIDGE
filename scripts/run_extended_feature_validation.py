@@ -1,4 +1,4 @@
-"""Extended local statistics, Hessian, LH regimes, light ML vs half-map CC.
+"""Extended local statistics, Hessian, LH regimes, light ML vs windowed half-map correlation.
 
 Compares voxel-level predictors and residue-level sampling (nearest vs sphere).
 
@@ -34,6 +34,7 @@ from cryoem_mrc.local_stats import (
 )
 from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid
 from cryoem_mrc.mechanics import classify_tv_regime, fluctuation_constraint_decomposition
+from cryoem_mrc.half_map_repro import load_windowed_halfmap_correlation
 from cryoem_mrc.repo_paths import halfmap_metrics_npz
 from cryoem_mrc.structure_validation import iter_ca_residues, sample_volume_at_ca
 
@@ -142,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
 
     hm_path = halfmap_metrics_npz(args.emd_id)
     with np.load(hm_path, allow_pickle=False) as z:
-        cc = np.asarray(z["local_cross_correlation"], dtype=np.float32)
+        cc = load_windowed_halfmap_correlation(z)
         mse = np.asarray(z["local_mean_squared_difference"], dtype=np.float32)
         var_diff = np.asarray(z["local_variance_difference"], dtype=np.float32)
         snr = np.asarray(z["local_reproducibility_snr"], dtype=np.float32)

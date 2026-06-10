@@ -10,6 +10,7 @@ import pandas as pd
 from scipy import stats
 
 from .analysis import build_contour_mask
+from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
 from .local_resolution import aggregate_locres_to_ca, locres_blocres_path
 from .map_grid import load_map_grid
 from .repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_metrics_npz, lh_map_reliability_dir
@@ -27,7 +28,7 @@ METRIC_COLUMNS = (
     "reliability_score",
     "reliability_H_repro",
     "b_factor",
-    "local_cross_correlation",
+    WINDOWED_HALFMAP_CORRELATION_KEY,
     "local_variance",
     "local_resolution",
 )
@@ -79,7 +80,7 @@ def load_all_metrics(
     cc = None
     if halfmap_npz.is_file():
         with np.load(halfmap_npz, allow_pickle=False) as hm:
-            cc = np.asarray(hm["local_cross_correlation"], dtype=np.float32)
+            cc = load_windowed_halfmap_correlation(hm)
 
     features_npz = find_features_npz(ref_path.parent, emdb_id, contour)
     local_var = None
@@ -96,7 +97,7 @@ def load_all_metrics(
         reliability_score=reliability_score,
         reliability_H_repro=reliability_H_repro,
         build_zone=build_zone,
-        local_cross_correlation=cc,
+        windowed_halfmap_correlation=cc,
         local_variance=local_var,
         window_radius=0,
     )
@@ -118,7 +119,9 @@ def load_all_metrics(
             "reliability_score": [r.reliability_score for r in rows],
             "reliability_H_repro": [r.reliability_H_repro for r in rows],
             "b_factor": [r.b_iso for r in rows],
-            "local_cross_correlation": [r.local_cross_correlation for r in rows],
+            WINDOWED_HALFMAP_CORRELATION_KEY: [
+                r.windowed_halfmap_correlation for r in rows
+            ],
             "local_variance": [r.local_variance for r in rows],
             "build_zone": [r.build_zone for r in rows],
             "in_contour_mask": [r.in_contour_mask for r in rows],

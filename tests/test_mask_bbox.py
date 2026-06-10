@@ -51,4 +51,6 @@ def test_half_map_metrics_bbox_matches_full_in_mask_interior() -> None:
 
     outside_bbox = np.ones(shape, dtype=bool)
     outside_bbox[bbox.slices] = False
-    assert np.all(cropped["local_cross_correlation"][outside_bbox] == 0)
+    from cryoem_mrc.half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY
+
+    assert np.all(cropped[WINDOWED_HALFMAP_CORRELATION_KEY][outside_bbox] == 0)

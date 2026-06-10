@@ -20,7 +20,7 @@ def _row(*, zone: int, cc: float, b: float, rel: float, in_mask: bool = True) ->
         reliability_H_repro=rel,
         build_zone=zone,
         in_contour_mask=in_mask,
-        local_cross_correlation=cc,
+        windowed_halfmap_correlation=cc,
     )
 
 

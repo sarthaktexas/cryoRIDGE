@@ -36,6 +36,11 @@ from cryoem_mrc.analysis import (
     compute_feature_target_correlations,
     plot_analysis_validation_panel,
 )
+from cryoem_mrc.half_map_repro import (
+    WINDOWED_HALFMAP_CORRELATION_KEY,
+    WINDOWED_HALFMAP_CORRELATION_LABEL,
+    load_windowed_halfmap_correlation,
+)
 from cryoem_mrc.figure_cleanup import prune_lh_retired_figures
 from cryoem_mrc.pipeline import load_feature_maps
 from cryoem_mrc.io import load_mrc
@@ -169,7 +174,7 @@ Mask: deposited reference at ρ ≥ {contour}. In-mask voxels: **{n_mask:,}**.
 
 ## Results (ρ_ref ≥ {contour})
 
-| Feature | Spearman ρ vs half-map CC |
+| Feature | Spearman ρ vs windowed half-map correlation |
 |---------|---------------------------|
 | local_variance | {var_s:+.4f} |
 | reliability_H_repro | {h_s:+.4f} |
@@ -294,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     gc.collect()
 
     with np.load(args.halfmap_npz, allow_pickle=False) as hm:
-        cc = np.asarray(hm["local_cross_correlation"], dtype=np.float32)
+        cc = load_windowed_halfmap_correlation(hm)
 
     compare = {
         "reliability_score": feats["reliability_score"],
@@ -302,7 +307,11 @@ def main(argv: list[str] | None = None) -> int:
         "local_variance": local_var,
     }
     result = compute_feature_target_correlations(
-        compare, cc, mask, target_name="local_cross_correlation", methods=("spearman",),
+        compare,
+        cc,
+        mask,
+        target_name=WINDOWED_HALFMAP_CORRELATION_KEY,
+        methods=("spearman",),
         max_samples=2_000_000,
     )
     spearman = {c.feature_name: c.correlation for c in result.correlations}
@@ -352,11 +361,19 @@ def main(argv: list[str] | None = None) -> int:
 
     fig, axes = plt.subplots(1, 3, figsize=(12, 4.2))
     panels = [
-        (extract_slice(cc, axis=0, index=z), "RdYlGn", "half-map CC", {**kw, "vmin": 0, "vmax": 1, "robust": False}),
+        (
+            extract_slice(cc, axis=0, index=z),
+            "RdYlGn",
+            WINDOWED_HALFMAP_CORRELATION_LABEL,
+            {**kw, "vmin": 0, "vmax": 1, "robust": False},
+        ),
         (extract_slice(feats["reliability_score"], axis=0, index=z), "viridis", "reliability score", kw),
         (extract_slice(zones.astype(float), axis=0, index=z), None, "build zones", {}),
     ]
-    cbar_labels = {"half-map CC": "half-map CC", "reliability score": "reliability score"}
+    cbar_labels = {
+        WINDOWED_HALFMAP_CORRELATION_LABEL: WINDOWED_HALFMAP_CORRELATION_LABEL,
+        "reliability score": "reliability score",
+    }
     for letter, (ax, (sl, cm, title, pkw)) in zip("abc", zip(axes, panels)):
         if title == "build zones":
             sl_c = sl if crop is None else sl[crop[0]:crop[1], crop[2]:crop[3]]
@@ -387,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
         panel_path = analysis_dir(args.emd_id) / "figures" / "analysis_validation_panel.png"
         plot_analysis_validation_panel(
             feature_maps,
-            {"local_cross_correlation": cc},
+            {WINDOWED_HALFMAP_CORRELATION_KEY: cc},
             mask,
             reliability_score=feats["reliability_score"],
             spearman=spearman,

@@ -30,7 +30,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--reference", required=True, type=Path)
     p.add_argument("--contour", type=float, default=0.116)
     p.add_argument("--stride", type=int, default=4)
-    p.add_argument("--window", type=int, default=5, help="Half-map CC window")
+    p.add_argument("--window", type=int, default=5, help="Windowed half-map correlation window")
     p.add_argument("--out-dir", type=Path, default=sensitivity_local_fsc_dir())
     p.add_argument("--n-jobs", type=int, default=1)
     return p.parse_args(argv)
@@ -53,11 +53,13 @@ def main(argv: list[str] | None = None) -> int:
     mask = build_contour_mask(bundle.full.data, args.contour)
     print(f"[sensitivity] mask: {int(mask.sum()):,}/{mask.size:,} voxels")
 
-    print("[sensitivity] computing half-map CC for comparison")
+    print("[sensitivity] computing windowed half-map correlation for comparison")
     metrics = half_map_local_metrics(
         bundle.half1.data, bundle.half2.data, window=args.window,
     )
-    cc = metrics["local_cross_correlation"]
+    from cryoem_mrc.half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY
+
+    cc = metrics[WINDOWED_HALFMAP_CORRELATION_KEY]
 
     patch_sizes = (13, 17, 25)
     thresholds = (0.143, 0.5)
@@ -144,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     ax2.set_xticks(range(len(labels)))
     ax2.set_xticklabels(labels, rotation=45, ha="right")
     ax2.set_ylabel("Spearman(local_CC, local_FSC Å)")
-    ax2.set_title("Agreement with windowed half-map CC proxy")
+    ax2.set_title("Agreement with windowed half-map correlation")
     fig2.tight_layout()
     bar_path = fig_dir / "spearman_vs_cc_bar.png"
     save_nature(fig2, bar_path)

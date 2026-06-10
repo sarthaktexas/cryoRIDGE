@@ -20,7 +20,7 @@ What it produces under ``--out-dir``:
   reference grid for volume overlay.
 - ``halfmap_metrics.npz`` — same arrays, single-file load for downstream notebooks.
 - ``correlations.csv`` — tidy per-feature Pearson + Spearman against the chosen
-  target signal (default ``local_cross_correlation``).
+  target signal (default ``windowed_halfmap_correlation``).
 - ``summary.txt`` — top-N features, mask coverage, scientific caveats.
 - ``figures/halfmap_metric_histograms.png`` — CC + repro-SNR inside vs outside mask.
 - ``figures/analysis_validation_panel.png`` — written by ``run_lh_map_reliability_export.py``
@@ -30,7 +30,8 @@ Per-map ``{feature}_vs_{target}.png`` scatters are retired (use ``--top-k-figure
 for ad-hoc debugging). Run ``scripts/prune_retired_figures.py`` to delete stale exports.
 
 ``--local-res`` supplies the home-rolled FSC map. Use ``--reliability-target`` to
-choose whether figures/CSV use half-map CC (default), Å local resolution, or both.
+choose whether figures/CSV use windowed half-map correlation (default), Å local
+resolution, or both.
 """
 
 from __future__ import annotations
@@ -56,7 +57,11 @@ from cryoem_mrc.analysis import (
 )
 from cryoem_mrc.figure_cleanup import prune_analysis_scatter_figures
 from cryoem_mrc.mask_bbox import format_bbox_log, pad_voxels_for_filters
-from cryoem_mrc.half_map_repro import save_half_map_metrics_mrc
+from cryoem_mrc.half_map_repro import (
+    WINDOWED_HALFMAP_CORRELATION_KEY,
+    normalize_halfmap_metric_keys,
+    save_half_map_metrics_mrc,
+)
 from cryoem_mrc.local_resolution_io import (
     load_local_resolution_map,
     resample_local_resolution_onto_reference,
@@ -77,10 +82,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         "EMDB recommended for EMD-49450)")
     p.add_argument("--window", type=int, default=5, help="Sliding window for half-map metrics")
     p.add_argument("--chunk-z", type=int, default=64, help="Z-chunk size for memory-bounded compute")
-    p.add_argument("--target", default="local_cross_correlation",
-                   choices=("local_cross_correlation", "local_reproducibility_snr",
-                            "local_mean_squared_difference", "local_variance_difference"),
-                   help="Which half-map metric to use as the analysis target")
+    p.add_argument(
+        "--target",
+        default=WINDOWED_HALFMAP_CORRELATION_KEY,
+        choices=(
+            WINDOWED_HALFMAP_CORRELATION_KEY,
+            "local_reproducibility_snr",
+            "local_mean_squared_difference",
+            "local_variance_difference",
+        ),
+        help="Which half-map metric to use as the analysis target",
+    )
     p.add_argument("--max-samples", type=int, default=2_000_000,
                    help="Subsample size for correlations (None disables; default 2e6)")
     p.add_argument(
@@ -106,8 +118,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Å-valued local_fsc MRC from scripts/run_local_fsc.py")
     p.add_argument(
         "--reliability-target",
-        default="halfmap_cc",
-        choices=("halfmap_cc", "local_resolution", "both"),
+        default=WINDOWED_HALFMAP_CORRELATION_KEY,
+        choices=(WINDOWED_HALFMAP_CORRELATION_KEY, "local_resolution", "both"),
         help="Primary target for correlations.csv and top-K scatter figures. "
              "'local_resolution' and 'both' require --local-res.",
     )
@@ -179,7 +191,7 @@ def _write_localres_vs_cc(
     target_lr_name = "local_resolution_A"
     rows_cc: list[tuple[str, str, str, int, float, float]] = []
     mb = mask.astype(bool)
-    for metric_name in ("local_cross_correlation", "local_reproducibility_snr"):
+    for metric_name in (WINDOWED_HALFMAP_CORRELATION_KEY, "local_reproducibility_snr"):
         x = metrics[metric_name][mb].ravel()
         y = local_res[mb].ravel()
         finite = np.isfinite(x) & np.isfinite(y)
@@ -236,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.skip_halfmap_metrics and metrics_npz.exists():
         print(f"[run_analysis] reusing existing {metrics_npz}")
         data = np.load(metrics_npz, allow_pickle=False)
-        metrics = {k: data[k] for k in data.files}
+        metrics = normalize_halfmap_metric_keys({k: data[k] for k in data.files})
     else:
         pad = pad_voxels_for_filters(window=args.window)
         if args.no_crop_to_contour:
@@ -310,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
         if removed:
             print(f"[run_analysis] pruned {len(removed)} retired scatter figure(s)", flush=True)
 
-    if args.reliability_target in ("halfmap_cc", "both"):
+    if args.reliability_target in (WINDOWED_HALFMAP_CORRELATION_KEY, "both"):
         target = metrics[args.target]
         _run_correlation_pass(
             features, target, mask,
@@ -320,8 +332,16 @@ def main(argv: list[str] | None = None) -> int:
             contour=args.contour,
             max_samples=args.max_samples,
             top_k_figures=args.top_k_figures,
-            csv_name="correlations.csv" if args.reliability_target == "halfmap_cc" else "correlations_halfmap_cc.csv",
-            summary_name="summary.txt" if args.reliability_target == "halfmap_cc" else "summary_halfmap_cc.txt",
+            csv_name=(
+                "correlations.csv"
+                if args.reliability_target == WINDOWED_HALFMAP_CORRELATION_KEY
+                else "correlations_windowed_halfmap_correlation.csv"
+            ),
+            summary_name=(
+                "summary.txt"
+                if args.reliability_target == WINDOWED_HALFMAP_CORRELATION_KEY
+                else "summary_windowed_halfmap_correlation.txt"
+            ),
             extra_metadata=meta,
         )
 

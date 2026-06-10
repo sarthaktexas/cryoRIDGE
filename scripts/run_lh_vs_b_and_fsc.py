@@ -1,4 +1,4 @@
-"""LH metrics vs B-factors, half-map CC, and local FSC (per-map cohort table).
+"""LH metrics vs B-factors, windowed half-map correlation, and local FSC (cohort table).
 
 Example::
 
@@ -22,6 +22,7 @@ from cryoem_mrc.io import load_mrc
 from cryoem_mrc.local_resolution_io import load_local_resolution_map, resample_local_resolution_onto_reference
 from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid
 from cryoem_mrc.mechanics import fluctuation_constraint_decomposition
+from cryoem_mrc.half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
 from cryoem_mrc.repo_paths import halfmap_metrics_npz
 from cryoem_mrc.structure_validation import iter_ca_residues, sample_volume_at_ca
 
@@ -88,7 +89,7 @@ def run_one(
     lh = fluctuation_constraint_decomposition(rho, delta, window=window)
 
     with np.load(halfmap_metrics_npz(emd_id), allow_pickle=False) as z:
-        cc = np.asarray(z["local_cross_correlation"], dtype=np.float32)
+        cc = load_windowed_halfmap_correlation(z)
 
     grid = load_map_grid(d / f"{emd}.map")
     lfsc_local = load_local_resolution_map(d / cfg["local_fsc"])
@@ -99,7 +100,7 @@ def run_one(
 
     maps = {
         "local_variance": var,
-        "halfmap_CC": cc,
+        WINDOWED_HALFMAP_CORRELATION_KEY: cc,
         "local_fsc_A": lfsc,
         "lh_T": lh["fluctuation_T"],
         "lh_V": lh["constraint_V"],
@@ -136,7 +137,10 @@ def run_one(
     if idx.size > max_voxel_samples:
         idx = np.random.default_rng(0).choice(idx, max_voxel_samples, replace=False)
     for name, vol in maps.items():
-        for target_name, target in (("halfmap_CC", cc), ("local_fsc_A", lfsc)):
+        for target_name, target in (
+            (WINDOWED_HALFMAP_CORRELATION_KEY, cc),
+            ("local_fsc_A", lfsc),
+        ):
             x = vol.ravel()[idx].astype(np.float64)
             y = target.ravel()[idx].astype(np.float64)
             m = np.isfinite(x) & np.isfinite(y)

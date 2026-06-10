@@ -13,6 +13,12 @@ import numpy as np
 from scipy import stats
 
 from .analysis import build_contour_mask
+from .half_map_repro import (
+    LEGACY_HALFMAP_CORRELATION_KEY,
+    WINDOWED_HALFMAP_CORRELATION_KEY,
+    WINDOWED_HALFMAP_CORRELATION_LABEL,
+    load_windowed_halfmap_correlation,
+)
 from .map_grid import MapGrid, load_map_grid
 
 
@@ -53,7 +59,7 @@ class ResidueValidationRow:
     reliability_H_repro: float
     build_zone: int
     in_contour_mask: bool
-    local_cross_correlation: float = float("nan")
+    windowed_halfmap_correlation: float = float("nan")
     local_variance: float = float("nan")
     auth_chain: str = ""
     auth_seq_num: int = 0
@@ -85,9 +91,9 @@ class ModelPlacementAuditStats:
     Deposited-model placement vs map reliability.
 
     Compares tercile-based build zones (relative, per map) with absolute
-    half-map CC at Cα positions (cross-map comparable). Also records
-    multi-threshold CC fractions, in-mask coverage, and whether reliability
-    rank tracks local CC at deposited Cα.
+    windowed half-map correlation at Cα positions (cross-map comparable). Also
+    records multi-threshold correlation fractions, in-mask coverage, and whether
+    reliability rank tracks windowed half-map correlation at deposited Cα.
     """
 
     emdb_id: str
@@ -350,7 +356,7 @@ def build_residue_validation_table(
     reliability_score: np.ndarray,
     reliability_H_repro: np.ndarray,
     build_zone: np.ndarray,
-    local_cross_correlation: np.ndarray | None = None,
+    windowed_halfmap_correlation: np.ndarray | None = None,
     local_variance: np.ndarray | None = None,
     window_radius: int = 0,
 ) -> list[ResidueValidationRow]:
@@ -373,9 +379,9 @@ def build_residue_validation_table(
     )
     cc_s = None
     var_s = None
-    if local_cross_correlation is not None:
+    if windowed_halfmap_correlation is not None:
         cc_s = sample_volume_at_ca(
-            local_cross_correlation, grid, residues, window_radius=window_radius
+            windowed_halfmap_correlation, grid, residues, window_radius=window_radius
         )
     if local_variance is not None:
         var_s = sample_volume_at_ca(
@@ -398,7 +404,7 @@ def build_residue_validation_table(
                 reliability_H_repro=float(h_s[i]),
                 build_zone=int(round(zone_s[i])),
                 in_contour_mask=bool(in_mask_s[i] >= 0.5),
-                local_cross_correlation=float(cc_s[i]) if cc_s is not None else float("nan"),
+                windowed_halfmap_correlation=float(cc_s[i]) if cc_s is not None else float("nan"),
                 local_variance=float(var_s[i]) if var_s is not None else float("nan"),
                 auth_chain=res.auth_chain or res.chain,
                 auth_seq_num=res.auth_seq_num or res.seq_num,
@@ -507,7 +513,7 @@ def compute_model_placement_audit_stats(
     Summarize whether deposited Cα sit in low-reliability map regions.
 
     Tercile zone fractions describe relative placement inside each map.
-    ``frac_cc_below_threshold`` uses windowed half-map CC and is comparable
+    ``frac_cc_below_threshold`` uses windowed half-map correlation and is comparable
     across the cohort at a fixed cutoff (default 0.5).
 
     ``frac_reliability_below_threshold`` applies the same absolute logic to the
@@ -542,7 +548,7 @@ def compute_model_placement_audit_stats(
         )
 
     zones = np.array([r.build_zone for r in in_mask], dtype=np.int32)
-    cc = np.array([r.local_cross_correlation for r in in_mask], dtype=np.float64)
+    cc = np.array([r.windowed_halfmap_correlation for r in in_mask], dtype=np.float64)
     rel = np.array([r.reliability_score for r in in_mask], dtype=np.float64)
     finite = np.isfinite(cc) & np.isfinite(rel)
     notes = ""
@@ -567,10 +573,13 @@ def compute_model_placement_audit_stats(
             frac_in_build_zone=float((zones == 2).mean()),
             median_local_cc=float("nan"),
             p10_local_cc=float("nan"),
-            notes="no finite local_cross_correlation at Cα",
+            notes=f"no finite {WINDOWED_HALFMAP_CORRELATION_KEY} at Cα",
         )
     if (~finite).any():
-        notes = f"{int((~finite).sum())} in-mask Cα missing local CC or reliability"
+        notes = (
+            f"{int((~finite).sum())} in-mask Cα missing "
+            f"{WINDOWED_HALFMAP_CORRELATION_LABEL} or reliability"
+        )
 
     cc_f = cc[finite]
     rel_f = rel[finite]
@@ -905,7 +914,7 @@ def write_residue_validation_csv(path: str | Path, rows: Sequence[ResidueValidat
         "reliability_H_repro",
         "build_zone",
         "in_contour_mask",
-        "local_cross_correlation",
+        WINDOWED_HALFMAP_CORRELATION_KEY,
         "local_variance",
     ]
     with path.open("w", newline="") as f:
@@ -928,9 +937,9 @@ def write_residue_validation_csv(path: str | Path, rows: Sequence[ResidueValidat
                     "reliability_H_repro": f"{r.reliability_H_repro:.6f}",
                     "build_zone": r.build_zone,
                     "in_contour_mask": int(r.in_contour_mask),
-                    "local_cross_correlation": (
-                        f"{r.local_cross_correlation:.6f}"
-                        if np.isfinite(r.local_cross_correlation)
+                    WINDOWED_HALFMAP_CORRELATION_KEY: (
+                        f"{r.windowed_halfmap_correlation:.6f}"
+                        if np.isfinite(r.windowed_halfmap_correlation)
                         else ""
                     ),
                     "local_variance": (
@@ -1040,7 +1049,11 @@ def read_residue_validation_csv(path: str | Path) -> list[ResidueValidationRow]:
                     reliability_H_repro=float(row["reliability_H_repro"]),
                     build_zone=int(row["build_zone"]),
                     in_contour_mask=bool(int(row["in_contour_mask"])),
-                    local_cross_correlation=float(row["local_cross_correlation"] or "nan"),
+                    windowed_halfmap_correlation=float(
+                        row.get(WINDOWED_HALFMAP_CORRELATION_KEY)
+                        or row.get(LEGACY_HALFMAP_CORRELATION_KEY)
+                        or "nan"
+                    ),
                     local_variance=float(row["local_variance"] or "nan"),
                     auth_chain=row.get("auth_chain") or row["chain"],
                     auth_seq_num=int(row.get("auth_seq_num") or row["seq_num"]),
@@ -1102,7 +1115,7 @@ def run_emdb_bfactor_validation(
     cc = None
     if halfmap_npz is not None and halfmap_npz.exists():
         with np.load(halfmap_npz, allow_pickle=False) as hm:
-            cc = np.asarray(hm["local_cross_correlation"], dtype=np.float32)
+            cc = load_windowed_halfmap_correlation(hm)
     local_var = None
     if features_npz is None:
         features_npz = find_features_npz(ref_path.parent, emd_id, contour_val)
@@ -1118,7 +1131,7 @@ def run_emdb_bfactor_validation(
         reliability_score=reliability_score,
         reliability_H_repro=reliability_H_repro,
         build_zone=build_zone,
-        local_cross_correlation=cc,
+        windowed_halfmap_correlation=cc,
         local_variance=local_var,
         window_radius=window_radius,
     )

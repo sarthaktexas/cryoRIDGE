@@ -39,9 +39,14 @@ def _symmetric_hessian_from_gradients(
     )
 
 
+def _eigh_hessian(h: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Eigen-decompose symmetric Hessian stack (..., 3, 3)."""
+    return np.linalg.eigh(h)
+
+
 def _scalar_summaries_from_hessian(h: np.ndarray, *, eps: float = 1e-12) -> dict[str, np.ndarray]:
     """Eigenvalue summaries from Hessian stack (..., 3, 3)."""
-    evals = np.linalg.eigh(h)[0]
+    evals = _eigh_hessian(h)[0]
     lam1 = evals[..., 2]
     lam2 = evals[..., 1]
     lam3 = evals[..., 0]

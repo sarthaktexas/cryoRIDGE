@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Mapping
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,6 +12,13 @@ from style.nature import apply, label_panel, savefig as save_nature
 from scipy import ndimage
 
 from .io import save_volume_like_reference
+
+# Canonical half-map agreement metric (windowed Pearson correlation of half-map patches).
+WINDOWED_HALFMAP_CORRELATION_KEY = "windowed_halfmap_correlation"
+LEGACY_HALFMAP_CORRELATION_KEY = "local_cross_correlation"
+WINDOWED_HALFMAP_CORRELATION_LABEL = "windowed half-map correlation"
+WINDOWED_HALFMAP_CORRELATION_MRC_NAME = "half_repro_windowed_halfmap_correlation.mrc"
+LEGACY_HALFMAP_CORRELATION_MRC_NAME = "half_repro_local_cross_correlation.mrc"
 
 
 def _uf(x: np.ndarray, size: int) -> np.ndarray:
@@ -29,7 +37,8 @@ def half_map_local_metrics(
 
     Returns (Z, Y, X) arrays:
 
-    - ``local_cross_correlation``: Pearson correlation between the two halves
+    - ``windowed_halfmap_correlation``: Pearson correlation between the two halves
+      in a sliding cubic window (internal reproducibility proxy; not field-standard FSC)
     - ``local_mean_squared_difference``: mean of ``(h1 - h2)²``
     - ``local_variance_difference``: variance of ``(h1 - h2)``
     - ``local_reproducibility_snr``: ``0.5 * (|mean(h1)| + |mean(h2)|) / (std(h1-h2) + eps)``
@@ -64,11 +73,46 @@ def half_map_local_metrics(
 
     dt = np.result_type(half1.dtype, half2.dtype)
     return {
-        "local_cross_correlation": local_cc.astype(dt, copy=False),
+        WINDOWED_HALFMAP_CORRELATION_KEY: local_cc.astype(dt, copy=False),
         "local_mean_squared_difference": local_mse.astype(dt, copy=False),
         "local_variance_difference": local_var_diff.astype(dt, copy=False),
         "local_reproducibility_snr": snr_like.astype(dt, copy=False),
     }
+
+
+def normalize_halfmap_metric_keys(metrics: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Return metrics with the canonical windowed-halfmap-correlation key."""
+    out = dict(metrics)
+    if (
+        LEGACY_HALFMAP_CORRELATION_KEY in out
+        and WINDOWED_HALFMAP_CORRELATION_KEY not in out
+    ):
+        out[WINDOWED_HALFMAP_CORRELATION_KEY] = out.pop(LEGACY_HALFMAP_CORRELATION_KEY)
+    return out
+
+
+def load_windowed_halfmap_correlation(npz: Mapping[str, np.ndarray]) -> np.ndarray:
+    """Load windowed half-map correlation from an NPZ dict (supports legacy key)."""
+    if WINDOWED_HALFMAP_CORRELATION_KEY in npz:
+        return np.asarray(npz[WINDOWED_HALFMAP_CORRELATION_KEY], dtype=np.float32)
+    if LEGACY_HALFMAP_CORRELATION_KEY in npz:
+        return np.asarray(npz[LEGACY_HALFMAP_CORRELATION_KEY], dtype=np.float32)
+    raise KeyError(
+        f"NPZ missing {WINDOWED_HALFMAP_CORRELATION_KEY!r} "
+        f"(legacy {LEGACY_HALFMAP_CORRELATION_KEY!r})"
+    )
+
+
+def resolve_windowed_halfmap_correlation_mrc(metrics_dir: Path) -> Path | None:
+    """Return exported MRC path (canonical name first, then legacy)."""
+    metrics_dir = Path(metrics_dir)
+    canonical = metrics_dir / WINDOWED_HALFMAP_CORRELATION_MRC_NAME
+    if canonical.is_file():
+        return canonical
+    legacy = metrics_dir / LEGACY_HALFMAP_CORRELATION_MRC_NAME
+    if legacy.is_file():
+        return legacy
+    return None
 
 
 def save_half_map_metrics_mrc(

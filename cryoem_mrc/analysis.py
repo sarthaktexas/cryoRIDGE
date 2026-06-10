@@ -4,8 +4,9 @@ This module turns the per-voxel feature maps produced by :mod:`cryoem_mrc.pipeli
 into the comparison tables and figures called for in the project handoff §4 and §7:
 
 - A masked, per-voxel correlation table (Pearson + Spearman) of every density-derived
-  feature against a chosen reliability target — typically ``local_cross_correlation``
-  from :func:`cryoem_mrc.half_map_repro.half_map_local_metrics`, optionally also
+  feature against a chosen reliability target — typically
+  ``windowed_halfmap_correlation`` from :func:`cryoem_mrc.half_map_repro.half_map_local_metrics`,
+  optionally also
   against a local-resolution map in Å when one is available.
 - A tidy CSV for the thesis appendix.
 - A plain-text ``summary.txt`` listing the strongest correlated features with the
@@ -18,8 +19,9 @@ Scientific framing
 ------------------
 
 The thesis question is whether voxel-wise local statistics computed on a cryo-EM
-density map identify regions of high vs. low map reliability. ``local_cross_correlation``
-(half-map agreement in a sliding cubic window) is the primary reliability signal.
+density map identify regions of high vs. low map reliability.
+``windowed_halfmap_correlation`` (half-map agreement in a sliding cubic window) is the
+primary fast reproducibility target; local FSC resolution (Å) is the field-standard reference.
 An Å-valued local resolution target (windowed FSC via :mod:`cryoem_mrc.local_fsc`,
 loaded through :mod:`cryoem_mrc.local_resolution_io`) can be used as a second
 target column — see :class:`MaskedAnalysisResult`.
@@ -45,7 +47,11 @@ import json
 import numpy as np
 from scipy import ndimage, stats
 
-from .half_map_repro import half_map_local_metrics
+from .half_map_repro import (
+    WINDOWED_HALFMAP_CORRELATION_KEY,
+    WINDOWED_HALFMAP_CORRELATION_LABEL,
+    half_map_local_metrics,
+)
 from .mask_bbox import VolumeBbox, bbox_from_mask, crop_array, embed_array
 
 
@@ -89,7 +95,7 @@ def half_map_local_metrics_chunked(
     -------
     dict
         Same keys as :func:`half_map_local_metrics`:
-        ``local_cross_correlation``, ``local_mean_squared_difference``,
+        ``windowed_halfmap_correlation``, ``local_mean_squared_difference``,
         ``local_variance_difference``, ``local_reproducibility_snr``.
     """
     if half1.shape != half2.shape:
@@ -104,7 +110,7 @@ def half_map_local_metrics_chunked(
     pad = int(window // 2)
 
     keys = (
-        "local_cross_correlation",
+        WINDOWED_HALFMAP_CORRELATION_KEY,
         "local_mean_squared_difference",
         "local_variance_difference",
         "local_reproducibility_snr",
@@ -257,7 +263,7 @@ def compute_feature_target_correlations(
     target: np.ndarray,
     mask: np.ndarray,
     *,
-    target_name: str = "local_cross_correlation",
+    target_name: str = WINDOWED_HALFMAP_CORRELATION_KEY,
     methods: Sequence[CorrelationMethod] = ("pearson", "spearman"),
     feature_keys: Sequence[str] | None = None,
     max_samples: int | None = 2_000_000,
@@ -351,7 +357,7 @@ def binned_feature_by_target(
     mask: np.ndarray,
     *,
     feature_name: str,
-    target_name: str = "local_cross_correlation",
+    target_name: str = WINDOWED_HALFMAP_CORRELATION_KEY,
     n_bins: int = 10,
     quantile_bins: bool = True,
 ) -> BinnedRelationship:
@@ -483,7 +489,7 @@ def write_summary_text(
 
 # Metrics kept in the trimmed mask-QC histogram (drop redundant MSE / var-diff pair).
 HALFMAP_HISTOGRAM_QC_KEYS: tuple[str, ...] = (
-    "local_cross_correlation",
+    WINDOWED_HALFMAP_CORRELATION_KEY,
     "local_reproducibility_snr",
 )
 
@@ -555,7 +561,7 @@ def plot_cc_mask_histogram_on_ax(
     metrics: Mapping[str, np.ndarray],
     mask: np.ndarray,
     *,
-    metric_key: str = "local_cross_correlation",
+    metric_key: str = WINDOWED_HALFMAP_CORRELATION_KEY,
     bins: int = 80,
 ) -> None:
     """Single-metric inside vs outside mask histogram (panel inset for validation figure)."""
@@ -592,7 +598,7 @@ def plot_reliability_vs_cc_binned_on_ax(
     spearman_rho: float | None = None,
     n_bins: int = 10,
 ) -> None:
-    """Binned mean reliability_score vs half-map CC (replaces per-map orphan figure)."""
+    """Binned mean reliability_score vs windowed half-map correlation."""
     from style.nature import apply
 
     binned = binned_feature_by_target(
@@ -600,7 +606,7 @@ def plot_reliability_vs_cc_binned_on_ax(
         cc,
         mask,
         feature_name="reliability_score",
-        target_name="local_cross_correlation",
+        target_name=WINDOWED_HALFMAP_CORRELATION_KEY,
         n_bins=n_bins,
     )
     apply(ax)
@@ -617,7 +623,7 @@ def plot_reliability_vs_cc_binned_on_ax(
     )
     ax.legend(loc="best", fontsize=8)
     rho_txt = f", ρ={spearman_rho:+.3f}" if spearman_rho is not None and np.isfinite(spearman_rho) else ""
-    ax.set_xlabel("half-map CC (bin center)")
+    ax.set_xlabel(f"{WINDOWED_HALFMAP_CORRELATION_LABEL} (bin center)")
     ax.set_ylabel("mean reliability_score")
     ax.set_title(f"reliability vs half-map agreement{rho_txt}", fontsize=10)
 
@@ -646,7 +652,7 @@ def plot_analysis_validation_panel(
 
     from style.nature import label_panel, savefig as save_nature
 
-    target_name = "local_cross_correlation"
+    target_name = WINDOWED_HALFMAP_CORRELATION_KEY
     cc = np.asarray(metrics[target_name])
     fig, axes = plt.subplots(2, 2, figsize=(11.0, 9.0))
     flat = axes.ravel()
@@ -681,7 +687,10 @@ def plot_analysis_validation_panel(
     plot_cc_mask_histogram_on_ax(flat[3], metrics, mask)
     label_panel(flat[3], "d")
 
-    fig.suptitle(f"EMD-{emd_id} feature vs half-map CC (mask ρ≥{contour})", fontsize=12)
+    fig.suptitle(
+        f"EMD-{emd_id} feature vs {WINDOWED_HALFMAP_CORRELATION_LABEL} (mask ρ≥{contour})",
+        fontsize=12,
+    )
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)

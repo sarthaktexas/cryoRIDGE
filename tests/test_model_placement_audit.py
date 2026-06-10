@@ -29,7 +29,7 @@ def _row(
         reliability_H_repro=reliability,
         build_zone=zone,
         in_contour_mask=in_mask,
-        local_cross_correlation=cc,
+        windowed_halfmap_correlation=cc,
     )
 
 

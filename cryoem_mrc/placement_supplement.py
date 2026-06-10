@@ -11,6 +11,7 @@ from scipy import stats
 from style.nature import apply, label_panel, savefig as save_nature
 
 from .reliability import BUILD_ZONE_COLORS
+from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_LABEL
 from .structure_validation import ResidueValidationRow
 
 ZONE_LABELS = {0: "omit", 1: "caution", 2: "build"}
@@ -27,9 +28,12 @@ def in_mask_arrays(
     for r in rows:
         if not r.in_contour_mask:
             continue
-        if not (np.isfinite(r.local_cross_correlation) and np.isfinite(r.reliability_score)):
+        if not (
+            np.isfinite(r.windowed_halfmap_correlation)
+            and np.isfinite(r.reliability_score)
+        ):
             continue
-        cc_list.append(float(r.local_cross_correlation))
+        cc_list.append(float(r.windowed_halfmap_correlation))
         b_list.append(float(r.b_iso))
         rel_list.append(float(r.reliability_score))
         zone_list.append(int(r.build_zone))
@@ -109,8 +113,8 @@ def plot_placement_supplement(
         patch.set_alpha(0.75)
     axes[0].set_xticks(positions)
     axes[0].set_xticklabels([ZONE_LABELS[z] for z in zone_order])
-    axes[0].set_ylabel("Local half-map CC at Cα")
-    axes[0].set_title("CC by build zone")
+    axes[0].set_ylabel(f"{WINDOWED_HALFMAP_CORRELATION_LABEL} at Cα")
+    axes[0].set_title("Correlation by build zone")
     label_panel(axes[0], "a")
 
     # (b) B_iso by zone
@@ -150,8 +154,8 @@ def plot_placement_supplement(
             label=ZONE_LABELS[z],
         )
     axes[2].set_xlabel("Reliability score at Cα")
-    axes[2].set_ylabel("Local half-map CC")
-    axes[2].set_title(f"ρ(rel, CC) = {rho_rel_cc:+.2f}")
+    axes[2].set_ylabel(WINDOWED_HALFMAP_CORRELATION_LABEL)
+    axes[2].set_title(f"ρ(rel, corr) = {rho_rel_cc:+.2f}")
     axes[2].legend(loc="lower left", frameon=False, fontsize=5)
     label_panel(axes[2], "c")
 

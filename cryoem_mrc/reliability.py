@@ -71,7 +71,7 @@ def compute_reliability_maps(
     Reproducibility-based reliability from averaged map rho and half difference.
 
     **Primary export:** ``reliability_score`` — in-mask percentile rank of
-    :math:`H_{\\mathrm{repro}}` (higher = more reliable vs half-map CC on test maps).
+    :math:`H_{\\mathrm{repro}}` (higher = more reliable vs windowed half-map correlation on test maps).
 
     Also returns exploratory LH decomposition (T, V, L = T - V) for methods figures.
     """

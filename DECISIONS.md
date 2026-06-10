@@ -55,7 +55,7 @@ FSC. The estimator lives in `cryoem_mrc/local_fsc.py`, with drivers
 - **Task 3:** `scripts/run_local_fsc.py` — aligned halves, contour mask (Decision
   002), summary `.summary.txt`.
 - **Task 4:** `scripts/run_analysis.py --local-res` → `correlations_localres.csv`,
-  `localres_vs_cc.csv` (Spearman of `local_cross_correlation` and
+  `localres_vs_cc.csv` (Spearman of `windowed_halfmap_correlation` and
   `local_reproducibility_snr` vs `local_resolution_A`), and top-K scatter figures.
 
 ### Consequences
@@ -82,7 +82,7 @@ python -m unittest tests.test_local_fsc tests.test_local_resolution_export
 
 Patch size and FSC threshold trade localization vs. stability. Task 5 requires a
 2×3 panel (P ∈ {13, 17, 25}, t ∈ {0.143, 0.5}) and Spearman agreement with
-windowed half-map CC inside the contour mask.
+windowed half-map correlation inside the contour mask.
 
 ### Decision
 
@@ -200,7 +200,7 @@ As of this run, both analyses are available:
 - **Canonical (avg-of-halves features):**
   `outputs/emd_49450/analysis/correlations.csv`
 
-Both use the same half-map target (`local_cross_correlation`) and contour mask
+Both use the same half-map target (`windowed_halfmap_correlation`) and contour mask
 (0.116; 235,240 masked voxels), so row-wise deltas isolate feature-input
 differences from map-processing state.
 
@@ -222,7 +222,7 @@ deltas were recorded here.
 
 ### Observed deltas (preview -> canonical)
 
-Largest absolute deltas (Spearman/Pearson vs `local_cross_correlation`) are in
+Largest absolute deltas (Spearman/Pearson vs `windowed_halfmap_correlation`) are in
 intensity-heavy features, consistent with map filtering/sharpening effects:
 
 - `density_raw` Spearman: `0.649` -> `0.454` (`delta = -0.195`)
@@ -265,7 +265,7 @@ density statistics against:
    half-maps via local Fourier shell correlation).
 
 The pipeline already implements (1) end-to-end and produces sensible numbers
-on the real EMD-49450 halves (`local_cross_correlation` ranges −0.72 to
+on the real EMD-49450 halves (`windowed_halfmap_correlation` ranges −0.72 to
 +0.91, `local_reproducibility_snr` peaks at ~2.1). It also wraps the ResMap
 binary for (2), but does not yet have an analysis layer that turns either
 signal into the deliverables called for in handoff §4 and §7 (CSV tables,
@@ -298,7 +298,7 @@ runs in ~2 minutes on the full 430³ EMD-49450 box with no external tool
 dependencies. Local FSC — what BlocRes / ResMap / MonoRes estimate — is
 mathematically the Fourier-domain reformulation of half-map agreement; both
 measure the same underlying reproducibility. Building the analysis around
-half-map CC is therefore not "deferring" the central comparison, it is
+windowed half-map correlation is therefore not "deferring" the central comparison, it is
 running the central comparison through its primary signal.
 *Cons:* ResMap output remains an outstanding deliverable for the thesis.
 
@@ -322,7 +322,7 @@ rewrite.
    reliability signal and local resolution as an "imperfect reference."
    Sequencing the implementation to match this priority is consistent with
    the project's stated scientific framing.
-2. Local FSC and spatial-domain cross-correlation are two views of the same
+2. Local FSC resolution (Å) and windowed half-map correlation are two views of the same
    reproducibility signal. The thesis claim — that local density statistics
    correlate with map reliability — is testable against either, and the one
    that does not depend on an external tool is the one that can be tested
@@ -417,7 +417,7 @@ that is closer to the half-map processing state, but EMD-49450 does not.
 
 - **(a) Use the deposited primary map for feature extraction.** Convenient,
   but feature distributions then reflect the depositor's sharpening choices,
-  not the underlying density. Comparing those features against half-map CC
+  not the underlying density. Comparing those features against windowed half-map correlation
   mixes processing artifacts into the correlations.
 - **(b) Compute features on `0.5 * (half1 + half2)`.** Same processing state
   as the halves; mathematically equivalent to an unfiltered "additional"

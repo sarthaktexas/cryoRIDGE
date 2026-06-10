@@ -1,4 +1,4 @@
-"""Compare legacy rigidity vs exploratory L/H scores against half-map CC.
+"""Compare legacy rigidity vs exploratory L/H scores against windowed half-map correlation.
 
 Production export uses H_repro only; see docs/LH_MAP_RELIABILITY.md.
 
@@ -169,7 +169,9 @@ def _plot_comparison_bar(rows: list[dict], out_path: Path) -> None:
     apply(ax)
     ax.barh(np.arange(len(labels)), vals, color=colors, alpha=0.85)
     ax.set_yticks(np.arange(len(labels)), labels)
-    ax.set_xlabel("|Spearman r| vs local_cross_correlation")
+    from cryoem_mrc.half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY
+
+    ax.set_xlabel(f"|Spearman r| vs {WINDOWED_HALFMAP_CORRELATION_KEY}")
     ax.set_title("Rigidity heuristic vs mechanics (EMD-49450, mask rho>=0.116)")
     ax.set_xlim(0, 1.0)
     fig.tight_layout()
@@ -243,17 +245,22 @@ def main(argv: list[str] | None = None) -> int:
     del base_feats, mech, rigidity
     gc.collect()
 
-    print("[rigidity_vs_mech] loading half-map CC target", flush=True)
+    from cryoem_mrc.half_map_repro import (
+        WINDOWED_HALFMAP_CORRELATION_KEY,
+        load_windowed_halfmap_correlation,
+    )
+
+    print("[rigidity_vs_mech] loading windowed half-map correlation target", flush=True)
     with np.load(args.halfmap_npz, allow_pickle=False) as hm:
-        target = np.asarray(hm["local_cross_correlation"], dtype=np.float32)
+        target = load_windowed_halfmap_correlation(hm)
     if target.shape != mask.shape:
         print(f"[rigidity_vs_mech] ERROR: CC shape {target.shape} != mask {mask.shape}", file=sys.stderr)
         return 2
 
-    print("[rigidity_vs_mech] correlating vs local_cross_correlation", flush=True)
+    print(f"[rigidity_vs_mech] correlating vs {WINDOWED_HALFMAP_CORRELATION_KEY}", flush=True)
     result = compute_feature_target_correlations(
         compare_feats, target, mask,
-        target_name="local_cross_correlation",
+        target_name=WINDOWED_HALFMAP_CORRELATION_KEY,
         methods=("pearson", "spearman"),
         max_samples=args.max_samples,
     )
