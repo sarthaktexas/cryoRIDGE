@@ -220,6 +220,16 @@ def reload_domain_colors() -> dict[str, str]:
     return DOMAIN_COLORS
 
 
+def get_domain_regions_for_emdb(emdb_id: str) -> list[DomainRegion]:
+    """Return domain region definitions when ``emdb_id`` is in the registry, else []."""
+    emdb_id = str(emdb_id).strip()
+    for entry in _load_domains_registry():
+        entry_ids = {str(x).strip() for x in entry.get("emdb_ids", [])}
+        if emdb_id in entry_ids:
+            return [_parse_domain_region(r) for r in entry.get("regions", [])]
+    return []
+
+
 def get_domain_regions_for_pair(emdb_a: str, emdb_b: str) -> list[DomainRegion]:
     """Return domain region definitions when annotated for this pair, else []."""
     pair_ids = {str(emdb_a).strip(), str(emdb_b).strip()}
@@ -346,6 +356,7 @@ __all__ = [
     "domain_index_spans",
     "domain_residue_color",
     "get_domain_assignments",
+    "get_domain_regions_for_emdb",
     "get_domain_regions_for_pair",
     "region_matches_residue",
     "interior_residue_indices",

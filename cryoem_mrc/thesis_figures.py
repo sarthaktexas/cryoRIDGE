@@ -11,6 +11,8 @@ from typing import Mapping, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import colors as mcolors
+from matplotlib.gridspec import GridSpecFromSubplotSpec
 from matplotlib.patches import Rectangle
 
 from style.nature import PALETTES, apply, label_panel, savefig as save_nature
@@ -26,14 +28,16 @@ from .conformation_pair import (
     reload_domain_colors,
 )
 from .cohort_composition import resolve_cohort_na_residue_fraction
+from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_LABEL
 from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
 from .structure_validation import load_cohort_manifest_row
 
-# Half-map CC and local resolution (Å) are inversely related; use the same diverging
-# map with reversed direction so green = reliable / sharp in both panels.
+# Windowed half-map correlation and local FSC resolution (Å) are inversely related;
+# use the same diverging map with reversed direction so green = reliable / sharp.
 RELIABILITY_CMAP_CC = "RdYlGn"
 RELIABILITY_CMAP_LOCRES = "RdYlGn_r"
-CC_CBAR_LABEL = "CC (high = reliable)"
+CC_CBAR_LABEL = f"{WINDOWED_HALFMAP_CORRELATION_LABEL} (high = reliable)"
+WINDOWED_HALFMAP_CORRELATION_ONLY_SOURCE = "windowed_halfmap_correlation_only"
 LOCRES_CBAR_LABEL = "Å (low = sharper)"
 
 
@@ -336,7 +340,7 @@ def plot_parallel_reliability_readouts(
     scale_bar_a: float = 50.0,
 ) -> plt.Figure:
     """
-    Three-panel row: averaged density, windowed half-map CC, local FSC resolution (Å).
+    Three-panel row: averaged density, windowed half-map correlation, local FSC (Å).
 
     Intended for the thesis overview schematic (parallel reliability readouts).
     """
@@ -496,7 +500,7 @@ def plot_reliability_pair_only(
         vmax=cc_vmax,
         robust=False,
         cbar_label=CC_CBAR_LABEL,
-        title="Windowed half-map CC",
+        title=WINDOWED_HALFMAP_CORRELATION_LABEL.title(),
         **kw,
     )
     plot_masked_slice(
@@ -539,7 +543,7 @@ def plot_spearman_top_bar(
     if not rows:
         raise ValueError(f"No {method} rows in {correlations_csv}")
 
-    target = rows[0].get("target", "local_cross_correlation")
+    target = rows[0].get("target", WINDOWED_HALFMAP_CORRELATION_KEY)
     rho_key = "correlation" if "correlation" in rows[0] else "spearman_r"
     ranked = sorted(
         rows,
@@ -571,8 +575,8 @@ class CohortMetricRow:
     """Per-map summary metrics for cohort comparison heatmaps."""
 
     emdb_id: str
-    var_vs_cc: float
-    rel_vs_cc: float
+    var_vs_windowed_halfmap_correlation: float
+    rel_vs_windowed_halfmap_correlation: float
     partial_rel_given_var: float
     b_vs_rel: float = float("nan")
     display_name: str = ""
@@ -647,8 +651,11 @@ def infer_protein_class(display_name: str, flexibility_source: str = "") -> str:
         return "Large enzyme / assembly"
     if any(k in name for k in ("nucleosome", "ribozyme")):
         return "Nucleic acid"
-    if flexibility_source == "halfmap_cc_only":
-        return "CC-only (no model)"
+    if flexibility_source in (
+        WINDOWED_HALFMAP_CORRELATION_ONLY_SOURCE,
+        "halfmap_cc_only",
+    ):
+        return "Correlation-only (no model)"
     if flexibility_source == "conformational_pair":
         return "Conformation pair"
     return "Other"
@@ -689,12 +696,12 @@ def cohort_resolution_bin_label(row: CohortMetricRow) -> str:
 
 
 def cohort_var_cc_bin_label(row: CohortMetricRow) -> str:
-    """Coarse local-variance ↔ CC coupling bin (primary success predictor)."""
-    if not np.isfinite(row.var_vs_cc):
+    """Coarse local-variance ↔ windowed-halfmap-correlation coupling bin."""
+    if not np.isfinite(row.var_vs_windowed_halfmap_correlation):
         return "unknown"
-    if row.var_vs_cc < 0.5:
+    if row.var_vs_windowed_halfmap_correlation < 0.5:
         return "low (<0.5)"
-    if row.var_vs_cc < 0.8:
+    if row.var_vs_windowed_halfmap_correlation < 0.8:
         return "mid (0.5–0.8)"
     return "high (>0.8)"
 
@@ -743,8 +750,8 @@ def collect_cohort_metrics(
         rows.append(
             CohortMetricRow(
                 emdb_id=emdb_id,
-                var_vs_cc=float(spearman.get("local_variance", float("nan"))),
-                rel_vs_cc=float(spearman.get("reliability_score", float("nan"))),
+                var_vs_windowed_halfmap_correlation=float(spearman.get("local_variance", float("nan"))),
+                rel_vs_windowed_halfmap_correlation=float(spearman.get("reliability_score", float("nan"))),
                 partial_rel_given_var=float(partial.get("reliability_score", float("nan"))),
                 b_vs_rel=b_vs_rel,
                 display_name=display_name,
@@ -772,11 +779,11 @@ def write_cohort_metrics_csv(rows: Sequence[CohortMetricRow], path: str | Path) 
         "contour",
         "na_residue_fraction",
         "resolution_bin",
-        "var_cc_bin",
+        "var_windowed_halfmap_correlation_bin",
         "n_residues",
         "n_mask",
-        "var_vs_cc",
-        "rel_vs_cc",
+        "var_vs_windowed_halfmap_correlation",
+        "rel_vs_windowed_halfmap_correlation",
         "partial_rel_given_var",
         "b_vs_rel",
     ]
@@ -806,15 +813,15 @@ def write_cohort_metrics_csv(rows: Sequence[CohortMetricRow], path: str | Path) 
                         else ""
                     ),
                     "resolution_bin": cohort_resolution_bin_label(row),
-                    "var_cc_bin": cohort_var_cc_bin_label(row),
+                    "var_windowed_halfmap_correlation_bin": cohort_var_cc_bin_label(row),
                     "n_residues": (
                         f"{int(row.n_residues)}"
                         if np.isfinite(row.n_residues) and row.n_residues > 0
                         else ""
                     ),
                     "n_mask": row.n_mask,
-                    "var_vs_cc": f"{row.var_vs_cc:.6f}",
-                    "rel_vs_cc": f"{row.rel_vs_cc:.6f}",
+                    "var_vs_windowed_halfmap_correlation": f"{row.var_vs_windowed_halfmap_correlation:.6f}",
+                    "rel_vs_windowed_halfmap_correlation": f"{row.rel_vs_windowed_halfmap_correlation:.6f}",
                     "partial_rel_given_var": f"{row.partial_rel_given_var:.6f}",
                     "b_vs_rel": f"{row.b_vs_rel:.6f}" if np.isfinite(row.b_vs_rel) else "",
                 }
@@ -831,15 +838,21 @@ def plot_cohort_metrics_heatmap(
     """
     Maps × metrics heatmap for cross-cohort comparison (thesis Results §3.2).
 
-    Columns: local_variance vs CC, reliability vs CC, partial reliability | variance,
+    Columns: local_variance vs windowed half-map correlation, reliability vs same,
     and optionally B_iso vs reliability when ``bfactor_validation_stats.json`` exists.
     """
     if not rows:
         raise ValueError("No cohort metric rows to plot")
 
     metric_cols: list[tuple[str, str]] = [
-        ("var_vs_cc", "local variance ↔ CC"),
-        ("rel_vs_cc", "reliability ↔ CC"),
+        (
+            "var_vs_windowed_halfmap_correlation",
+            f"local variance ↔ {WINDOWED_HALFMAP_CORRELATION_LABEL}",
+        ),
+        (
+            "rel_vs_windowed_halfmap_correlation",
+            f"reliability ↔ {WINDOWED_HALFMAP_CORRELATION_LABEL}",
+        ),
         ("partial_rel_given_var", "partial rel | variance"),
     ]
     if include_b_factor:
@@ -1172,7 +1185,7 @@ def plot_cohort_size_vs_reliability(
     color_by: str = "protein_class",
 ) -> plt.Figure:
     """
-    Scatter of protein size vs masked-voxel reliability ↔ half-map CC (ρ).
+    Scatter of protein size vs masked-voxel reliability ↔ windowed half-map correlation (ρ).
 
     Size uses deposited Cα count when a PDB validation exists; otherwise masked
     voxels (square markers). Reports cohort Spearman ρ between size and ρ(rel, CC).
@@ -1185,13 +1198,13 @@ def plot_cohort_size_vs_reliability(
     usable = [
         r
         for r in rows
-        if np.isfinite(r.rel_vs_cc) and np.isfinite(cohort_protein_size(r))
+        if np.isfinite(r.rel_vs_windowed_halfmap_correlation) and np.isfinite(cohort_protein_size(r))
     ]
     if len(usable) < 2:
-        raise ValueError("Need at least two maps with finite size and rel_vs_cc")
+        raise ValueError("Need at least two maps with finite size and rel_vs_windowed_halfmap_correlation")
 
     sizes = np.array([cohort_protein_size(r) for r in usable], dtype=np.float64)
-    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_windowed_halfmap_correlation for r in usable], dtype=np.float64)
 
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     apply(ax)
@@ -1244,7 +1257,7 @@ def plot_cohort_size_vs_reliability(
     rho_size, p_size = stats.spearmanr(sizes, rels)
     ax.set_xscale("log")
     ax.set_xlabel("Protein size (Cα residues or masked voxels, log scale)")
-    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_ylabel("Reliability vs windowed half-map correlation (Spearman ρ)")
     ax.set_title("Cohort: size vs reliability–CC agreement")
     ax.axhline(0.0, color="0.75", linewidth=0.6, linestyle="--")
     ax.set_ylim(-0.05, 1.02)
@@ -1296,7 +1309,7 @@ def plot_cohort_resolution_vs_reliability(
     color_by: str = "protein_class",
 ) -> plt.Figure:
     """
-    Scatter of deposited global resolution vs masked-voxel reliability ↔ half-map CC (ρ).
+    Scatter of deposited global resolution vs reliability ↔ windowed half-map correlation (ρ).
 
     Resolution values come from ``cohort/manifest.csv`` (EMDB author-reported Å).
     Reports cohort Spearman ρ between resolution and ρ(rel, CC).
@@ -1309,13 +1322,13 @@ def plot_cohort_resolution_vs_reliability(
     usable = [
         r
         for r in rows
-        if np.isfinite(r.rel_vs_cc) and np.isfinite(cohort_global_resolution_a(r))
+        if np.isfinite(r.rel_vs_windowed_halfmap_correlation) and np.isfinite(cohort_global_resolution_a(r))
     ]
     if len(usable) < 2:
-        raise ValueError("Need at least two maps with finite resolution and rel_vs_cc")
+        raise ValueError("Need at least two maps with finite resolution and rel_vs_windowed_halfmap_correlation")
 
     resolutions = np.array([cohort_global_resolution_a(r) for r in usable], dtype=np.float64)
-    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_windowed_halfmap_correlation for r in usable], dtype=np.float64)
 
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     apply(ax)
@@ -1325,7 +1338,7 @@ def plot_cohort_resolution_vs_reliability(
 
     rho_res, p_res = stats.spearmanr(resolutions, rels)
     ax.set_xlabel("Global resolution (Å, EMDB deposition)")
-    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_ylabel("Reliability vs windowed half-map correlation (Spearman ρ)")
     ax.set_title("Cohort: global resolution vs reliability–CC agreement")
     ax.axhline(0.0, color="0.75", linewidth=0.6, linestyle="--")
     ax.set_ylim(-0.05, 1.02)
@@ -1356,7 +1369,7 @@ def plot_cohort_variance_vs_reliability_cc(
     color_by: str = "protein_class",
 ) -> plt.Figure:
     """
-    Diagnostic scatter: local variance ↔ CC vs reliability ↔ CC (ρ).
+    Diagnostic scatter: variance ↔ correlation vs reliability ↔ correlation (ρ).
 
     Points on the y = x line indicate reliability tracks variance's CC coupling;
     below-diagonal maps are where reliability underperforms variance alone.
@@ -1367,13 +1380,13 @@ def plot_cohort_variance_vs_reliability_cc(
         raise ValueError("No cohort metric rows to plot")
 
     usable = [
-        r for r in rows if np.isfinite(r.rel_vs_cc) and np.isfinite(r.var_vs_cc)
+        r for r in rows if np.isfinite(r.rel_vs_windowed_halfmap_correlation) and np.isfinite(r.var_vs_windowed_halfmap_correlation)
     ]
     if len(usable) < 2:
-        raise ValueError("Need at least two maps with finite var_vs_cc and rel_vs_cc")
+        raise ValueError("Need at least two maps with finite var_vs_windowed_halfmap_correlation and rel_vs_windowed_halfmap_correlation")
 
-    vars_cc = np.array([r.var_vs_cc for r in usable], dtype=np.float64)
-    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+    vars_cc = np.array([r.var_vs_windowed_halfmap_correlation for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_windowed_halfmap_correlation for r in usable], dtype=np.float64)
 
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     apply(ax)
@@ -1385,8 +1398,8 @@ def plot_cohort_variance_vs_reliability_cc(
     lim_hi = max(float(vars_cc.max()), float(rels.max()), 1.0)
     ax.plot([lim_lo, lim_hi], [lim_lo, lim_hi], color="0.55", linewidth=0.8, linestyle="--", label="y = x")
     rho, p = stats.spearmanr(vars_cc, rels)
-    ax.set_xlabel("Local variance vs half-map CC (Spearman ρ)")
-    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_xlabel(f"Local variance vs {WINDOWED_HALFMAP_CORRELATION_LABEL} (Spearman ρ)")
+    ax.set_ylabel("Reliability vs windowed half-map correlation (Spearman ρ)")
     ax.set_title("Cohort: variance–CC vs reliability–CC coupling")
     ax.set_xlim(lim_lo - 0.03, lim_hi + 0.03)
     ax.set_ylim(lim_lo - 0.03, lim_hi + 0.03)
@@ -1446,8 +1459,8 @@ def plot_cohort_reliability_by_flexibility_source(
     return _plot_cohort_grouped_box_strip(
         rows,
         group_attr="flexibility_source",
-        value_attr="rel_vs_cc",
-        ylabel="Reliability vs half-map CC (Spearman ρ)",
+        value_attr="rel_vs_windowed_halfmap_correlation",
+        ylabel="Reliability vs windowed half-map correlation (Spearman ρ)",
         title="Cohort: reliability–CC agreement by validation type",
         save_path=save_path,
         dpi=dpi,
@@ -1473,13 +1486,13 @@ def plot_cohort_bfactor_vs_reliability_cc(
         raise ValueError("No cohort metric rows to plot")
 
     usable = [
-        r for r in rows if np.isfinite(r.rel_vs_cc) and np.isfinite(r.b_vs_rel)
+        r for r in rows if np.isfinite(r.rel_vs_windowed_halfmap_correlation) and np.isfinite(r.b_vs_rel)
     ]
     if len(usable) < 2:
-        raise ValueError("Need at least two maps with finite b_vs_rel and rel_vs_cc")
+        raise ValueError("Need at least two maps with finite b_vs_rel and rel_vs_windowed_halfmap_correlation")
 
     b_vs_rel = np.array([r.b_vs_rel for r in usable], dtype=np.float64)
-    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_windowed_halfmap_correlation for r in usable], dtype=np.float64)
 
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     apply(ax)
@@ -1491,7 +1504,7 @@ def plot_cohort_bfactor_vs_reliability_cc(
     ax.axhline(0.0, color="0.75", linewidth=0.6, linestyle="--")
     ax.axvline(0.0, color="0.75", linewidth=0.6, linestyle="--")
     ax.set_xlabel("B_iso vs reliability (residue Spearman ρ)")
-    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_ylabel("Reliability vs windowed half-map correlation (Spearman ρ)")
     ax.set_title("Cohort: model B-factor agreement vs reliability–CC (PDB maps)")
     ax.set_ylim(-0.05, 1.02)
     ax.text(
@@ -1519,18 +1532,18 @@ def plot_cohort_mask_size_vs_reliability(
     dpi: int = 200,
     color_by: str = "protein_class",
 ) -> plt.Figure:
-    """Scatter of in-mask voxel count vs reliability ↔ half-map CC (ρ)."""
+    """Scatter of in-mask voxel count vs reliability ↔ windowed half-map correlation (ρ)."""
     from scipy import stats
 
     if not rows:
         raise ValueError("No cohort metric rows to plot")
 
-    usable = [r for r in rows if np.isfinite(r.rel_vs_cc) and r.n_mask > 0]
+    usable = [r for r in rows if np.isfinite(r.rel_vs_windowed_halfmap_correlation) and r.n_mask > 0]
     if len(usable) < 2:
-        raise ValueError("Need at least two maps with finite rel_vs_cc and n_mask")
+        raise ValueError("Need at least two maps with finite rel_vs_windowed_halfmap_correlation and n_mask")
 
     sizes = np.array([float(r.n_mask) for r in usable], dtype=np.float64)
-    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_windowed_halfmap_correlation for r in usable], dtype=np.float64)
 
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     apply(ax)
@@ -1541,7 +1554,7 @@ def plot_cohort_mask_size_vs_reliability(
     rho, p = stats.spearmanr(sizes, rels)
     ax.set_xscale("log")
     ax.set_xlabel("In-mask voxels at depositor contour (log scale)")
-    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_ylabel("Reliability vs windowed half-map correlation (Spearman ρ)")
     ax.set_title("Cohort: mask volume vs reliability–CC agreement")
     ax.axhline(0.0, color="0.75", linewidth=0.6, linestyle="--")
     ax.set_ylim(-0.05, 1.02)
@@ -1570,20 +1583,20 @@ def plot_cohort_contour_vs_reliability(
     dpi: int = 200,
     color_by: str = "protein_class",
 ) -> plt.Figure:
-    """Scatter of depositor mask contour vs reliability ↔ half-map CC (ρ)."""
+    """Scatter of depositor mask contour vs reliability ↔ windowed half-map correlation (ρ)."""
     from scipy import stats
 
     if not rows:
         raise ValueError("No cohort metric rows to plot")
 
     usable = [
-        r for r in rows if np.isfinite(r.rel_vs_cc) and np.isfinite(r.contour) and r.contour > 0
+        r for r in rows if np.isfinite(r.rel_vs_windowed_halfmap_correlation) and np.isfinite(r.contour) and r.contour > 0
     ]
     if len(usable) < 2:
-        raise ValueError("Need at least two maps with finite contour and rel_vs_cc")
+        raise ValueError("Need at least two maps with finite contour and rel_vs_windowed_halfmap_correlation")
 
     contours = np.array([r.contour for r in usable], dtype=np.float64)
-    rels = np.array([r.rel_vs_cc for r in usable], dtype=np.float64)
+    rels = np.array([r.rel_vs_windowed_halfmap_correlation for r in usable], dtype=np.float64)
 
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     apply(ax)
@@ -1594,7 +1607,7 @@ def plot_cohort_contour_vs_reliability(
     rho, p = stats.spearmanr(contours, rels)
     ax.set_xscale("log")
     ax.set_xlabel("Depositor contour threshold ρ (log scale)")
-    ax.set_ylabel("Reliability vs half-map CC (Spearman ρ)")
+    ax.set_ylabel("Reliability vs windowed half-map correlation (Spearman ρ)")
     ax.set_title("Cohort: mask contour vs reliability–CC agreement")
     ax.axhline(0.0, color="0.75", linewidth=0.6, linestyle="--")
     ax.set_ylim(-0.05, 1.02)
@@ -1628,8 +1641,8 @@ def plot_cohort_reliability_by_resolution_bin(
         rows,
         group_fn=cohort_resolution_bin_label,
         group_order=RESOLUTION_BIN_ORDER,
-        value_attr="rel_vs_cc",
-        ylabel="Reliability vs half-map CC (Spearman ρ)",
+        value_attr="rel_vs_windowed_halfmap_correlation",
+        ylabel="Reliability vs windowed half-map correlation (Spearman ρ)",
         title="Cohort: reliability–CC agreement by global resolution bin",
         save_path=save_path,
         dpi=dpi,
@@ -1671,8 +1684,8 @@ def plot_cohort_reliability_by_var_cc_bin(
         rows,
         group_fn=cohort_var_cc_bin_label,
         group_order=VAR_CC_BIN_ORDER,
-        value_attr="rel_vs_cc",
-        ylabel="Reliability vs half-map CC (Spearman ρ)",
+        value_attr="rel_vs_windowed_halfmap_correlation",
+        ylabel="Reliability vs windowed half-map correlation (Spearman ρ)",
         title="Cohort: reliability–CC agreement by variance–CC coupling",
         save_path=save_path,
         dpi=dpi,
@@ -1717,8 +1730,8 @@ def plot_cohort_reliability_by_class(
     return _plot_cohort_grouped_box_strip(
         rows,
         group_attr="protein_class",
-        value_attr="rel_vs_cc",
-        ylabel="Reliability vs half-map CC (Spearman ρ)",
+        value_attr="rel_vs_windowed_halfmap_correlation",
+        ylabel="Reliability vs windowed half-map correlation (Spearman ρ)",
         title="Cohort: reliability–CC agreement by protein class",
         save_path=save_path,
         dpi=dpi,
@@ -2174,17 +2187,25 @@ def _draw_conformation_domain_coupling_heatmap(
     return (mappable, cbar_label) if mappable is not None else None
 
 
+def _pair_domain_color_map(regions: Sequence[object] | None) -> dict[str, str]:
+    """Per-pair domain colors from the registry entry (not the global name merge)."""
+    if not regions:
+        return {}
+    return {reg.name: reg.color for reg in regions}
+
+
 def _domain_scatter_colors(
     use: Sequence[tuple[object, object]],
     regions: Sequence[object],
 ) -> list[str]:
-    """Per-residue hex colors for panel f from domain assignments."""
+    """Per-residue hex colors from this pair's domain registry entry."""
+    color_map = _pair_domain_color_map(regions)
     colors: list[str] = []
     for row, _ in use:
         color = UNASSIGNED_DOMAIN_COLOR
         for reg in regions:
             if region_matches_residue(reg, row):
-                color = DOMAIN_COLORS.get(reg.name, reg.color)
+                color = color_map.get(reg.name, reg.color)
                 break
         colors.append(color)
     return colors
@@ -2231,6 +2252,7 @@ def _per_domain_correlation_stats(
     domain_order: Sequence[str],
     *,
     method: str = "spearman",
+    domain_colors: Mapping[str, str] | None = None,
 ) -> list[tuple[str, float, int, str]]:
     """Per-domain correlation of ΔB vs Δrel: (name, rho, n, color)."""
     from scipy import stats
@@ -2238,7 +2260,7 @@ def _per_domain_correlation_stats(
     stats_out: list[tuple[str, float, int, str]] = []
     for name in domain_order:
         idx = assignments.get(name, [])
-        color = DOMAIN_COLORS.get(name, UNASSIGNED_DOMAIN_COLOR)
+        color = (domain_colors or DOMAIN_COLORS).get(name, UNASSIGNED_DOMAIN_COLOR)
         if len(idx) < 3:
             stats_out.append((name, float("nan"), len(idx), color))
             continue
@@ -2264,25 +2286,30 @@ def _domain_legend_patches(
     domain_order: Sequence[str],
     *,
     rho_by_name: dict[str, float] | None = None,
+    use_rho_cmap: bool = False,
+    domain_colors: Mapping[str, str] | None = None,
 ) -> list:
     """Color swatches for domain legend (panel b/c)."""
     from matplotlib.patches import Patch
 
+    cmap = plt.get_cmap(PALETTES["diverging"])
+    norm = mcolors.Normalize(vmin=-1.0, vmax=1.0)
+    color_map = domain_colors or DOMAIN_COLORS
     patches: list[Patch] = []
     for name in domain_order:
         if not assignments.get(name):
             continue
         label = name
+        rho = float("nan")
         if rho_by_name is not None:
             rho = rho_by_name.get(name, float("nan"))
             if np.isfinite(rho):
                 label = f"{name} (ρ={rho:+.2f})"
-        patches.append(
-            Patch(
-                facecolor=DOMAIN_COLORS.get(name, UNASSIGNED_DOMAIN_COLOR),
-                label=label,
-            )
-        )
+        if use_rho_cmap and np.isfinite(rho):
+            facecolor = cmap(norm(rho))
+        else:
+            facecolor = color_map.get(name, UNASSIGNED_DOMAIN_COLOR)
+        patches.append(Patch(facecolor=facecolor, label=label))
     return patches
 
 
@@ -2313,6 +2340,74 @@ def _add_figure_domain_legend(
     )
 
 
+def _add_figure_domain_legend_span(
+    fig: plt.Figure,
+    axes: Sequence[plt.Axes],
+    patches: Sequence[object],
+    *,
+    gap_below: float = 0.02,
+) -> None:
+    """Linear domain legend centered under a row of axes (e.g. ChimeraX renders)."""
+    if not patches or not axes:
+        return
+    positions = [ax.get_position() for ax in axes]
+    x0 = min(p.x0 for p in positions)
+    x1 = max(p.x1 for p in positions)
+    y0 = min(p.y0 for p in positions)
+    fig.legend(
+        handles=patches,
+        loc="upper center",
+        bbox_to_anchor=(0.5 * (x0 + x1), max(0.02, y0 - gap_below)),
+        bbox_transform=fig.transFigure,
+        ncol=len(patches),
+        fontsize=6,
+        frameon=False,
+        handlelength=1.0,
+        columnspacing=1.0,
+        handletextpad=0.35,
+    )
+
+
+def _reflow_top_row_axes(
+    axes: Sequence[plt.Axes],
+    *,
+    left: float,
+    right: float,
+    gap: float = 0.022,
+) -> None:
+    """Equal-width top-row columns with uniform horizontal gaps."""
+    if not axes:
+        return
+    positions = [ax.get_position() for ax in axes]
+    y0 = min(p.y0 for p in positions)
+    height = max(p.height for p in positions)
+    span = right - left
+    n = len(axes)
+    n_gaps = max(n - 1, 0)
+    col_w = (span - n_gaps * gap) / n
+    x = left
+    for ax in axes:
+        ax.set_position([x, y0, col_w, height])
+        x += col_w + gap
+
+
+def _equalize_chimerax_panel_boxes(
+    ax_left: plt.Axes,
+    ax_right: plt.Axes,
+) -> None:
+    """Same ChimeraX display box (centred in each equal-width column)."""
+    pos_l = ax_left.get_position()
+    pos_r = ax_right.get_position()
+    w = min(pos_l.width, pos_r.width) * 0.92
+    h = min(pos_l.height, pos_r.height) * 0.98
+    ax_left.set_position(
+        [pos_l.x0 + 0.5 * (pos_l.width - w), pos_l.y0 + 0.5 * (pos_l.height - h), w, h]
+    )
+    ax_right.set_position(
+        [pos_r.x0 + 0.5 * (pos_r.width - w), pos_r.y0 + 0.5 * (pos_r.height - h), w, h]
+    )
+
+
 def _draw_conformation_delta_reliability_profile(
     ax,
     *,
@@ -2336,14 +2431,16 @@ def _draw_conformation_delta_reliability_profile(
 
     if regions:
         domain_names = _domain_name_per_residue(use_full, regions)
+        color_map = _pair_domain_color_map(regions)
     else:
         domain_names = [None] * n
+        color_map = {}
 
     for start, end, domain in _contiguous_domain_stretches(domain_names):
         xs = x[start:end]
         ys = drel[start:end]
         color = (
-            DOMAIN_COLORS.get(domain, UNASSIGNED_DOMAIN_COLOR)
+            color_map.get(domain, UNASSIGNED_DOMAIN_COLOR)
             if domain
             else UNASSIGNED_DOMAIN_COLOR
         )
@@ -2428,10 +2525,17 @@ def _draw_conformation_summary_scatter_panel(
     regions: Sequence[object] | None = None,
     domain_order: Sequence[str] | None = None,
     panel_letter: str = "b",
+    color_by_domain_rho: bool = False,
+    show_domain_legend: bool = True,
+    domain_colors: Mapping[str, str] | None = None,
 ) -> None:
     _apply_panel_style(ax)
     point_colors: str | list[str] = UNASSIGNED_DOMAIN_COLOR
-    if use_full and regions:
+    if use_full and regions and color_by_domain_rho and domain_order:
+        point_colors, _ = _residue_colors_by_domain_rho(
+            use_full, regions, domain_order, db_full, drel_full
+        )
+    elif use_full and regions:
         point_colors = _domain_scatter_colors(use_full, regions)
     ax.scatter(db_full, drel_full, s=8, alpha=0.6, c=point_colors, edgecolors="none")
     ax.axhline(0, color="#999999", lw=0.5)
@@ -2442,7 +2546,12 @@ def _draw_conformation_summary_scatter_panel(
         domain_rho_map = {
             name: rho
             for name, rho, _n, _color in _per_domain_correlation_stats(
-                db_full, drel_full, assignments, domain_order, method="spearman"
+                db_full,
+                drel_full,
+                assignments,
+                domain_order,
+                method="spearman",
+                domain_colors=domain_colors,
             )
         }
     ax.set_xlabel(f"ΔB_iso ({emdb_b} − {emdb_a})", fontsize=7)
@@ -2466,10 +2575,14 @@ def _draw_conformation_summary_scatter_panel(
         ha="left",
         linespacing=1.25,
     )
-    if use_full and regions and domain_order:
+    if show_domain_legend and use_full and regions and domain_order:
         assignments = get_domain_assignments(use_full, regions)
         legend_patches = _domain_legend_patches(
-            assignments, domain_order, rho_by_name=domain_rho_map
+            assignments,
+            domain_order,
+            rho_by_name=domain_rho_map,
+            use_rho_cmap=color_by_domain_rho,
+            domain_colors=domain_colors,
         )
         if legend_patches:
             ax.legend(
@@ -2549,6 +2662,218 @@ def plot_conformation_pair_domain_coupling_supplement(
     return fig
 
 
+def _residue_colors_by_domain_rho(
+    use_full: Sequence[tuple[object, object]],
+    regions: Sequence[object],
+    domain_order: Sequence[str],
+    db_full: np.ndarray,
+    drel_full: np.ndarray,
+    *,
+    vmin: float = -1.0,
+    vmax: float = 1.0,
+) -> tuple[list, dict[str, float]]:
+    """Map each residue to diverging red/blue from its domain's Spearman ρ(ΔB, Δrel)."""
+    assignments = get_domain_assignments(use_full, regions)
+    rho_by_name = {
+        name: rho
+        for name, rho, _n, _color in _per_domain_correlation_stats(
+            db_full, drel_full, assignments, domain_order, method="spearman"
+        )
+    }
+    cmap = plt.get_cmap(PALETTES["diverging"])
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    residue_colors: list = []
+    for row, _ in use_full:
+        domain: str | None = None
+        for reg in regions:
+            if region_matches_residue(reg, row):
+                domain = reg.name
+                break
+        rho = rho_by_name.get(domain, float("nan")) if domain else float("nan")
+        if np.isfinite(rho):
+            residue_colors.append(cmap(norm(rho)))
+        else:
+            residue_colors.append(UNASSIGNED_DOMAIN_COLOR)
+    return residue_colors, rho_by_name
+
+
+def compute_domain_coupling_block_colors(
+    corr: np.ndarray,
+    assignments: dict[str, list[int]],
+    domain_order: Sequence[str],
+    *,
+    vmin: float = -1.0,
+    vmax: float = 1.0,
+) -> tuple[dict[str, str], dict[str, float]]:
+    """
+    Color each domain red/blue from k=2 clustering of signed mean coupling profiles.
+
+    Matches panel a diverging scale: co-varying domain groups → red (+1), anti-coupled
+    groups → blue (−1). Used on ChimeraX surfaces beside the cluster-reordered matrix.
+    """
+    from scipy.cluster.hierarchy import fcluster, linkage
+    from scipy.spatial.distance import pdist
+
+    mat, names = compute_domain_mean_coupling(
+        corr, assignments, domain_order=domain_order, metric="signed_mean"
+    )
+    if not names:
+        return {}, {}
+
+    block_vals: dict[str, float] = {}
+    if len(names) == 1:
+        block_vals[names[0]] = 1.0
+    else:
+        profiles = np.nan_to_num(mat, nan=0.0)
+        z = linkage(pdist(profiles, metric="euclidean"), method="average")
+        labels = fcluster(z, t=2, criterion="maxclust")
+        cluster_scores: dict[int, float] = {}
+        for lab in np.unique(labels):
+            idx = [i for i, label in enumerate(labels) if int(label) == int(lab)]
+            vals: list[float] = []
+            for i in idx:
+                for j in range(len(names)):
+                    if i != j and np.isfinite(mat[i, j]):
+                        vals.append(float(mat[i, j]))
+            cluster_scores[int(lab)] = float(np.mean(vals)) if vals else 0.0
+        ranked = sorted(cluster_scores.keys(), key=lambda k: cluster_scores[k], reverse=True)
+        lab_to_val = {ranked[0]: 1.0, ranked[1]: -1.0}
+        block_vals = {names[i]: lab_to_val[int(labels[i])] for i in range(len(names))}
+
+    cmap = plt.get_cmap(PALETTES["diverging"])
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    hex_colors = {
+        name: mcolors.to_hex(cmap(norm(val)), keep_alpha=False) for name, val in block_vals.items()
+    }
+    return hex_colors, block_vals
+
+
+def _crop_chimerax_image(img: np.ndarray, *, white_threshold: float = 0.94) -> np.ndarray:
+    """Trim white margins from a ChimeraX PNG so imshow fills the axes."""
+    arr = np.asarray(img, dtype=np.float64)
+    if arr.ndim == 2:
+        rgb = np.stack([arr, arr, arr], axis=-1)
+    else:
+        rgb = arr[..., :3]
+    if rgb.max() > 1.5:
+        rgb = rgb / 255.0
+    dark = np.any(rgb < white_threshold, axis=-1)
+    if not dark.any():
+        return arr
+    rows = np.where(dark.any(axis=1))[0]
+    cols = np.where(dark.any(axis=0))[0]
+    pad = max(2, int(0.01 * max(rows[-1] - rows[0], cols[-1] - cols[0])))
+    r0 = max(0, int(rows[0]) - pad)
+    r1 = min(arr.shape[0], int(rows[-1]) + pad + 1)
+    c0 = max(0, int(cols[0]) - pad)
+    c1 = min(arr.shape[1], int(cols[-1]) + pad + 1)
+    return arr[r0:r1, c0:c1]
+
+
+def _draw_conformation_chimerax_structure_panel(
+    ax,
+    png: Path | str,
+) -> None:
+    """Embed a cropped ChimeraX surface PNG (no per-panel title)."""
+    path = Path(png)
+    ax.set_axis_off()
+    if not path.is_file():
+        ax.text(
+            0.5,
+            0.5,
+            "ChimeraX render\nmissing",
+            ha="center",
+            va="center",
+            fontsize=7,
+            color="#888888",
+            transform=ax.transAxes,
+        )
+        return
+    img = _crop_chimerax_image(plt.imread(path))
+    ax.imshow(img, aspect="equal")
+    ax.set_xlim(0, img.shape[1])
+    ax.set_ylim(img.shape[0], 0)
+
+
+def _draw_conformation_domain_structure_panel(ax, *, png: Path | str) -> None:
+    """State A fold-domain ChimeraX surface."""
+    _draw_conformation_chimerax_structure_panel(ax, png)
+
+
+def _draw_conformation_coupling_block_structure_panel(ax, *, png: Path | str) -> None:
+    """State A ChimeraX surface colored by domain coupling block (panel a scale)."""
+    _draw_conformation_chimerax_structure_panel(ax, png)
+
+
+def plot_conformation_pair_delta_reliability_supplement(
+    pairs: Sequence[tuple[object, object]],
+    *,
+    emdb_a: str,
+    emdb_b: str,
+    in_mask_both: bool = True,
+    half_window: int | None = None,
+    coverage_note: str | None = None,
+    manifest: Path | None = None,
+    save_path: str | Path | None = None,
+    dpi: int = 150,
+) -> plt.Figure | None:
+    """Supplementary per-residue Δreliability profile (former panel c)."""
+    data = _conformation_pair_summary_data(
+        pairs, in_mask_both=in_mask_both, half_window=half_window
+    )
+    if data is None:
+        return None
+
+    reload_domain_colors()
+    regions = get_domain_regions_for_pair(emdb_a, emdb_b)
+    domain_order = [reg.name for reg in regions]
+    pair_domain_colors = _pair_domain_color_map(regions)
+    n_full = int(data["n_full"])
+
+    name_a = _cohort_display_name(emdb_a, manifest)
+    name_b = _cohort_display_name(emdb_b, manifest)
+    coverage_str = coverage_note if coverage_note else ""
+
+    fig, ax = plt.subplots(figsize=(14.0, 3.8), facecolor="white")
+    fig.suptitle(
+        f"{name_a} vs {name_b} · per-residue Δreliability",
+        fontsize=10,
+        fontweight="bold",
+        y=0.98,
+    )
+    fig.text(
+        0.5,
+        0.915,
+        f"EMD-{emdb_a} vs EMD-{emdb_b} · n = {n_full} in-mask Cα · coverage {coverage_str}",
+        ha="center",
+        fontsize=7,
+        color="#444444",
+    )
+
+    _draw_conformation_delta_reliability_profile(
+        ax,
+        drel_full=data["drel_full"],
+        row_mean=data["row_mean"],
+        use_full=data["use_full"],
+        regions=regions or None,
+        domain_order=domain_order or None,
+        panel_letter=None,
+    )
+
+    if regions and domain_order:
+        c_assignments = get_domain_assignments(data["use_full"], regions)
+        c_legend = _domain_legend_patches(
+            c_assignments,
+            domain_order,
+            domain_colors=pair_domain_colors,
+        )
+        _add_figure_domain_legend(fig, ax, c_legend, gap_below_ax=0.06)
+
+    if save_path:
+        save_nature(fig, save_path, dpi=dpi)
+    return fig
+
+
 def plot_conformation_pair_summary_triptych(
     pairs: Sequence[tuple[object, object]],
     *,
@@ -2563,17 +2888,21 @@ def plot_conformation_pair_summary_triptych(
     cluster_separation_threshold: float = DEFAULT_CLUSTER_SEPARATION_THRESHOLD,
     layout: str = "auto",
     manifest: Path | None = None,
+    include_structure_panel: bool = False,
+    chimerax_domain_png: Path | str | None = None,
+    chimerax_coupling_png: Path | str | None = None,
     save_path: str | Path | None = None,
     dpi: int = 150,
 ) -> tuple[plt.Figure | None, str]:
     """
-    Conformation-pair summary triptych (14×10 in, three panels).
+    Conformation-pair summary figure (14×10 in).
 
-    Panel a is always the cluster-reordered coupling matrix (Pearson r colorbar).
-    Panels b–c: Δ scatter and full-width per-residue Δreliability profile.
+    Default **triptych**: panels a–c (coupling matrix, Δ scatter, Δreliability profile).
 
-    Returns ``(figure, recommended_layout)`` where ``recommended_layout`` is the
-    legacy block/domain diagnostic from the cluster separation score (stats only).
+    When ``include_structure_panel`` is True and domain regions exist, the figure is a
+    single top row **[a: coupling ChimeraX + matrix | b: domain ChimeraX + scatter]**
+    with uniform column spacing. Per-residue Δreliability (former panel c) is exported
+    separately via ``plot_conformation_pair_delta_reliability_supplement``.
     """
     del coords_b_aligned
     data = _conformation_pair_summary_data(
@@ -2598,12 +2927,17 @@ def plot_conformation_pair_summary_triptych(
 
     regions = get_domain_regions_for_pair(emdb_a, emdb_b)
     domain_order = [reg.name for reg in regions]
+    pair_domain_colors = _pair_domain_color_map(regions)
 
     coverage_str = coverage_note if coverage_note else ""
     name_a = _cohort_display_name(emdb_a, manifest)
     name_b = _cohort_display_name(emdb_b, manifest)
+    use_structure_row = bool(include_structure_panel and regions and domain_order)
 
-    fig = plt.figure(figsize=(14.0, 10.0), facecolor="white")
+    fig = plt.figure(
+        figsize=(16.0, 6.0) if use_structure_row else (14.0, 10.0),
+        facecolor="white",
+    )
     # Dedicated header band — keep suptitle/subtitle well above panel labels (y≈1.05).
     fig.text(
         0.5,
@@ -2624,31 +2958,68 @@ def plot_conformation_pair_summary_triptych(
         color="#444444",
     )
 
-    gs = fig.add_gridspec(
-        2,
-        2,
-        height_ratios=[0.45, 0.55],
-        width_ratios=[0.45, 0.55],
-        hspace=0.38,
-        wspace=0.28,
-        left=0.08,
-        right=0.92,
-        top=0.82,
-        bottom=0.14,
-    )
+    if use_structure_row:
+        gs = fig.add_gridspec(
+            1,
+            4,
+            width_ratios=[1.0, 1.0, 1.0, 1.0],
+            wspace=0.22,
+            left=0.06,
+            right=0.975,
+            top=0.74,
+            bottom=0.12,
+        )
+    else:
+        gs = fig.add_gridspec(
+            2,
+            2,
+            height_ratios=[0.45, 0.55],
+            width_ratios=[0.45, 0.55],
+            hspace=0.38,
+            wspace=0.28,
+            left=0.08,
+            right=0.92,
+            top=0.82,
+            bottom=0.14,
+        )
 
     im_cluster = None
-    ax_cluster = fig.add_subplot(gs[0, 0])
-    im_cluster = _draw_conformation_clustered_coupling_panel(
-        ax_cluster,
-        corr=data["corr_int"],
-        order=cluster_order,
-        hw=hw,
-        separation_score=sep_score,
-        panel_letter="a",
-    )
+    ax_coupling_struct = None
+    ax_domain_struct = None
 
-    ax_b = fig.add_subplot(gs[0, 1])
+    if use_structure_row:
+        ax_coupling_struct = fig.add_subplot(gs[0, 0])
+        _draw_conformation_coupling_block_structure_panel(
+            ax_coupling_struct,
+            png=chimerax_coupling_png or "",
+        )
+        ax_cluster = fig.add_subplot(gs[0, 1])
+        im_cluster = _draw_conformation_clustered_coupling_panel(
+            ax_cluster,
+            corr=data["corr_int"],
+            order=cluster_order,
+            hw=hw,
+            separation_score=sep_score,
+            panel_letter=None,
+        )
+        ax_domain_struct = fig.add_subplot(gs[0, 2])
+        _draw_conformation_domain_structure_panel(
+            ax_domain_struct,
+            png=chimerax_domain_png or "",
+        )
+    else:
+        ax_cluster = fig.add_subplot(gs[0, 0])
+        im_cluster = _draw_conformation_clustered_coupling_panel(
+            ax_cluster,
+            corr=data["corr_int"],
+            order=cluster_order,
+            hw=hw,
+            separation_score=sep_score,
+            panel_letter="a",
+        )
+
+    scatter_col = 3 if use_structure_row else 1
+    ax_b = fig.add_subplot(gs[0, scatter_col])
     _draw_conformation_summary_scatter_panel(
         ax_b,
         db_full=db_full,
@@ -2661,38 +3032,73 @@ def plot_conformation_pair_summary_triptych(
         use_full=use_full,
         regions=regions or None,
         domain_order=domain_order or None,
-        panel_letter="b",
+        panel_letter=None if use_structure_row else "b",
+        show_domain_legend=not use_structure_row,
+        domain_colors=pair_domain_colors or None,
     )
 
-    ax_c = fig.add_subplot(gs[1, :])
-    _draw_conformation_delta_reliability_profile(
-        ax_c,
-        drel_full=drel_full,
-        row_mean=row_mean,
-        use_full=use_full,
-        regions=regions or None,
-        domain_order=domain_order or None,
-        panel_letter=None,
-    )
+    ax_c = None
+    if not use_structure_row:
+        ax_c = fig.add_subplot(gs[1, :])
+        _draw_conformation_delta_reliability_profile(
+            ax_c,
+            drel_full=drel_full,
+            row_mean=row_mean,
+            use_full=use_full,
+            regions=regions or None,
+            domain_order=domain_order or None,
+            panel_letter=None,
+        )
 
     fig.canvas.draw()
+    if use_structure_row and ax_coupling_struct is not None and ax_domain_struct is not None:
+        _equalize_chimerax_panel_boxes(ax_coupling_struct, ax_domain_struct)
+
     if im_cluster is not None and ax_cluster is not None:
-        cbar = fig.colorbar(im_cluster, ax=ax_cluster, fraction=0.046, pad=0.06)
+        cbar = fig.colorbar(
+            im_cluster,
+            ax=ax_cluster,
+            fraction=0.046,
+            pad=0.04 if use_structure_row else 0.06,
+        )
         cbar.set_label("Pearson r", fontsize=7)
         cbar.ax.tick_params(labelsize=6, length=2)
 
     fig.canvas.draw()
-    pos_a = ax_cluster.get_position()
-    pos_b = ax_b.get_position()
-    pos_c = ax_c.get_position()
-    full_width = pos_b.x1 - pos_a.x0
-    ax_c.set_position([pos_a.x0, pos_c.y0, full_width, pos_c.height])
-    label_panel(ax_c, "c", x=-0.1 * pos_a.width / full_width)
+    if use_structure_row and ax_coupling_struct is not None and ax_domain_struct is not None:
+        label_panel(ax_coupling_struct, "a")
+        label_panel(ax_domain_struct, "b")
+    elif ax_c is not None:
+        pos_a = ax_cluster.get_position()
+        pos_b = ax_b.get_position()
+        pos_c = ax_c.get_position()
+        full_width = pos_b.x1 - pos_a.x0
+        ax_c.set_position([pos_a.x0, pos_c.y0, full_width, pos_c.height])
+        label_panel(ax_c, "c", x=-0.1 * pos_a.width / full_width)
 
     if regions and domain_order:
         c_assignments = get_domain_assignments(use_full, regions)
-        c_legend = _domain_legend_patches(c_assignments, domain_order)
-        _add_figure_domain_legend(fig, ax_c, c_legend)
+        domain_rho_map = {
+            name: rho
+            for name, rho, _n, _color in _per_domain_correlation_stats(
+                db_full,
+                drel_full,
+                c_assignments,
+                domain_order,
+                method="spearman",
+                domain_colors=pair_domain_colors,
+            )
+        }
+        c_legend = _domain_legend_patches(
+            c_assignments,
+            domain_order,
+            rho_by_name=domain_rho_map if not use_structure_row else None,
+            domain_colors=pair_domain_colors,
+        )
+        if use_structure_row and ax_domain_struct is not None:
+            _add_figure_domain_legend(fig, ax_domain_struct, c_legend, gap_below_ax=0.035)
+        else:
+            _add_figure_domain_legend(fig, ax_c, c_legend)
 
     if save_path:
         save_nature(fig, save_path, dpi=dpi)
@@ -2747,9 +3153,11 @@ __all__ = [
     "plot_cohort_reliability_by_var_cc_bin_by_na_fraction",
     "plot_cohort_partial_reliability_by_var_cc_bin_by_na_fraction",
     "plot_cohort_reliability_by_class_by_na_fraction",
+    "plot_conformation_pair_delta_reliability_supplement",
     "plot_conformation_pair_summary_triptych",
     "plot_conformation_pair_domain_coupling_supplement",
     "compute_conformation_coupling",
+    "compute_domain_coupling_block_colors",
     "compute_coupling_cluster_separation_score",
     "select_conformation_pair_figure_layout",
     "DEFAULT_CLUSTER_SEPARATION_THRESHOLD",
