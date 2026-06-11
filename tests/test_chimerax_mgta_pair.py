@@ -24,8 +24,15 @@ class ChimeraXMgtaPairTests(unittest.TestCase):
 
     def test_write_map_shell_script(self) -> None:
         from cryoem_mrc.chimerax_figures import resolve_protein_bundle
+        from cryoem_mrc.structure_validation import load_cohort_manifest_row
 
-        bundle = resolve_protein_bundle(MGTA_CONFORMATION_PAIR[0])
+        emd_id = MGTA_CONFORMATION_PAIR[0]
+        row = load_cohort_manifest_row(emd_id)
+        ref = Path(row["reference_mrc"])
+        if not ref.is_file():
+            self.skipTest(f"EMD-{emd_id} reference map not local")
+
+        bundle = resolve_protein_bundle(emd_id)
         script = Path("/tmp/test_map_shell.cxc")
         write_map_shell_surface_cxc(
             bundle,
