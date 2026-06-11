@@ -11,7 +11,7 @@ from cryoem_mrc.chimerax_figures import (
     export_pipeline_panel_assets,
     write_map_shell_surface_cxc,
 )
-from cryoem_mrc.repo_paths import OUTPUTS_ROOT
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
 
 
 class ChimeraXMgtaPairTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class ChimeraXMgtaPairTests(unittest.TestCase):
         from cryoem_mrc.structure_validation import load_cohort_manifest_row
 
         emd_id = MGTA_CONFORMATION_PAIR[0]
-        row = load_cohort_manifest_row(emd_id)
+        row = load_cohort_manifest_row(COHORT_MANIFEST, emd_id)
         ref = Path(row["reference_mrc"])
         if not ref.is_file():
             self.skipTest(f"EMD-{emd_id} reference map not local")
