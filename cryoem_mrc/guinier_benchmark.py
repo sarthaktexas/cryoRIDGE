@@ -22,6 +22,7 @@ from .guinier_sharpening import (
 )
 from .local_resolution_io import load_local_resolution_map, resample_local_resolution_onto_reference
 from .map_grid import load_full_and_half_maps, load_map_grid, resample_volume_onto_grid
+from .cohort_labels import cohort_figure_label, load_display_name_map
 from .repo_paths import COHORT_MANIFEST, locres_blocres_mrc
 from .structure_validation import (
     iter_ca_residues,
@@ -306,8 +307,9 @@ def plot_guinier_benchmark_summary(
     apply(ax)
     ax.bar(x - w / 2, g, width=w, color="#4C72B0", label="Global sharpen")
     ax.bar(x + w / 2, l, width=w, color="#DD8452", label="Local sharpen")
+    names = load_display_name_map(COHORT_MANIFEST)
     ax.set_xticks(x)
-    ax.set_xticklabels([f"EMD-{e}" for e in emdb], rotation=60, ha="right", fontsize=7)
+    ax.set_xticklabels([cohort_figure_label(e, names=names) for e in emdb], rotation=60, ha="right", fontsize=7)
     ax.set_ylabel("CCC vs deposited primary")
     ax.set_ylim(0, 1.05)
     ax.legend(frameon=False, fontsize=8)

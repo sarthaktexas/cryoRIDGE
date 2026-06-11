@@ -46,6 +46,7 @@ from cryoem_mrc.io import load_mrc, save_volume_like_reference
 from cryoem_mrc.local_resolution import aggregate_locres_to_ca
 from cryoem_mrc.metric_comparison import load_all_metrics
 from cryoem_mrc.model_map import generate_gaussian_model_map
+from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
 from cryoem_mrc.repo_paths import (
     ANCHOR_EMDB_ID,
     BFACTOR_VALIDATION_EMDB_IDS,
@@ -360,16 +361,16 @@ def _build_cohort_figure(manifest: Path, dpi: int) -> Path | None:
         print(f"[fscq] no cohort CSV at {csv_path}", file=sys.stderr)
         return None
 
-    res_by_id, name_by_id = {}, {}
+    res_by_id: dict[str, float] = {}
     with manifest.open(newline="") as f:
         for row in csv.DictReader(f):
             eid = str(row["emdb_id"]).strip()
-            name_by_id[eid] = row.get("display_name", "").strip()
             try:
                 res_by_id[eid] = float(row["global_resolution_a"])
             except (KeyError, ValueError):
                 pass
 
+    name_by_id = load_display_name_map(manifest)
     recs = []
     for r in csv.DictReader(csv_path.open()):
         raw = str(r.get("spearman_fscq_vs_V", ""))
@@ -387,7 +388,7 @@ def _build_cohort_figure(manifest: Path, dpi: int) -> Path | None:
     recs.sort(key=lambda d: d["rho"])
     rhos = np.array([d["rho"] for d in recs])
     res = np.array([d["res"] for d in recs])
-    labels = [f"EMD-{d['emdb_id']}" for d in recs]
+    labels = [cohort_figure_label(d["emdb_id"], names=name_by_id) for d in recs]
     median_rho = float(np.median(rhos))
 
     fig, (ax_bar, ax_sc) = plt.subplots(1, 2, figsize=(11.0, 6.5))

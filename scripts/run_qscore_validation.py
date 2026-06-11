@@ -35,6 +35,7 @@ from cryoem_mrc.qscore_validation import (
     QscoreValidationStats,
     run_emdb_qscore_validation,
 )
+from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
 from cryoem_mrc.repo_paths import (
     ANCHOR_EMDB_ID,
     BFACTOR_VALIDATION_EMDB_IDS,
@@ -166,7 +167,7 @@ def _build_cohort_figure(manifest: Path, dpi: int) -> Path | None:
         return None
 
     res_by_id = _resolution_by_id(manifest)
-    name_by_id = _name_by_id(manifest)
+    name_by_id = load_display_name_map(manifest)
     rows = list(csv.DictReader(csv_path.open()))
 
     recs = []
@@ -196,7 +197,7 @@ def _build_cohort_figure(manifest: Path, dpi: int) -> Path | None:
     recs.sort(key=lambda d: d["rho"])
     rhos = np.array([d["rho"] for d in recs])
     res = np.array([d["res"] for d in recs])
-    labels = [f"EMD-{d['emdb_id']}" for d in recs]
+    labels = [cohort_figure_label(d["emdb_id"], names=name_by_id) for d in recs]
     median_rho = float(np.median(rhos))
 
     fig, (ax_bar, ax_sc) = plt.subplots(1, 2, figsize=(11.0, 6.5))

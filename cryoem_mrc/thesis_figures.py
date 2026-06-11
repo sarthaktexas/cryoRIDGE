@@ -28,6 +28,8 @@ from .conformation_pair import (
     reload_domain_colors,
 )
 from .cohort_composition import resolve_cohort_na_residue_fraction
+from .cohort_labels import cohort_figure_label, short_display_name
+from .cohort_resolution import RESOLUTION_BIN_ORDER, resolution_bin_label
 from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_LABEL
 from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
 from .structure_validation import load_cohort_manifest_row
@@ -677,22 +679,12 @@ def cohort_global_resolution_a(row: CohortMetricRow) -> float:
     return float("nan")
 
 
-RESOLUTION_BIN_ORDER: tuple[str, ...] = ("≤2.5 Å", "2.5–4 Å", "4–6 Å", ">6 Å")
 VAR_CC_BIN_ORDER: tuple[str, ...] = ("low (<0.5)", "mid (0.5–0.8)", "high (>0.8)")
 
 
 def cohort_resolution_bin_label(row: CohortMetricRow) -> str:
     """Coarse global-resolution bin for cohort stratification plots."""
-    res_a = cohort_global_resolution_a(row)
-    if not np.isfinite(res_a):
-        return "unknown"
-    if res_a <= 2.5:
-        return "≤2.5 Å"
-    if res_a <= 4.0:
-        return "2.5–4 Å"
-    if res_a <= 6.0:
-        return "4–6 Å"
-    return ">6 Å"
+    return resolution_bin_label(cohort_global_resolution_a(row))
 
 
 def cohort_var_cc_bin_label(row: CohortMetricRow) -> str:
@@ -858,7 +850,10 @@ def plot_cohort_metrics_heatmap(
     if include_b_factor:
         metric_cols.append(("b_vs_rel", "B_iso ↔ reliability"))
 
-    labels = [f"EMD-{r.emdb_id}" for r in rows]
+    labels = [
+        short_display_name(r.display_name) if r.display_name else cohort_figure_label(r.emdb_id)
+        for r in rows
+    ]
     data = np.array(
         [[getattr(r, key) for key, _ in metric_cols] for r in rows],
         dtype=np.float64,
@@ -927,7 +922,7 @@ def _cohort_scatter_by_class(
     if len(rows) <= annotate_max:
         for i, row in enumerate(rows):
             ax.annotate(
-                row.emdb_id,
+                short_display_name(row.display_name) if row.display_name else row.emdb_id,
                 (x[i], y[i]),
                 textcoords="offset points",
                 xytext=(4, 3),
@@ -990,7 +985,7 @@ def _cohort_scatter_by_na_fraction(
     if len(rows) <= annotate_max:
         for i, row in enumerate(rows):
             ax.annotate(
-                row.emdb_id,
+                short_display_name(row.display_name) if row.display_name else row.emdb_id,
                 (x[i], y[i]),
                 textcoords="offset points",
                 xytext=(4, 3),
@@ -2078,16 +2073,7 @@ DEFAULT_CLUSTER_SEPARATION_THRESHOLD = 0.10
 
 def _cohort_display_name(emdb_id: str, manifest: Path | None = None) -> str:
     """Human-readable structure name from ``cohort/manifest.csv`` (``display_name`` column)."""
-    eid = str(emdb_id).strip()
-    path = manifest if manifest is not None else COHORT_MANIFEST
-    try:
-        row = load_cohort_manifest_row(path, eid)
-        name = str(row.get("display_name", "")).strip()
-        if name:
-            return name
-    except (KeyError, OSError, csv.Error):
-        pass
-    return f"EMD-{eid}"
+    return cohort_figure_label(emdb_id, manifest=manifest, short=False)
 
 
 def select_conformation_pair_figure_layout(

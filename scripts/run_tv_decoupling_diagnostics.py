@@ -52,6 +52,7 @@ from scipy import stats
 
 from style.nature import PALETTES, apply, label_panel, savefig as save_nature
 
+from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
 from cryoem_mrc.local_resolution import _load_locres_volume, locres_blocres_path
 from cryoem_mrc.map_grid import load_map_grid
 from cryoem_mrc.metric_comparison import load_all_metrics
@@ -343,10 +344,11 @@ def _build_summary(records: list[dict]) -> dict:
     }
 
 
-def _build_figure(records: list[dict], summary: dict, out_dir: Path, dpi: int) -> Path:
+def _build_figure(records: list[dict], summary: dict, out_dir: Path, dpi: int, *, manifest: Path) -> Path:
     recs = sorted(records, key=lambda r: (np.isfinite(r["rho_b_vs_locres"]), r["rho_b_vs_locres"]))
     rho = np.array([r["rho_b_vs_locres"] for r in recs])
-    labels = [f"EMD-{r['emdb_id']}" for r in recs]
+    names = load_display_name_map(manifest)
+    labels = [cohort_figure_label(r["emdb_id"], names=names) for r in recs]
     uniq = np.array([r["locres_n_unique_voxels"] for r in recs])
     adj = np.array([r["adjacent_locres_spearman"] for r in recs])
 
@@ -398,7 +400,7 @@ def _build_figure(records: list[dict], summary: dict, out_dir: Path, dpi: int) -
         ax_bad.bar(xb + w / 2, lr_cv, w, label="local-res CV", color=PALETTES["categorical"][2],
                    edgecolor="0.2", linewidth=0.4)
         ax_bad.set_xticks(xb)
-        ax_bad.set_xticklabels([f"EMD-{r['emdb_id']}" for r in bad], fontsize=7)
+        ax_bad.set_xticklabels([cohort_figure_label(r["emdb_id"], names=names) for r in bad], fontsize=7)
         ax_bad.set_ylabel("coefficient of variation")
         ax_bad.legend(fontsize=6)
         ax_bad.set_title("Flagged maps: where is the signal missing?\n(low B-CV ⇒ no disorder signal)", fontsize=8)
@@ -448,7 +450,10 @@ def _tv_scatter(emd_ids: list[str], manifest: Path, out_dir: Path, dpi: int) -> 
         fig.colorbar(hb, ax=ax, label="log(count)", fraction=0.046, pad=0.02)
         ax.set_xlabel(r"$\log_{10} T_\mathrm{vW}=|\nabla\rho|^2$")
         ax.set_ylabel(r"$\log_{10} V=\|H\|_F^2$")
-        ax.set_title(f"EMD-{eid}  (n={t.size}, ρ={rho:+.3f})", fontsize=8)
+        ax.set_title(
+            f"{cohort_figure_label(eid, manifest=manifest)}  (n={t.size}, ρ={rho:+.3f})",
+            fontsize=8,
+        )
         label_panel(ax, chr(ord("a") + j))
     fig.suptitle("Raw (T, V) at Cα — a line, not a fan", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
@@ -486,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
     path = _write_csv(records, args.out_dir)
     summary = _build_summary(records)
     (args.out_dir / "tv_decoupling_diagnostics.json").write_text(json.dumps(summary, indent=2) + "\n")
-    fig_path = _build_figure(records, summary, args.out_dir, args.dpi)
+    fig_path = _build_figure(records, summary, args.out_dir, args.dpi, manifest=args.manifest)
 
     print(f"[decouple] {len(records)} maps → {path}", flush=True)
     print(f"[decouple] figure → {fig_path}", flush=True)

@@ -23,10 +23,12 @@ from .structure_validation import (
 
 logger = logging.getLogger(__name__)
 
+# Cross-metric coupling uses one LH-pipeline column: constraint V (placement axis).
+# reliability_score is the in-mask percentile rank of H_repro (= T + V); H_repro and
+# its rank are Spearman-redundant with each other and overlap the same Hamiltonian
+# family as V — omit them here to avoid duplicate rows on the heatmap.
 METRIC_COLUMNS = (
     "v_metric",
-    "reliability_score",
-    "reliability_H_repro",
     "b_factor",
     WINDOWED_HALFMAP_CORRELATION_KEY,
     "local_variance",

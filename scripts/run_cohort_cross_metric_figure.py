@@ -28,14 +28,13 @@ import pandas as pd
 
 from style.nature import PALETTES, apply, label_panel, savefig as save_nature
 
+from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
 from cryoem_mrc.half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_LABEL
 from cryoem_mrc.metric_comparison import METRIC_COLUMNS
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, emd_output_dir, sync_thesis_doc_figure
 
 METRIC_LABELS = {
     "v_metric": "V",
-    "reliability_score": "Reliability",
-    "reliability_H_repro": "H_repro",
     "b_factor": "B_iso",
     WINDOWED_HALFMAP_CORRELATION_KEY: WINDOWED_HALFMAP_CORRELATION_LABEL.title(),
     "local_variance": "Local variance",
@@ -142,7 +141,7 @@ def _build_median_figure(mat: np.ndarray, cols: list[str], out_dir: Path, dpi: i
     return out.with_suffix(".png")
 
 
-def _build_locres_pairs_figure(recs: list[dict], out_dir: Path, dpi: int) -> Path:
+def _build_locres_pairs_figure(recs: list[dict], out_dir: Path, dpi: int, *, manifest: Path) -> Path:
     pair_labels = [
         ("v_metric|local_resolution", "V vs locres"),
         ("b_factor|local_resolution", "B vs locres"),
@@ -172,8 +171,9 @@ def _build_locres_pairs_figure(recs: list[dict], out_dir: Path, dpi: int) -> Pat
         vals = np.array([float(r.get(key, float("nan"))) for r in usable], dtype=np.float64)
         ax.barh(ypos + off, vals, height=width, color=color, label=label, edgecolor="0.2", linewidth=0.3)
 
+    names = load_display_name_map(manifest)
     ax.set_yticks(ypos)
-    ax.set_yticklabels([f"EMD-{r['emdb_id']}" for r in usable], fontsize=6)
+    ax.set_yticklabels([cohort_figure_label(r["emdb_id"], names=names) for r in usable], fontsize=6)
     ax.axvline(0.0, color="0.35", linewidth=0.6)
     ax.set_xlabel("Spearman ρ vs BlocRes local resolution")
     ax.set_title(f"Per-map locres coupling (n = {len(usable)})")
@@ -199,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[cross_metric_fig] median heatmap → {fig1}", flush=True)
 
     recs = _collect_locres_pairs(ids)
-    fig2 = _build_locres_pairs_figure(recs, args.out_dir, args.dpi)
+    fig2 = _build_locres_pairs_figure(recs, args.out_dir, args.dpi, manifest=args.manifest)
     sync_thesis_doc_figure(fig2, "fig_3_4_cross_metric_locres_pairs.png")
     print(f"[cross_metric_fig] locres pairs → {fig2}", flush=True)
     return 0

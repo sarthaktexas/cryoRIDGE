@@ -17,6 +17,7 @@ import pandas as pd
 from scipy import stats
 
 from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY
+from .cohort_resolution import COHORT_RESOLUTION_BINS, median_rho_by_resolution_bin
 from .incremental_prediction import (
     TARGET_Q,
     iter_eligible_emdb_ids,
@@ -545,7 +546,7 @@ def run_placement_utility_analysis(
 
     cal = compute_calibration_bins(all_frames)
 
-    # Resolution-bin medians for ρ(Q, reliability) — atomic-building regime check.
+    # Resolution-bin medians for ρ(Q, reliability) — matches cohort figure bins.
     res_bins: dict[str, float] = {}
     if rank_rows:
         arr = [
@@ -554,14 +555,11 @@ def run_placement_utility_analysis(
             if np.isfinite(r.global_resolution_a) and np.isfinite(r.spearman_q_vs_reliability)
         ]
         if arr:
-            for lo, hi, label in (
-                (2.5, 3.5, "2.5_3.5"),
-                (3.5, 4.5, "3.5_4.5"),
-                (4.5, 99.0, "ge_4.5"),
-            ):
-                vals = [rho for g, rho in arr if lo <= g < hi]
-                if vals:
-                    res_bins[f"median_spearman_q_reliability_{label}"] = float(np.median(vals))
+            res_bins = median_rho_by_resolution_bin(
+                arr,
+                prefix="median_spearman",
+                metric="q_reliability",
+            )
 
     return PlacementUtilitySummary(
         q_threshold=q_threshold,
@@ -830,7 +828,12 @@ def write_placement_utility_markdown(
             ]
         )
         for k, v in sorted(summary.resolution_bins.items()):
-            lines.append(f"- {k}: {v:.3f}")
+            label = k
+            for b in COHORT_RESOLUTION_BINS:
+                if b.key in k:
+                    label = f"{b.label} (median ρ(Q, reliability))"
+                    break
+            lines.append(f"- {label}: **{v:.3f}**")
         lines.append("")
 
     lines.extend(["## Tier 1 — Mis-ranking (bottom Q tercile)", ""])

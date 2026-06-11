@@ -29,6 +29,7 @@ from style.nature import PALETTES, apply, savefig as save_nature
 
 from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.io import load_mrc
+from cryoem_mrc.cohort_labels import cohort_figure_label
 from cryoem_mrc.placement_decoupling import (
     PlacementDecouplingRow,
     analyze_residue_rows,
@@ -187,7 +188,7 @@ def _write_controls_csv(path: Path, controls: list[dict]) -> None:
             w.writerow(row)
 
 
-def _plot_cohort(rows: list[PlacementDecouplingRow], out_path: Path, *, dpi: int) -> None:
+def _plot_cohort(rows: list[PlacementDecouplingRow], out_path: Path, *, manifest: Path, dpi: int) -> None:
     usable = [r for r in rows if np.isfinite(r.rho_rel_vs_cc) and r.frac_in_contour_mask >= 0.3]
     if not usable:
         return
@@ -228,7 +229,7 @@ def _plot_cohort(rows: list[PlacementDecouplingRow], out_path: Path, *, dpi: int
             edgecolors="0.15",
             linewidths=0.4,
             zorder=3,
-            label=f"EMD-{r.emdb_id}",
+            label=cohort_figure_label(r.emdb_id, manifest=manifest),
         )
     lims = [0, max(0.45, float(max(r.frac_omit_zone for r in usable) * 1.05))]
     axes[1].plot(lims, lims, "k--", linewidth=0.7, alpha=0.5)
@@ -284,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
         rows = _enrich_t_rank_from_npz(rows, manifest=args.manifest)
         csv_path = out_dir / "placement_decoupling_cohort.csv"
         write_decoupling_csv(csv_path, rows)
-        _plot_cohort(rows, out_dir / "placement_decoupling_cohort.png", dpi=args.dpi)
+        _plot_cohort(rows, out_dir / "placement_decoupling_cohort.png", manifest=args.manifest, dpi=args.dpi)
         print(f"[decouple] wrote {csv_path}", flush=True)
     else:
         csv_path = out_dir / "placement_decoupling_cohort.csv"
