@@ -39,32 +39,60 @@ mpl.rcParams.update(_NATURE_RC)
 # macOS Helvetica/Arial often trigger benign fontTools table-parse warnings on save.
 logging.getLogger("fontTools").setLevel(logging.ERROR)
 
-# Muted Nature-style qualitative colors (blues, reds, greens, oranges — no neons).
+# Thesis figure palette (user-defined; used for cohort scatters, bars, domain bands).
 _CATEGORICAL = [
-    "#4E79A7",  # blue
-    "#E15759",  # red
-    "#59A14F",  # green
-    "#F28E2B",  # orange
-    "#76B7B2",  # teal
-    "#EDC948",  # yellow-gold
-    "#B07AA1",  # purple
-    "#9C755F",  # brown
+    "#E8303A",  # red
+    "#30C8E8",  # cyan
+    "#3BBF6A",  # green
+    "#4B6FD4",  # royal blue
+    "#8B84D7",  # purple
+    "#F0A8C8",  # pink
+    "#F4A0A8",  # salmon
+    "#F5C518",  # yellow / gold
 ]
 
-# RdBu-style diverging palette for heatmaps.
-_DIVERGING = mpl.colormaps["RdBu_r"].copy()
+# Named swatches for semantic reuse in bar charts and sign-coded panels.
+THESIS_RED = _CATEGORICAL[0]
+THESIS_CYAN = _CATEGORICAL[1]
+THESIS_GREEN = _CATEGORICAL[2]
+THESIS_BLUE = _CATEGORICAL[3]
+THESIS_PURPLE = _CATEGORICAL[4]
+THESIS_PINK = _CATEGORICAL[5]
+THESIS_SALMON = _CATEGORICAL[6]
+THESIS_YELLOW = _CATEGORICAL[7]
 
-# Yellow → dark red sequential (matches mean |coupling| colorbars; YlOrRd family).
+# Correlation heatmaps: royal blue (negative) → white → red (positive).
+_DIVERGING = LinearSegmentedColormap.from_list(
+    "thesis_diverging",
+    [THESIS_BLUE, "#FFFFFF", THESIS_RED],
+)
+
+# Coupling / magnitude sequential: yellow → salmon → red.
 _SEQUENTIAL = LinearSegmentedColormap.from_list(
-    "nature_sequential",
-    ["#FFFFCC", "#FFEDA0", "#FED976", "#FEB24C", "#FD8D3C", "#FC4E2A", "#E31A1C", "#B10026"],
+    "thesis_sequential",
+    ["#FFF9E6", THESIS_YELLOW, THESIS_SALMON, THESIS_RED],
+)
+
+# Reliability readouts: red (low CC / blurry) → yellow → green (high CC / sharp).
+_RELIABILITY_CC = LinearSegmentedColormap.from_list(
+    "thesis_reliability_cc",
+    [THESIS_RED, THESIS_YELLOW, THESIS_GREEN],
+)
+_RELIABILITY_LOCRES = LinearSegmentedColormap.from_list(
+    "thesis_reliability_locres",
+    [THESIS_GREEN, THESIS_YELLOW, THESIS_RED],
 )
 
 PALETTES: dict[str, list[str] | Colormap] = {
     "categorical": _CATEGORICAL,
     "diverging": _DIVERGING,
     "sequential": _SEQUENTIAL,
+    "reliability_cc": _RELIABILITY_CC,
+    "reliability_locres": _RELIABILITY_LOCRES,
 }
+
+RELIABILITY_CMAP_CC = _RELIABILITY_CC
+RELIABILITY_CMAP_LOCRES = _RELIABILITY_LOCRES
 
 
 def apply(ax: plt.Axes) -> None:
@@ -149,4 +177,21 @@ def savefig(
     fig.savefig(stem.with_suffix(".png"), dpi=WORD_PNG_DPI, **save_kw)
 
 
-__all__ = ["PALETTES", "WORD_PNG_DPI", "apply", "label_panel", "label_panel_3d", "savefig"]
+__all__ = [
+    "PALETTES",
+    "RELIABILITY_CMAP_CC",
+    "RELIABILITY_CMAP_LOCRES",
+    "THESIS_BLUE",
+    "THESIS_CYAN",
+    "THESIS_GREEN",
+    "THESIS_PINK",
+    "THESIS_PURPLE",
+    "THESIS_RED",
+    "THESIS_SALMON",
+    "THESIS_YELLOW",
+    "WORD_PNG_DPI",
+    "apply",
+    "label_panel",
+    "label_panel_3d",
+    "savefig",
+]
