@@ -398,6 +398,20 @@ contour from EMDB."
 
 *Date: 2026-05-03 · Status: ACCEPTED*
 
+### Clarification 2026-06-14 — Compute on half-maps; display on deposited primary
+
+**Status: ACCEPTED** (does not change Decision 001 computation)
+
+- **Compute:** local features, ρ, and constraint **V** on ``0.5*(h₁+h₂)`` (same
+  processing state as half-map CC validation).
+- **Display:** reliability / build-zone MRCs and figure underlays on the
+  **deposited primary map** grid (`reference_mrc`) — the map used for model building.
+- **Sensitivity:** ``--density-source primary`` recomputes features/ρ on the
+  sharpened deposit for comparison (`emd_*_features_*.npz`).
+
+Methods one-liner: *"V and local statistics are computed from half-maps;
+scores are overlaid on the deposited primary map for interpretability."*
+
 ### Context
 
 EMD-49450's deposited primary map and its half-maps share the same grid
@@ -469,3 +483,31 @@ default and what the depositor wants the community to look at).
   ```
 
 ---
+
+## Decision 009 — Central-difference gradient at 5³ window for constraint V (Q-score ablations)
+
+*Date: 2026-06-15 · Status: ACCEPTED*
+
+### Context
+
+Constraint *V* uses per-voxel gradient energy \(\tfrac{1}{2}\|\nabla\tilde{\rho}\|^2\) followed by a cubic uniform box filter. Two implementation choices were open: **gradient operator** (central differences vs Sobel) and **window width** \(w\) in voxels.
+
+### Options considered
+
+- **(a) Sobel gradients with neighborhood-weighted derivative kernels.**
+- **(b) Central differences (`np.gradient`) — current production.**
+- **(c) Window widths** \(w \in \{1, 3, 5, 7, 9, 11, 15\}\) with central differences.
+
+### Decision
+
+Path **(b)** with **\(w=5\)**. Cohort Q-score ablations on 32 maps (`qscore_gradient_ablation.csv`, `qscore_window_sensitivity.csv`; Appendix B.3):
+
+- Unwindowed (\(w=1\)): median ρ(Q, *V*) ≈ **+0.28** — too noisy.
+- Windowed central vs Sobel at \(w=5\): both ≈ **+0.55**; median Δρ ≈ **−0.002** (Sobel not better).
+- Window sweep: plateau **\(w=5\)–9** at ≈ **+0.55**; \(w=11\)–15 add only +0.02–0.03 but blur past residue scale.
+
+### Consequences
+
+- Production export unchanged: central differences + 5³ box filter, aligned with local variance and windowed half-map CC.
+- Reproduce: `python scripts/run_qscore_gradient_ablation.py --resume` and `python scripts/run_qscore_window_sensitivity.py --resume`.
+
