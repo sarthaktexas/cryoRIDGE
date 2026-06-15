@@ -30,7 +30,7 @@ from cryoem_mrc.repo_paths import (
     emd_output_dir,
     find_features_npz,
     halfmap_metrics_npz,
-    lh_map_reliability_dir,
+    resolve_halfmap_reliability_dir,
     locres_blocres_mrc,
 )
 
@@ -119,7 +119,7 @@ def audit_row(row: dict[str, str]) -> RowAudit:
     h2 = Path(row["half2_path"])
     pdb_raw = row.get("flexibility_path_or_pdb", "")
 
-    lh = lh_map_reliability_dir(eid)
+    lh = resolve_halfmap_reliability_dir(eid)
     rel = lh / "reliability.npz"
     qscore = lh / "qscore_validation.csv"
     rv = lh / "residue_validation.csv"

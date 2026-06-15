@@ -1,6 +1,6 @@
 """Compare legacy rigidity vs exploratory L/H scores against windowed half-map correlation.
 
-Production export uses H_repro only; see docs/LH_MAP_RELIABILITY.md.
+Production export uses H_repro only; see docs/HALFMAP_RELIABILITY.md.
 
 Decision 001: features on 0.5*(h1+h2) -> density_normalized in avg features NPZ.
 Decision 002: mask from deposited reference at contour (default 0.116), NOT avg map.

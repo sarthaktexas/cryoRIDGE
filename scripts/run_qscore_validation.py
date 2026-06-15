@@ -388,7 +388,7 @@ def main(argv: list[str] | None = None) -> int:
         _build_cohort_figure(args.manifest, args.dpi)
 
     if rc == 0 and len(ids) == 1 and ids[0] == ANCHOR_EMDB_ID:
-        print(f"[qscore_validation] anchor complete — check outputs/emd_{ANCHOR_EMDB_ID}/lh_map_reliability/")
+        print(f"[qscore_validation] anchor complete — check outputs/emd_{ANCHOR_EMDB_ID}/halfmap_reliability/")
     return rc
 
 

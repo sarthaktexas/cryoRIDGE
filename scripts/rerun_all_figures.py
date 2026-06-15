@@ -18,7 +18,7 @@ from cryoem_mrc.repo_paths import (
     COHORT_MANIFEST,
     find_features_npz,
     halfmap_metrics_npz,
-    lh_map_reliability_dir,
+    resolve_halfmap_reliability_dir,
 )
 
 REPO = Path(__file__).resolve().parents[1]
@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for row in rows:
         eid = str(row["emdb_id"]).strip()
-        lh_dir = lh_map_reliability_dir(eid)
+        lh_dir = resolve_halfmap_reliability_dir(eid)
         if not (lh_dir / "reliability.npz").is_file():
             print(f"[figures] skip lh_export EMD-{eid}: no reliability.npz", flush=True)
             continue
@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
             run(
                 [
                     str(PY),
-                    "scripts/run_lh_map_reliability_export.py",
+                    "scripts/run_halfmap_reliability_export.py",
                     "--data-dir",
                     str(ref.parent),
                     "--emd-id",

@@ -45,8 +45,8 @@ class TestModelBuildingExport(unittest.TestCase):
                 contour=0.1,
             )
             text = script.read_text()
-            self.assertIn("#e74c3c", text)
-            self.assertIn("#27ae60", text)
+            self.assertIn("#E8303A", text)
+            self.assertIn("#3BBF6A", text)
             self.assertIn("/A:10", text)
 
     def test_coot_script_calls_color(self) -> None:

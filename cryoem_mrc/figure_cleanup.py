@@ -7,7 +7,7 @@ from pathlib import Path
 ANALYSIS_SCATTER_GLOB = "*_vs_*.png"
 ANALYSIS_SCATTER_GLOB_PDF = "*_vs_*.pdf"
 
-LH_RETIRED_STEMS = (
+LH_RETIRED_STEMS = HALFMAP_RELIABILITY_RETIRED_STEMS = (
     "spearman_predictors",
     "partial_incremental",
     "reliability_vs_cc_binned",
@@ -40,8 +40,8 @@ def prune_analysis_scatter_figures(fig_dir: Path) -> list[Path]:
     return removed
 
 
-def prune_lh_retired_figures(fig_dir: Path) -> list[Path]:
-    """Delete orphaned LH diagnostics replaced by panels or cohort_summary."""
+def prune_halfmap_reliability_retired_figures(fig_dir: Path) -> list[Path]:
+    """Delete orphaned half-map reliability diagnostics replaced by panels or cohort_summary."""
     removed: list[Path] = []
     if not fig_dir.is_dir():
         return removed
@@ -62,13 +62,24 @@ def prune_lh_retired_figures(fig_dir: Path) -> list[Path]:
     return removed
 
 
+# Deprecated alias.
+prune_lh_retired_figures = prune_halfmap_reliability_retired_figures
+
+
 def prune_retired_figures_under_outputs(outputs_root: Path) -> dict[str, list[str]]:
-    """Prune analysis and lh_map_reliability figure dirs for every EMD entry."""
-    summary: dict[str, list[str]] = {"analysis": [], "lh_map_reliability": []}
+    """Prune analysis and halfmap_reliability figure dirs for every EMD entry."""
+    from .repo_paths import HALFMAP_RELIABILITY_DIRNAME, LEGACY_HALFMAP_RELIABILITY_DIRNAME
+
+    summary: dict[str, list[str]] = {
+        "analysis": [],
+        HALFMAP_RELIABILITY_DIRNAME: [],
+        LEGACY_HALFMAP_RELIABILITY_DIRNAME: [],
+    }
     for emd_dir in sorted(outputs_root.glob("emd_*")):
         for sub, fn in (
             ("analysis/figures", prune_analysis_scatter_figures),
-            ("lh_map_reliability/figures", prune_lh_retired_figures),
+            (f"{HALFMAP_RELIABILITY_DIRNAME}/figures", prune_halfmap_reliability_retired_figures),
+            (f"{LEGACY_HALFMAP_RELIABILITY_DIRNAME}/figures", prune_halfmap_reliability_retired_figures),
         ):
             fig_dir = emd_dir / sub
             for path in fn(fig_dir):

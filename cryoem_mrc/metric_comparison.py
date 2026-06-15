@@ -13,7 +13,7 @@ from .analysis import build_contour_mask
 from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
 from .local_resolution import aggregate_locres_to_ca, locres_blocres_path
 from .map_grid import load_map_grid
-from .repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_metrics_npz, lh_map_reliability_dir
+from .repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_metrics_npz, resolve_halfmap_reliability_dir
 from .structure_validation import (
     build_residue_validation_table,
     iter_ca_residues,
@@ -56,7 +56,7 @@ def load_all_metrics(
     pdb_path = Path(pdb_raw) if pdb_raw else None
     contour = float(row["contour"])
 
-    out_dir = lh_map_reliability_dir(emdb_id)
+    out_dir = resolve_halfmap_reliability_dir(emdb_id)
     npz_path = out_dir / "reliability.npz"
 
     if not ref_path.is_file():

@@ -47,7 +47,7 @@ Download deposited and half maps from [EMDB](https://www.ebi.ac.uk/emdb/) and fi
 python -m cryoem_mrc path/to/map.mrc --out map_features.npz --float32
 ```
 
-**Typical deposited-map workflow** (replace paths and contour for your entry):
+**Typical workflow** (features on avg-of-halves; reliability MRCs on deposited primary grid):
 
 ```bash
 EMD=49450
@@ -69,7 +69,7 @@ python scripts/run_local_fsc.py \
   --contour "${CONTOUR}" \
   --out "outputs/emd_${EMD}/analysis_localres/emd_${EMD}_local_fsc.mrc"
 
-python scripts/run_lh_map_reliability_export.py --emd-id "${EMD}"
+python scripts/run_halfmap_reliability_export.py --emd-id "${EMD}"
 python scripts/run_extended_feature_validation.py --emd-id "${EMD}"
 ```
 
@@ -88,7 +88,7 @@ python scripts/run_cohort_pipeline.py
 | -------------------------------------------------- | -------------------------------------------------------- |
 | `scripts/run_analysis.py`                          | Feature vs windowed half-map correlation (+ local FSC) |
 | `scripts/run_local_fsc.py`                         | Windowed local FSC → Å MRC                               |
-| `scripts/run_lh_map_reliability_export.py`         | H_repro, reliability score, build zones, summary figures |
+| `scripts/run_halfmap_reliability_export.py`         | H_repro, reliability score, build zones, summary figures |
 | `scripts/run_extended_feature_validation.py`       | Extended stats, Hessian, ridge CV vs CC                  |
 | `scripts/run_residue_bfactor_validation.py`        | Cα B_iso vs reliability / build zones                    |
 | `scripts/run_residue_bfactor_score_correlation.py` | B vs multiple map scores (sphere sampling)               |
@@ -131,7 +131,7 @@ zones = classify_build_zones(reliability["reliability_score"])
 
 - **Windowed half-map correlation** is the fast internal reproducibility target for feature validation; **local FSC resolution (Å)** is the field-standard reference.
 - **Local FSC** is computed in-repo (`cryoem_mrc.local_fsc`); external BlocRes / ResMap / MonoRes maps are not loaded.
-- **H_repro** combines windowed half-map fluctuation (T) and density gradient smoothness (V); **reliability_score** is an in-mask percentile used for build/caution/omit terciles.
+- **H_repro** is the windowed gradient-constraint map *V* (legacy export name; ranked as **reliability_score**); **reliability_score** is an in-mask percentile used for build/caution/omit terciles. Resolvability gating uses windowed half-map CC or local FSC, not a separate disagreement map.
 - **Local variance** is often the strongest single feature predictor of windowed half-map correlation; treat B-factor correlations as exploratory and report partial correlations when comparing scores.
 
 Design choices and parameter defaults are recorded in [DECISIONS.md](DECISIONS.md).

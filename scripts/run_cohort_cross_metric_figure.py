@@ -119,7 +119,7 @@ def _build_median_figure(mat: np.ndarray, cols: list[str], out_dir: Path, dpi: i
     labels = [METRIC_LABELS.get(c, c) for c in cols]
     fig, ax = plt.subplots(figsize=(7.0, 6.0))
     apply(ax)
-    im = ax.imshow(mat, cmap="RdBu_r", vmin=-1.0, vmax=1.0, aspect="auto")
+    im = ax.imshow(mat, cmap=PALETTES["diverging"], vmin=-1.0, vmax=1.0, aspect="auto")
     ax.set_xticks(range(len(cols)))
     ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
     ax.set_yticks(range(len(cols)))

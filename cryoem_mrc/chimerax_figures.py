@@ -22,7 +22,7 @@ from matplotlib import colors
 from matplotlib.gridspec import GridSpecFromSubplotSpec
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
-from style.nature import apply, label_panel, savefig as save_nature
+from style.nature import PALETTES, RELIABILITY_CMAP_CC, apply, label_panel, savefig as save_nature
 
 from .analysis import build_contour_mask
 from .half_map_repro import (
@@ -45,7 +45,7 @@ from .repo_paths import (
     analysis_dir,
     emd_output_dir,
     find_features_npz,
-    lh_map_reliability_dir,
+    resolve_halfmap_reliability_dir,
     locres_blocres_mrc,
 )
 from .structure_validation import iter_ca_residues, load_cohort_manifest_row
@@ -172,7 +172,7 @@ STATISTIC_SPECS: dict[str, StatisticSpec] = {
         key="build_zone",
         label="Build zones",
         cbar_label="zone (0=omit, 2=build)",
-        matplotlib_cmap="RdYlGn",
+        matplotlib_cmap=RELIABILITY_CMAP_CC,
         chimerax_palette="redblue",
         vmin=0.0,
         vmax=2.0,
@@ -486,7 +486,7 @@ def _resolve_statistic_mrc(
         if spec.mrc_suffix == "locres_blocres.mrc":
             path = locres_blocres_mrc(emd)
         else:
-            path = lh_map_reliability_dir(emd) / f"emd_{emd}_{spec.mrc_suffix}"
+            path = resolve_halfmap_reliability_dir(emd) / f"emd_{emd}_{spec.mrc_suffix}"
         return path if path.is_file() else None
 
     if spec.halfmap_mrc_name:
@@ -498,7 +498,7 @@ def _resolve_statistic_mrc(
         return path if path.is_file() else None
 
     if spec.npz_key:
-        rel_npz = lh_map_reliability_dir(emd) / "reliability.npz"
+        rel_npz = resolve_halfmap_reliability_dir(emd) / "reliability.npz"
         if rel_npz.is_file() and spec.npz_key in ("reliability_score", "reliability_H_repro", "build_zone"):
             with np.load(rel_npz, allow_pickle=False) as d:
                 if spec.npz_key not in d:
@@ -643,7 +643,7 @@ def plot_statistic_histogram(
         ax.text(0.5, 0.5, "no in-mask data", ha="center", va="center", transform=ax.transAxes)
         return
     bins = min(60, max(20, int(np.sqrt(vals.size))))
-    ax.hist(vals, bins=bins, range=(vmin, vmax), color="#4E79A7", edgecolor="white", linewidth=0.3)
+    ax.hist(vals, bins=bins, range=(vmin, vmax), color=PALETTES["categorical"][3], edgecolor="white", linewidth=0.3)
     apply(ax)
     ax.set_title(title, fontsize=7)
     ax.set_xlabel(spec.cbar_label)
@@ -932,7 +932,7 @@ def _arrow_in_ax(
         xy=(0.82, 0.5),
         xytext=(0.18, 0.5),
         xycoords="axes fraction",
-        arrowprops=dict(arrowstyle="-|>", color="#4E79A7", lw=1.4, mutation_scale=12),
+        arrowprops=dict(arrowstyle="-|>", color=PALETTES["categorical"][3], lw=1.4, mutation_scale=12),
     )
     if step:
         ax.text(
@@ -944,7 +944,7 @@ def _arrow_in_ax(
             fontsize=8,
             fontweight="bold",
             color="white",
-            bbox=dict(boxstyle="circle,pad=0.25", facecolor="#4E79A7", edgecolor="none"),
+            bbox=dict(boxstyle="circle,pad=0.25", facecolor=PALETTES["categorical"][3], edgecolor="none"),
             transform=ax.transAxes,
         )
     if label:

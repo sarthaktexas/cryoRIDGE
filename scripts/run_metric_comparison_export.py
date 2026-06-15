@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 from cryoem_mrc.metric_comparison import compute_cross_metric_correlations, load_all_metrics
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, emd_output_dir, lh_map_reliability_dir
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, emd_output_dir, resolve_halfmap_reliability_dir
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -39,7 +39,7 @@ def _eligible_ids(manifest: Path) -> list[str]:
             pdb = row.get("flexibility_path_or_pdb", "").strip()
             if not pdb or not Path(pdb).is_file():
                 continue
-            if not (lh_map_reliability_dir(eid) / "reliability.npz").is_file():
+            if not (resolve_halfmap_reliability_dir(eid) / "reliability.npz").is_file():
                 print(f"[metric_export] skip EMD-{eid}: no reliability.npz", flush=True)
                 continue
             ids.append(eid)

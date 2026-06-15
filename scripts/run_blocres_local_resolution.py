@@ -4,7 +4,7 @@ Writes ``outputs/emd_<ID>/locres_blocres.mrc`` per entry, limited to the deposit
 contour mask (``contour_mask.mrc`` + blocres ``-Mask``). After BlocRes finishes,
 the map is reheadered onto the deposited reference grid (same origin as half-maps)
 via :func:`cryoem_mrc.io.save_volume_like_reference`. Does not modify existing
-pipeline outputs (``lh_map_reliability/``, ``local_fsc``, etc.).
+pipeline outputs (``halfmap_reliability/``, ``local_fsc``, etc.).
 
 Progress is tracked in ``outputs/emd_<ID>/blocres_status.json``.
 

@@ -1,7 +1,7 @@
 """Residue-level B-factor vs map reliability (gemmi + cohort manifest).
 
 Reads ``cohort/manifest.csv``, samples ``reliability.npz`` at deposited-model Cα
-positions, and writes CSV + figures under ``outputs/emd_<ID>/lh_map_reliability/``.
+positions, and writes CSV + figures under ``outputs/emd_<ID>/halfmap_reliability/``.
 
 Example::
 
@@ -33,7 +33,7 @@ import numpy as np
 
 from style.nature import PALETTES, apply, label_panel, savefig as save_nature
 
-from cryoem_mrc.figure_cleanup import prune_lh_retired_figures
+from cryoem_mrc.figure_cleanup import prune_halfmap_reliability_retired_figures
 from cryoem_mrc.reliability import BUILD_ZONE_COLORS, BUILD_ZONE_LABELS
 from cryoem_mrc.repo_paths import BFACTOR_VALIDATION_EMDB_IDS, COHORT_MANIFEST
 from cryoem_mrc.structure_validation import (
@@ -201,7 +201,7 @@ def _run_one(
             dpi=dpi,
         )
     if prune_retired_figures:
-        removed = prune_lh_retired_figures(fig_dir)
+        removed = prune_halfmap_reliability_retired_figures(fig_dir)
         if removed:
             print(f"[bfactor_validation] pruned {len(removed)} retired figure(s)", flush=True)
 

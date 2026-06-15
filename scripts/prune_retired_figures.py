@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Delete retired per-map analysis/lh_map_reliability figure exports.
+"""Delete retired per-map analysis/halfmap_reliability figure exports.
 
 Example::
 
@@ -15,10 +15,14 @@ from pathlib import Path
 
 from cryoem_mrc.figure_cleanup import (
     prune_analysis_scatter_figures,
-    prune_lh_retired_figures,
+    prune_halfmap_reliability_retired_figures,
     prune_retired_figures_under_outputs,
 )
-from cryoem_mrc.repo_paths import OUTPUTS_ROOT
+from cryoem_mrc.repo_paths import (
+    HALFMAP_RELIABILITY_DIRNAME,
+    LEGACY_HALFMAP_RELIABILITY_DIRNAME,
+    OUTPUTS_ROOT,
+)
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -34,7 +38,8 @@ def main(argv: list[str] | None = None) -> int:
         eid = args.emd_id.strip()
         emd_dir = args.outputs_root / f"emd_{eid}"
         removed = prune_analysis_scatter_figures(emd_dir / "analysis" / "figures")
-        removed += prune_lh_retired_figures(emd_dir / "lh_map_reliability" / "figures")
+        for sub in (HALFMAP_RELIABILITY_DIRNAME, LEGACY_HALFMAP_RELIABILITY_DIRNAME):
+            removed += prune_halfmap_reliability_retired_figures(emd_dir / sub / "figures")
         print(f"[prune] EMD-{eid}: removed {len(removed)} file(s)", flush=True)
         for path in removed:
             print(f"  {path}", flush=True)
@@ -42,9 +47,11 @@ def main(argv: list[str] | None = None) -> int:
 
     summary = prune_retired_figures_under_outputs(args.outputs_root)
     n_analysis = len(summary["analysis"])
-    n_lh = len(summary["lh_map_reliability"])
-    print(f"[prune] removed {n_analysis} analysis + {n_lh} lh_map_reliability file(s)", flush=True)
-    if n_analysis + n_lh == 0:
+    n_rel = len(summary.get(HALFMAP_RELIABILITY_DIRNAME, [])) + len(
+        summary.get(LEGACY_HALFMAP_RELIABILITY_DIRNAME, [])
+    )
+    print(f"[prune] removed {n_analysis} analysis + {n_rel} halfmap_reliability file(s)", flush=True)
+    if n_analysis + n_rel == 0:
         print("[prune] nothing to delete", flush=True)
     return 0
 

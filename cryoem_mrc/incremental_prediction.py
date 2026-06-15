@@ -18,7 +18,7 @@ from scipy import stats
 
 from .half_map_repro import LEGACY_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_KEY
 from .metric_comparison import load_all_metrics
-from .repo_paths import COHORT_MANIFEST, emd_output_dir, lh_map_reliability_dir
+from .repo_paths import COHORT_MANIFEST, emd_output_dir, resolve_halfmap_reliability_dir
 from .structure_validation import _b_iso_is_uniform, load_cohort_manifest_row
 
 BASELINE_COLUMNS: tuple[str, ...] = (
@@ -169,8 +169,8 @@ def build_map_frame_from_metrics(
 
 
 def load_qscore_target(metrics_df: pd.DataFrame, emdb_id: str) -> pd.DataFrame | None:
-    """Merge per-residue Q-scores from ``lh_map_reliability/qscore_validation.csv``."""
-    q_path = lh_map_reliability_dir(emdb_id) / "qscore_validation.csv"
+    """Merge per-residue Q-scores from ``halfmap_reliability/qscore_validation.csv``."""
+    q_path = resolve_halfmap_reliability_dir(emdb_id) / "qscore_validation.csv"
     if not q_path.is_file():
         return None
     q_df = pd.read_csv(q_path, usecols=["chain", "seq_num", "q_score"])
@@ -256,7 +256,7 @@ def iter_eligible_emdb_ids(
     root = outputs_root or OUTPUTS_ROOT
     if target == TARGET_Q:
         ids: list[str] = []
-        for path in sorted(root.glob("emd_*/lh_map_reliability/qscore_validation.csv")):
+        for path in sorted(root.glob("emd_*/halfmap_reliability/qscore_validation.csv")):
             emdb_id = path.parts[-3].replace("emd_", "")
             if emdb_id not in exclude:
                 ids.append(emdb_id)

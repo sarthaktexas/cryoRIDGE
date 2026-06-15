@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Literal, Mapping, Sequence
 
-from .repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_metrics_npz, lh_map_reliability_dir
+from .repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_metrics_npz, resolve_halfmap_reliability_dir
 
 import numpy as np
 from scipy import stats
@@ -961,9 +961,9 @@ def load_cohort_manifest_row(manifest_path: Path, emdb_id: str) -> dict[str, str
 
 
 def default_reliability_out_dir(emdb_id: str, base: Path | None = None) -> Path:
-    """Per-map reliability bundle: ``outputs/emd_<ID>/lh_map_reliability/``."""
+    """Per-map reliability bundle, preferring canonical ``halfmap_reliability/`` over legacy."""
     _ = base  # deprecated; kept for call-site compatibility
-    return lh_map_reliability_dir(emdb_id)
+    return resolve_halfmap_reliability_dir(emdb_id)
 
 
 def match_residue_rows_by_key(

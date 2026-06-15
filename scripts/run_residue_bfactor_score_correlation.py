@@ -149,10 +149,11 @@ def run_one(
     emd = f"emd_{emd_id}"
 
     if features_npz is None:
-        feat_glob = list(data_dir.glob(f"{emd}_avg_features*.npz"))
-        if not feat_glob:
+        from cryoem_mrc.repo_paths import find_features_npz
+
+        features_npz = find_features_npz(data_dir, emd_id, contour_val)
+        if features_npz is None:
             raise FileNotFoundError(f"No features npz in {data_dir}")
-        features_npz = feat_glob[0]
     if halfmap_npz is None:
         halfmap_npz = halfmap_metrics_npz(emd_id)
         if not halfmap_npz.exists():

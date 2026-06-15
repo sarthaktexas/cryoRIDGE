@@ -18,7 +18,7 @@ from .half_map_repro import (
 )
 from .map_grid import load_full_and_half_maps
 from .reliability import attach_reliability_to_features, percentile_rank_in_mask
-from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, halfmap_metrics_npz, lh_map_reliability_dir
+from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, halfmap_metrics_npz, resolve_halfmap_reliability_dir
 from .structure_validation import (
     ResidueValidationRow,
     build_residue_validation_table,
@@ -172,7 +172,8 @@ def recompute_rho_at_ca(
     """
     Re-sample reliability variants at deposited Cα.
 
-    ``rho_source``: ``avg_half`` (canonical), ``primary`` (sharpened deposit), or ``t_only``.
+    ``rho_source``: ``avg_half`` (canonical, matched to half-map CC), ``primary``
+    (deposited sharpened map, sensitivity), or ``t_only``.
     """
     row = load_cohort_manifest_row(manifest, emd_id)
     ref_path = Path(row["reference_mrc"])
@@ -266,7 +267,7 @@ def load_decoupling_cohort(
             pdb = Path(row.get("flexibility_path_or_pdb", ""))
             if pdb.suffix.lower() not in {".cif", ".pdb"} or not pdb.is_file():
                 continue
-            rv = lh_map_reliability_dir(emd_id) / "residue_validation.csv"
+            rv = resolve_halfmap_reliability_dir(emd_id) / "residue_validation.csv"
             if not rv.is_file():
                 continue
             residues = read_residue_validation_csv(rv)

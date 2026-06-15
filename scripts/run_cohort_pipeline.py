@@ -1,6 +1,9 @@
-"""Run avg → features → analysis → LH export → B-factor for cohort manifest rows.
+"""Run avg-half features → analysis → LH export → B-factor for cohort rows.
 
-Skips entries already present under ``outputs/emd_<ID>/lh_map_reliability/reliability.npz``
+Features and ρ for constraint V are computed on ``0.5 * (half1 + half2)`` (Decision 001).
+Reliability MRCs and build zones are written on the deposited primary grid for display.
+
+Skips entries already present under ``outputs/emd_<ID>/halfmap_reliability/reliability.npz``
 unless ``--force``. Excludes ``excluded`` / ``optional`` manifest sources.
 
 Example::
@@ -18,19 +21,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
-
 from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.io import load_mrc, save_volume_like_reference
 from cryoem_mrc.map_grid import load_full_and_half_maps
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, analysis_dir, lh_map_reliability_dir
+from cryoem_mrc.repo_paths import (
+    COHORT_MANIFEST,
+    analysis_dir,
+    avg_features_npz_path,
+    halfmap_reliability_dir,
+    resolve_halfmap_reliability_dir,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 SKIP_SOURCES = frozenset({"excluded", "optional"})
-
-
-def _contour_tag(contour: float) -> str:
-    return f"t{int(round(float(contour) * 1000)):04d}"
 
 
 def _feature_start_threshold(avg_path: Path, ref_path: Path, mask_contour: float) -> float:
@@ -54,9 +57,6 @@ def _feature_start_threshold(avg_path: Path, ref_path: Path, mask_contour: float
             flush=True,
         )
         return 0.0
-    # Unsharpened avg maps often sit just above the depositor contour (e.g. EMD-4941:
-    # max ≈ 0.0503 at contour 0.05). Thresholding at contour then z-scoring the crop
-    # leaves a near-delta spike → |z| thousands and degenerate LH constraint V.
     headroom = 1.05
     if avg_max_in_mask < mask_contour * headroom:
         print(
@@ -112,7 +112,13 @@ def _run(cmd: list[str], *, label: str) -> None:
     subprocess.run(cmd, cwd=REPO, check=True)
 
 
-def _process_row(row: dict[str, str], *, force: bool, skip_bfactor: bool) -> int:
+def _process_row(
+    row: dict[str, str],
+    *,
+    force: bool,
+    skip_bfactor: bool,
+    density_source: str,
+) -> int:
     eid = str(row["emdb_id"]).strip()
     contour = float(row["contour"])
     if row["contour"].strip().upper() == "TBD":
@@ -122,17 +128,24 @@ def _process_row(row: dict[str, str], *, force: bool, skip_bfactor: bool) -> int
     ref = Path(row["reference_mrc"])
     data_dir = ref.parent
     emd = f"emd_{eid}"
-    lh_dir = lh_map_reliability_dir(eid)
-    reliability_npz = lh_dir / "reliability.npz"
+    rel_dir = halfmap_reliability_dir(eid)
+    reliability_npz = resolve_halfmap_reliability_dir(eid) / "reliability.npz"
 
     if reliability_npz.is_file() and not force:
         print(f"[cohort] EMD-{eid}: already done ({reliability_npz})", flush=True)
         return 0
 
-    avg_path = _ensure_avg(row)
-    feature_thr = _feature_start_threshold(avg_path, ref, contour)
-    tag = _contour_tag(feature_thr)
-    features = data_dir / f"{emd}_avg_features_{tag}.npz"
+    if density_source == "avg_half":
+        avg_path = _ensure_avg(row)
+        feature_thr = _feature_start_threshold(avg_path, ref, contour)
+        feature_map = avg_path
+    else:
+        feature_thr = contour
+        feature_map = ref
+
+    from cryoem_mrc.repo_paths import features_npz_path
+
+    features = features_npz_path(data_dir, eid, feature_thr if density_source == "avg_half" else contour, density_source=density_source)
     py = sys.executable
 
     if not features.is_file() or force:
@@ -141,7 +154,7 @@ def _process_row(row: dict[str, str], *, force: bool, skip_bfactor: bool) -> int
                 py,
                 "-m",
                 "cryoem_mrc",
-                str(avg_path),
+                str(feature_map),
                 "--start-threshold",
                 str(feature_thr),
                 "--reference",
@@ -175,7 +188,6 @@ def _process_row(row: dict[str, str], *, force: bool, skip_bfactor: bool) -> int
         "--out-dir",
         str(out_analysis),
     ]
-    # Half-map metrics depend only on the halves, not the feature threshold.
     if metrics_npz.is_file():
         analysis_cmd.append("--skip-halfmap-metrics")
     analysis_cmd.append("--prune-scatter-figures")
@@ -184,7 +196,7 @@ def _process_row(row: dict[str, str], *, force: bool, skip_bfactor: bool) -> int
     _run(
         [
             py,
-            "scripts/run_lh_map_reliability_export.py",
+            "scripts/run_halfmap_reliability_export.py",
             "--data-dir",
             str(data_dir),
             "--emd-id",
@@ -196,10 +208,12 @@ def _process_row(row: dict[str, str], *, force: bool, skip_bfactor: bool) -> int
             "--halfmap-npz",
             str(metrics_npz),
             "--out-dir",
-            str(lh_dir),
+            str(rel_dir),
+            "--density-source",
+            density_source,
             "--prune-retired-figures",
         ],
-        label=f"EMD-{eid} lh_export",
+        label=f"EMD-{eid} reliability_export",
     )
 
     src = row.get("flexibility_source", "").strip()
@@ -228,6 +242,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--force", action="store_true", help="Re-run even if reliability.npz exists")
     p.add_argument("--skip-bfactor", action="store_true", help="Stop after lh_export")
     p.add_argument(
+        "--density-source",
+        choices=("avg_half", "primary"),
+        default="avg_half",
+        help="Map used for feature extraction and ρ in V (default: avg_half; MRCs always on deposited primary)",
+    )
+    p.add_argument(
         "--max-voxels",
         type=float,
         default=None,
@@ -244,7 +264,6 @@ def main(argv: list[str] | None = None) -> int:
         print("[cohort] nothing to run", flush=True)
         return 0
 
-    # Smallest boxes first (faster feedback, lower peak RAM early).
     import mrcfile
 
     sized: list[tuple[float, dict[str, str]]] = []
@@ -264,7 +283,15 @@ def main(argv: list[str] | None = None) -> int:
             )
             continue
         try:
-            rc = max(rc, _process_row(row, force=args.force, skip_bfactor=args.skip_bfactor))
+            rc = max(
+                rc,
+                _process_row(
+                    row,
+                    force=args.force,
+                    skip_bfactor=args.skip_bfactor,
+                    density_source=args.density_source,
+                ),
+            )
         except subprocess.CalledProcessError as e:
             print(f"[cohort] FAILED EMD-{eid}: {e}", file=sys.stderr, flush=True)
             rc = 1

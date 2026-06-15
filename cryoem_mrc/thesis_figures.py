@@ -15,7 +15,16 @@ from matplotlib import colors as mcolors
 from matplotlib.gridspec import GridSpecFromSubplotSpec
 from matplotlib.patches import Rectangle
 
-from style.nature import PALETTES, apply, label_panel, savefig as save_nature
+from style.nature import (
+    PALETTES,
+    RELIABILITY_CMAP_CC,
+    RELIABILITY_CMAP_LOCRES,
+    THESIS_BLUE,
+    THESIS_RED,
+    apply,
+    label_panel,
+    savefig as save_nature,
+)
 
 from .conformation_pair import (
     DOMAIN_COLORS,
@@ -34,10 +43,6 @@ from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_C
 from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
 from .structure_validation import load_cohort_manifest_row
 
-# Windowed half-map correlation and local FSC resolution (Å) are inversely related;
-# use the same diverging map with reversed direction so green = reliable / sharp.
-RELIABILITY_CMAP_CC = "RdYlGn"
-RELIABILITY_CMAP_LOCRES = "RdYlGn_r"
 CC_CBAR_LABEL = f"{WINDOWED_HALFMAP_CORRELATION_LABEL} (high = reliable)"
 WINDOWED_HALFMAP_CORRELATION_ONLY_SOURCE = "windowed_halfmap_correlation_only"
 LOCRES_CBAR_LABEL = "Å (low = sharper)"
@@ -366,7 +371,7 @@ def plot_parallel_reliability_readouts(
         msl,
         cmap="gray",
         cbar_label="density",
-        title=f"Averaged map ρ\nZ = {z}",
+        title=f"Deposited map ρ\nZ = {z}",
         already_contoured=True,
         **kw,
     )
@@ -557,7 +562,7 @@ def plot_spearman_top_bar(
 
     fig, ax = plt.subplots(figsize=(7.5, 0.45 * top_n + 1.5))
     apply(ax)
-    colors = ["#2c7bb6" if v >= 0 else "#d7191c" for v in vals]
+    colors = [THESIS_BLUE if v >= 0 else THESIS_RED for v in vals]
     y = np.arange(len(labels))
     ax.barh(y, vals, color=colors)
     ax.set_yticks(y)
@@ -704,7 +709,7 @@ def collect_cohort_metrics(
     manifest_path: Path = COHORT_MANIFEST,
 ) -> list[CohortMetricRow]:
     """
-    Gather Spearman summaries from ``outputs/emd_<ID>/lh_map_reliability/``.
+    Gather Spearman summaries from ``outputs/emd_<ID>/halfmap_reliability/``.
 
     Reads ``run_metadata.json`` (voxel-level CC correlations) and, when present,
     ``bfactor_validation_stats.json`` (residue-level B vs reliability).
@@ -712,7 +717,7 @@ def collect_cohort_metrics(
     root = OUTPUTS_ROOT if outputs_root is None else Path(outputs_root)
     manifest = _load_manifest_index(manifest_path)
     rows: list[CohortMetricRow] = []
-    for meta_path in sorted(root.glob("emd_*/lh_map_reliability/run_metadata.json")):
+    for meta_path in sorted(root.glob("emd_*/halfmap_reliability/run_metadata.json")):
         emdb_id = meta_path.parent.parent.name.removeprefix("emd_")
         with meta_path.open() as f:
             meta = json.load(f)

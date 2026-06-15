@@ -21,7 +21,6 @@ THESIS_NARRATIVE_COHORT_FIGURES: dict[str, str] = {
     "qscore_resolution_sensitivity.png": "fig_3_4_qscore_resolution_sensitivity.png",
     "fscq_vs_V_cohort.png": "fig_3_4_fscq_vs_V_cohort.png",
     "tv_line_scatter.png": "fig_3_4_tv_line_scatter.png",
-    "v_incremental_prediction.png": "fig_3_4_v_incremental_prediction.png",
     "placement_decoupling_cohort.png": "fig_3_6_placement_decoupling_cohort.png",
     "clpb_wt2a_placement_supplement.png": "fig_s4_clpb_wt2a_placement_supplement.png",
     "guinier_sharpen_benchmark.png": "fig_3_8_guinier_sharpen_benchmark.png",
@@ -85,9 +84,52 @@ def analysis_localres_dir(emdb_id: str | int) -> Path:
     return emd_output_dir(emdb_id) / "analysis_localres"
 
 
+HALFMAP_RELIABILITY_DIRNAME = "halfmap_reliability"
+LEGACY_HALFMAP_RELIABILITY_DIRNAME = "lh_map_reliability"
+
+
+def halfmap_reliability_dir(emdb_id: str | int) -> Path:
+    """Per-map half-map reliability bundle (write path): ``outputs/emd_<ID>/halfmap_reliability/``."""
+    return emd_output_dir(emdb_id) / HALFMAP_RELIABILITY_DIRNAME
+
+
+def resolve_halfmap_reliability_dir(emdb_id: str | int) -> Path:
+    """Return existing bundle dir, preferring canonical ``halfmap_reliability/`` over legacy ``lh_map_reliability/``."""
+    canonical = halfmap_reliability_dir(emdb_id)
+    legacy = emd_output_dir(emdb_id) / LEGACY_HALFMAP_RELIABILITY_DIRNAME
+    if canonical.is_dir():
+        return canonical
+    if legacy.is_dir():
+        return legacy
+    return canonical
+
+
+def iter_halfmap_reliability_bundle_dirs(outputs_root: Path | None = None):
+    """Yield unique reliability bundle directories under ``outputs/emd_*/``."""
+    root = outputs_root or OUTPUTS_ROOT
+    seen: set[Path] = set()
+    for emd_dir in sorted(root.glob("emd_*")):
+        for name in (HALFMAP_RELIABILITY_DIRNAME, LEGACY_HALFMAP_RELIABILITY_DIRNAME):
+            bundle = emd_dir / name
+            if bundle.is_dir() and bundle not in seen:
+                seen.add(bundle)
+                yield bundle
+
+
+def glob_halfmap_reliability_files(
+    outputs_root: Path,
+    pattern: str,
+) -> list[Path]:
+    """Glob a filename under both canonical and legacy reliability bundle dirs."""
+    paths: list[Path] = []
+    for dirname in (HALFMAP_RELIABILITY_DIRNAME, LEGACY_HALFMAP_RELIABILITY_DIRNAME):
+        paths.extend(sorted(outputs_root.glob(f"emd_*/{dirname}/{pattern}")))
+    return paths
+
+
 def lh_map_reliability_dir(emdb_id: str | int) -> Path:
-    """Per-map LH reliability bundle: ``outputs/emd_<ID>/lh_map_reliability/``."""
-    return emd_output_dir(emdb_id) / "lh_map_reliability"
+    """Deprecated alias for :func:`resolve_halfmap_reliability_dir`."""
+    return resolve_halfmap_reliability_dir(emdb_id)
 
 
 def thesis_overview_dir(emdb_id: str | int = "49450") -> Path:
@@ -124,22 +166,69 @@ def bfactor_conformation_pairs_dir() -> Path:
     return OUTPUTS_ROOT / "bfactor_conformation_pairs"
 
 
-def find_features_npz(data_dir: Path, emdb_id: str | int, contour: float) -> Path | None:
-    """
-    Locate averaged-map feature NPZ for one EMDB entry.
+def avg_features_npz_path(data_dir: Path, emdb_id: str | int, contour: float) -> Path:
+    """Feature NPZ from averaged half-maps (Decision 001 canonical)."""
+    emd = f"emd_{str(emdb_id).strip()}"
+    tag = f"t{int(round(float(contour) * 1000)):04d}"
+    return data_dir / f"{emd}_avg_features_{tag}.npz"
 
-    Prefer the depositor-contour tag, then ``t0000`` (unsharpened avg maps whose
-    in-mask max sits below the depositor contour — see cohort pipeline), then any match.
+
+def primary_features_npz_path(data_dir: Path, emdb_id: str | int, contour: float) -> Path:
+    """Feature NPZ from deposited primary map (sensitivity / ``--density-source primary``)."""
+    emd = f"emd_{str(emdb_id).strip()}"
+    tag = f"t{int(round(float(contour) * 1000)):04d}"
+    return data_dir / f"{emd}_features_{tag}.npz"
+
+
+def features_npz_path(
+    data_dir: Path,
+    emdb_id: str | int,
+    contour: float,
+    *,
+    density_source: str = "avg_half",
+) -> Path:
+    if density_source == "primary":
+        return primary_features_npz_path(data_dir, emdb_id, contour)
+    return avg_features_npz_path(data_dir, emdb_id, contour)
+
+
+def find_features_npz(
+    data_dir: Path,
+    emdb_id: str | int,
+    contour: float,
+    *,
+    density_source: str = "avg_half",
+) -> Path | None:
+    """
+    Locate feature NPZ for one EMDB entry.
+
+    Default ``avg_half``: prefer ``emd_*_avg_features_*`` (Decision 001).
+    ``primary``: prefer ``emd_*_features_*`` from deposited-map pipeline.
     """
     emd = f"emd_{str(emdb_id).strip()}"
     tag = f"t{int(round(float(contour) * 1000)):04d}"
-    candidates = [
-        data_dir / f"{emd}_avg_features_{tag}.npz",
+    if density_source == "primary":
+        primary_candidates = [
+            primary_features_npz_path(data_dir, emdb_id, contour),
+            data_dir / f"{emd}_features_t{int(round(contour * 1000)):04d}.npz",
+        ]
+        for path in primary_candidates:
+            if path.is_file():
+                return path
+        matches = sorted(data_dir.glob(f"{emd}_features*.npz"))
+        if matches:
+            return matches[0]
+
+    avg_candidates = [
+        avg_features_npz_path(data_dir, emdb_id, contour),
         data_dir / f"{emd}_avg_features_t{int(round(contour * 1000)):04d}.npz",
         data_dir / f"{emd}_avg_features_t0000.npz",
     ]
-    for path in candidates:
+    for path in avg_candidates:
         if path.is_file():
             return path
     matches = sorted(data_dir.glob(f"{emd}_avg_features*.npz"))
+    if matches:
+        return matches[0]
+    matches = sorted(data_dir.glob(f"{emd}_features*.npz"))
     return matches[0] if matches else None

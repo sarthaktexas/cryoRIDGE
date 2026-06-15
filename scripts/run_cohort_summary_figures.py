@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
         keep = {e.strip() for e in args.emdb_ids.split(",") if e.strip()}
         rows = [r for r in rows if r.emdb_id in keep]
     if not rows:
-        print("[cohort_summary] no run_metadata.json found under outputs/emd_*/lh_map_reliability/",
+        print("[cohort_summary] no run_metadata.json found under outputs/emd_*/halfmap_reliability/",
               file=sys.stderr)
         return 2
 

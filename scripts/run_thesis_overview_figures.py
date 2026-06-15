@@ -1,8 +1,9 @@
 """Generate thesis overview / schematic figure panels (EMD-49450 defaults).
 
-The analysis contour (default 0.116) is applied using the **deposited reference
-map** (``emd_* .map``), matching ``run_analysis.py`` and Decision 002 — not the
-averaged-half map, whose intensity scale differs.
+The analysis contour (default 0.116) is applied on the **deposited primary map**
+(``emd_* .map``), matching ``run_analysis.py`` and Decision 002. Density panels
+use the deposited primary for display; features / V are computed from avg-half
+maps (Decision 001).
 
 After fixing a bad run, delete old PNGs under ``outputs/emd_49450/thesis_overview/`` and
 re-run without ``--skip-existing``.
@@ -41,6 +42,7 @@ from cryoem_mrc.map_grid import load_map_grid
 from cryoem_mrc.repo_paths import (
     DATA_ROOT,
     analysis_dir,
+    avg_features_npz_path,
     find_features_npz,
     locres_blocres_mrc,
     thesis_overview_dir,
@@ -90,9 +92,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--reference",
         type=Path,
         default=None,
-        help="Deposited primary map for contour mask (default: emd_<ID>.map in data-dir)",
+        help="Deposited primary map for contour mask and density panels (default: emd_<ID>.map)",
     )
-    p.add_argument("--avg-map", type=Path, default=None, help="Averaged map for density panels")
     p.add_argument(
         "--local-res",
         "--local-fsc",
@@ -156,7 +157,6 @@ def _resolve_paths(args: argparse.Namespace) -> dict[str, Path]:
     out = args.out_dir
     return {
         "reference": args.reference or d / f"{emd}.map",
-        "avg": args.avg_map or d / f"{emd}_avg.map",
         "local_res": (
             args.local_res
             or (locres_blocres_mrc(args.emd_id) if locres_blocres_mrc(args.emd_id).is_file() else None)
@@ -165,7 +165,7 @@ def _resolve_paths(args: argparse.Namespace) -> dict[str, Path]:
         "features": (
             args.features
             or find_features_npz(d, args.emd_id, args.contour)
-            or d / f"{emd}_avg_features_t0116.npz"
+            or avg_features_npz_path(d, args.emd_id, args.contour)
         ),
         "halfmap_npz": args.halfmap_npz,
         "correlations": args.correlations,
@@ -286,14 +286,8 @@ def main(argv: list[str] | None = None) -> int:
         mask_source=np.array(str(paths["reference"])),
     )
 
-    print(f"[thesis_figures] loading averaged map {paths['avg'].name}")
-    avg = load_mrc(paths["avg"], dtype=np.float32)
-    if avg.shape != mask.shape:
-        print(
-            f"[thesis_figures] ERROR: avg shape {avg.shape} != reference {mask.shape}",
-            file=sys.stderr,
-        )
-        return 2
+    print(f"[thesis_figures] using deposited primary map {paths['reference'].name} for density panels")
+    density = reference
 
     msl = mask[z]
     crop_bbox: SliceCrop | None = None
@@ -309,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         scale_bar_a = 20.0 if crop_bbox is not None else 50.0
 
     # Contour before display: only in-mask voxels contribute to panels.
-    avg_contoured = apply_contour_mask(avg, mask)
+    avg_contoured = apply_contour_mask(density, mask)
     d_sl = extract_slice(avg_contoured, axis=0, index=z)
     dpi = args.dpi
     saved: list[Path] = []
@@ -518,7 +512,7 @@ def main(argv: list[str] | None = None) -> int:
             msl,
             cmap="gray",
             cbar_label="density",
-            title=f"Averaged map Z={z}",
+            title=f"Deposited map Z={z}",
             already_contoured=True,
             crop_bbox=crop_bbox,
         )
@@ -585,7 +579,7 @@ def main(argv: list[str] | None = None) -> int:
         res_lo, res_hi = _locres_robust_limits(res_sl, msl)
         fig, axes = plt.subplots(1, 6, figsize=(22.0, 4.5))
         panels: list[tuple[np.ndarray, str, str, str, dict]] = [
-            (d_sl, "gray", "ρ avg", "density", {}),
+            (d_sl, "gray", "ρ deposit", "density", {}),
             (
                 extract_slice(local_cc, axis=0, index=z),
                 RELIABILITY_CMAP_CC,

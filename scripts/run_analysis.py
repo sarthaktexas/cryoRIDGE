@@ -6,7 +6,7 @@ Usage
 End-to-end on EMD-49450 (after the user-side rerun documented in DECISIONS.md):
 
     python scripts/run_analysis.py \
-        --features data/emd_49450-mgtA_tetramer/emd_49450_avg_features_t0116.npz \
+        --features data/emd_49450-mgtA_e2p+e1/emd_49450_avg_features_t0116.npz \
         --half1 data/emd_49450-mgtA_tetramer/emd_49450_half_map_1.map \
         --half2 data/emd_49450-mgtA_tetramer/emd_49450_half_map_2.map \
         --reference data/emd_49450-mgtA_tetramer/emd_49450.map \
@@ -23,7 +23,7 @@ What it produces under ``--out-dir``:
   target signal (default ``windowed_halfmap_correlation``).
 - ``summary.txt`` — top-N features, mask coverage, scientific caveats.
 - ``figures/halfmap_metric_histograms.png`` — CC + repro-SNR inside vs outside mask.
-- ``figures/analysis_validation_panel.png`` — written by ``run_lh_map_reliability_export.py``
+- ``figures/analysis_validation_panel.png`` — written by ``run_halfmap_reliability_export.py``
   for the anchor map (EMD-49450): 2×2 variance / reliability validation panel.
 
 Per-map ``{feature}_vs_{target}.png`` scatters are retired (use ``--top-k-figures`` only

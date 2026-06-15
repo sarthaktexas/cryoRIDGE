@@ -29,7 +29,7 @@ from style.nature import PALETTES, apply, label_panel, savefig as save_nature
 
 from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.half_map_repro import load_windowed_halfmap_correlation
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, halfmap_metrics_npz, lh_map_reliability_dir
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, halfmap_metrics_npz, resolve_halfmap_reliability_dir
 from cryoem_mrc.structure_validation import (
     _partial_spearman,
     iter_ca_residues,
@@ -56,7 +56,7 @@ def _horse_race_one(emd_id: str, *, manifest: Path, sphere_radius_a: float) -> d
 
     ref_path = Path(row["reference_mrc"])
     pdb_path = Path(row["flexibility_path_or_pdb"])
-    rel_npz = lh_map_reliability_dir(emd_id) / "reliability.npz"
+    rel_npz = resolve_halfmap_reliability_dir(emd_id) / "reliability.npz"
     if not ref_path.is_file() or not pdb_path.is_file() or not rel_npz.is_file():
         print(f"[horse_race] skip EMD-{emd_id}: missing inputs", file=sys.stderr, flush=True)
         return None

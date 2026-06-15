@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .repo_paths import COHORT_MANIFEST, emd_output_dir, lh_map_reliability_dir
+from .reliability import BUILD_ZONE_COLORS
+from .repo_paths import COHORT_MANIFEST, emd_output_dir, resolve_halfmap_reliability_dir
 from .structure_validation import ResidueValidationRow, read_residue_validation_csv
 
-ZONE_COLORS = {
-    0: "#e74c3c",  # omit
-    1: "#f1c40f",  # caution
-    2: "#27ae60",  # build
-}
+ZONE_COLORS = BUILD_ZONE_COLORS
 
 ZONE_LABELS = {
     0: "omit",
@@ -177,7 +174,7 @@ def export_model_building_assets(
 
     row = load_cohort_manifest_row(manifest, emdb_id)
     bundle = resolve_protein_bundle(emdb_id, manifest=manifest)
-    rv_path = lh_map_reliability_dir(emdb_id) / "residue_validation.csv"
+    rv_path = resolve_halfmap_reliability_dir(emdb_id) / "residue_validation.csv"
     if not rv_path.is_file():
         raise FileNotFoundError(f"EMD-{emdb_id}: missing {rv_path}")
     residues = read_residue_validation_csv(rv_path)

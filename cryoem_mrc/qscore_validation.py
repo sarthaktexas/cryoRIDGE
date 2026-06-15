@@ -12,7 +12,7 @@ from scipy import stats
 
 from .analysis import build_contour_mask
 from .map_grid import MapGrid, load_map_grid
-from .repo_paths import COHORT_MANIFEST, lh_map_reliability_dir
+from .repo_paths import COHORT_MANIFEST, halfmap_reliability_dir, resolve_halfmap_reliability_dir
 from .structure_validation import (
     CaResidue,
     iter_ca_residues,
@@ -362,8 +362,8 @@ def run_emdb_qscore_validation(
     ref_path = reference or Path(row["reference_mrc"])
     pdb_path = pdb or Path(row["flexibility_path_or_pdb"])
     contour_val = contour if contour is not None else float(row["contour"])
-    out_dir = lh_map_reliability_dir(emd_id)
-    npz_path = reliability_npz or (out_dir / "reliability.npz")
+    out_dir = halfmap_reliability_dir(emd_id)
+    npz_path = reliability_npz or (resolve_halfmap_reliability_dir(emd_id) / "reliability.npz")
 
     for label, p in (("reference", ref_path), ("pdb", pdb_path), ("reliability.npz", npz_path)):
         if not p.exists():

@@ -24,7 +24,7 @@ from .incremental_prediction import (
     load_metrics_dataframe,
     load_qscore_target,
 )
-from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, lh_map_reliability_dir
+from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, resolve_halfmap_reliability_dir
 from .structure_validation import load_cohort_manifest_row
 
 QSCORE_PANEL_EXCLUDE = frozenset({"33736"})

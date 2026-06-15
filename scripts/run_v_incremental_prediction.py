@@ -69,7 +69,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _discover_qscore_ids() -> list[str]:
     root = OUTPUTS_ROOT
     ids: list[str] = []
-    for path in sorted(root.glob("emd_*/lh_map_reliability/qscore_validation.csv")):
+    for path in sorted(root.glob("emd_*/halfmap_reliability/qscore_validation.csv")):
         emdb_id = path.parts[-3].replace("emd_", "")
         if emdb_id not in QSCORE_PANEL_EXCLUDE:
             ids.append(emdb_id)

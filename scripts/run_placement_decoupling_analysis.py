@@ -39,7 +39,7 @@ from cryoem_mrc.placement_decoupling import (
 )
 from cryoem_mrc.placement_supplement import plot_placement_supplement
 from cryoem_mrc.reliability import percentile_rank_in_mask
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, lh_map_reliability_dir
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, resolve_halfmap_reliability_dir
 from cryoem_mrc.structure_validation import (
     iter_ca_residues,
     load_cohort_manifest_row,
@@ -71,8 +71,8 @@ def _enrich_t_rank_from_npz(
     """Add ρ(T-rank, CC) from stored reliability_fluctuation volumes."""
     out: list[PlacementDecouplingRow] = []
     for rec in rows:
-        npz = lh_map_reliability_dir(rec.emdb_id) / "reliability.npz"
-        rv = lh_map_reliability_dir(rec.emdb_id) / "residue_validation.csv"
+        npz = resolve_halfmap_reliability_dir(rec.emdb_id) / "reliability.npz"
+        rv = resolve_halfmap_reliability_dir(rec.emdb_id) / "residue_validation.csv"
         if not npz.is_file() or not rv.is_file():
             out.append(rec)
             continue
@@ -145,18 +145,18 @@ def _build_controls(
     control_ids = sorted(targets | {e for e in positives[:3] if not _map_too_heavy_for_controls(e, manifest=manifest)})
     for emd_id in control_ids:
         print(f"[decouple] controls EMD-{emd_id}", flush=True)
-        base = recompute_rho_at_ca(emd_id, manifest=manifest, rho_source="avg_half")
+        avg_half = recompute_rho_at_ca(emd_id, manifest=manifest, rho_source="avg_half")
         primary = recompute_rho_at_ca(emd_id, manifest=manifest, rho_source="primary")
         t_only = recompute_rho_at_ca(emd_id, manifest=manifest, rho_source="t_only")
-        c09 = recompute_rho_at_ca(emd_id, manifest=manifest, contour_scale=0.9)
-        c11 = recompute_rho_at_ca(emd_id, manifest=manifest, contour_scale=1.1)
-        w3 = recompute_rho_at_ca(emd_id, manifest=manifest, cc_window=3)
-        w7 = recompute_rho_at_ca(emd_id, manifest=manifest, cc_window=7)
+        c09 = recompute_rho_at_ca(emd_id, manifest=manifest, rho_source="avg_half", contour_scale=0.9)
+        c11 = recompute_rho_at_ca(emd_id, manifest=manifest, rho_source="avg_half", contour_scale=1.1)
+        w3 = recompute_rho_at_ca(emd_id, manifest=manifest, rho_source="avg_half", cc_window=3)
+        w7 = recompute_rho_at_ca(emd_id, manifest=manifest, rho_source="avg_half", cc_window=7)
         controls.append(
             {
                 "emdb_id": emd_id,
                 "cohort_flag": emd_id in targets,
-                "rho_avg_half": base["rho_rel_vs_cc"],
+                "rho_avg_half": avg_half["rho_rel_vs_cc"],
                 "rho_primary_map": primary["rho_rel_vs_cc"],
                 "rho_t_only_rank": t_only["rho_rel_vs_cc"],
                 "rho_contour_0_9x": c09["rho_rel_vs_cc"],
@@ -164,12 +164,12 @@ def _build_controls(
                 "rho_cc_window_3": w3["rho_rel_vs_cc"],
                 "rho_cc_window_7": w7["rho_rel_vs_cc"],
                 "sign_flip_primary": bool(
-                    np.isfinite(base["rho_rel_vs_cc"])
+                    np.isfinite(avg_half["rho_rel_vs_cc"])
                     and np.isfinite(primary["rho_rel_vs_cc"])
-                    and np.sign(base["rho_rel_vs_cc"]) != np.sign(primary["rho_rel_vs_cc"])
+                    and np.sign(avg_half["rho_rel_vs_cc"]) != np.sign(primary["rho_rel_vs_cc"])
                 ),
                 "strong_decoupling": bool(
-                    np.isfinite(base["rho_rel_vs_cc"]) and base["rho_rel_vs_cc"] <= rho_threshold
+                    np.isfinite(avg_half["rho_rel_vs_cc"]) and avg_half["rho_rel_vs_cc"] <= rho_threshold
                 ),
             }
         )
@@ -258,7 +258,7 @@ def _plot_cohort(rows: list[PlacementDecouplingRow], out_path: Path, *, manifest
 def _write_supplements(decoupled_ids: list[str], *, manifest: Path, out_dir: Path, dpi: int) -> None:
     for emd_id in decoupled_ids:
         row = load_cohort_manifest_row(manifest, emd_id)
-        rv = lh_map_reliability_dir(emd_id) / "residue_validation.csv"
+        rv = resolve_halfmap_reliability_dir(emd_id) / "residue_validation.csv"
         if not rv.is_file():
             continue
         rows = read_residue_validation_csv(rv)

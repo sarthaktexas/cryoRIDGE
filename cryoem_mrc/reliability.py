@@ -1,8 +1,8 @@
 """Map reliability scores for model-building guidance (build / caution / omit zones).
 
-LH fluctuation–constraint maps (T, V, L = T − V, H = T + V) from half-maps.
-Primary ranked export: H_repro → reliability_score; L/T/V exported for analysis.
-See docs/LH_MAP_RELIABILITY.md and docs/THESIS_AND_PUBLICATION.md.
+Half-map constraint *V* and reliability ranking from averaged map ρ and half difference.
+Primary ranked export: constraint V → reliability_score; fluctuation T exported for archive only.
+See docs/HALFMAP_RELIABILITY.md and docs/THESIS_AND_PUBLICATION.md.
 """
 
 from __future__ import annotations
@@ -12,17 +12,20 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from style.nature import PALETTES
+from style.nature import THESIS_GREEN, THESIS_RED, THESIS_YELLOW
 
 from .io import save_volume_like_reference
 
 if TYPE_CHECKING:
     from matplotlib.colors import ListedColormap
 
-# Canonical zone colors for all thesis figures: omit=blue, caution=red, build=green.
-_cat = PALETTES["categorical"]
+# Canonical zone colors for all thesis figures: omit=red, caution=yellow, build=green.
 BUILD_ZONE_LABELS: dict[int, str] = {0: "omit", 1: "caution", 2: "build"}
-BUILD_ZONE_COLORS: dict[int, str] = {0: _cat[0], 1: _cat[1], 2: _cat[2]}
+BUILD_ZONE_COLORS: dict[int, str] = {
+    0: THESIS_RED,
+    1: THESIS_YELLOW,
+    2: THESIS_GREEN,
+}
 
 
 def build_zone_colormap() -> ListedColormap:
@@ -31,7 +34,7 @@ def build_zone_colormap() -> ListedColormap:
 
     return ListedColormap([BUILD_ZONE_COLORS[z] for z in (0, 1, 2)])
 from .mechanics import compute_mechanics_headlines
-from .mechanics import lh_map_metrics
+from .mechanics import halfmap_hamiltonian
 
 
 def percentile_rank_in_mask(
@@ -77,7 +80,7 @@ def compute_reliability_maps(
     """
     if rho.shape != delta_rho.shape:
         raise ValueError(f"Shape mismatch: rho {rho.shape} vs delta_rho {delta_rho.shape}")
-    repro = lh_map_metrics(
+    repro = halfmap_hamiltonian(
         rho, delta_rho, window=window, sigma=sigma, kappa=kappa
     )
     h = np.asarray(repro["H_repro"], dtype=np.float32)
