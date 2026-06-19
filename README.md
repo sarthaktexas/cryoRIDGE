@@ -1,6 +1,6 @@
 # cryoem-halfmap-qc
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20618527.svg)](https://doi.org/10.5281/zenodo.20618527)
+[![DOI](https://zenodo.org/badge/1262218538.svg)](https://doi.org/10.5281/zenodo.20618526)
 
 Python tools for **local map reliability** in cryo-EM reconstructions: density statistics, half-map reproducibility, windowed local FSC (Å), a reproducibility score (H_repro), build/caution/omit zones, and optional deposited-model B-factor checks.
 
