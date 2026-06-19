@@ -1,0 +1,40 @@
+Pair,Domain,"ρ(RMSD, Δreliability)",n
+GroEL-GroES ADP (tight) / GroEL-GroES ADP (turnover),GroES,-0.09,345
+GroEL-GroES ADP (tight) / GroEL-GroES ADP (turnover),apical,-0.12,2456
+GroEL-GroES ADP (tight) / GroEL-GroES ADP (turnover),intermediate,-0.05,1237
+GroEL-GroES ADP (tight) / GroEL-GroES ADP (turnover),equatorial,-0.05,2336
+TRPV1 pH 6a / TRPV1 pH 6c,ANK,+0.03,442
+TRPV1 pH 6a / TRPV1 pH 6c,linker,+0.37,194
+TRPV1 pH 6a / TRPV1 pH 6c,TM,-0.18,695
+TRPV1 pH 6a / TRPV1 pH 6c,pore,-0.02,281
+TRPV1 pH 6a / TRPV1 pH 6c,C-term,-0.42,206
+70S pre-translocation (E. coli) / 70S post-translocation (E. coli),30S,-0.40,1472
+70S pre-translocation (E. coli) / 70S post-translocation (E. coli),50S,-0.01,1904
+Eag1 voltage sensor down / Eag1 voltage sensor up,PAS,+0.00,929
+Eag1 voltage sensor down / Eag1 voltage sensor up,VSD,-0.38,423
+Eag1 voltage sensor down / Eag1 voltage sensor up,pore,-0.04,342
+Eag1 voltage sensor down / Eag1 voltage sensor up,CNBD,+0.13,1083
+MsbA outward-facing / MsbA inward-facing,TMD,-0.70,500
+MsbA outward-facing / MsbA inward-facing,NBD,+0.20,425
+beta2AR inactive (carazolol) / beta2AR apo,ECD/N-term,-0.12,131
+beta2AR inactive (carazolol) / beta2AR apo,TM bundle,-0.18,126
+beta2AR inactive (carazolol) / beta2AR apo,ICL/C-term,-0.16,140
+MgtA (E2.Mg.BeF3) / MgtA (E2P.Mg),N-tail,-0.20,109
+MgtA (E2.Mg.BeF3) / MgtA (E2P.Mg),A-domain,-0.02,250
+MgtA (E2.Mg.BeF3) / MgtA (E2P.Mg),HAD,-0.34,261
+MgtA (E2.Mg.BeF3) / MgtA (E2P.Mg),TM,-0.36,190
+MgtA (E2.Mg.BeF3) / MgtA (E2P.Mg),C-tail,-0.42,41
+ClpB WT-1 (ATPgammaS) / ClpB WT-2A (ATPgammaS),coiled-coil,-0.19,21
+ClpB WT-1 (ATPgammaS) / ClpB WT-2A (ATPgammaS),D1-large,-0.05,1255
+ClpB WT-1 (ATPgammaS) / ClpB WT-2A (ATPgammaS),M-domain,+0.14,367
+ClpB WT-1 (ATPgammaS) / ClpB WT-2A (ATPgammaS),D2-small,+0.02,1082
+MgtA (E2P+E1) / MgtA (E2P.Mg),N-tail,-0.42,111
+MgtA (E2P+E1) / MgtA (E2P.Mg),A-domain,-0.14,252
+MgtA (E2P+E1) / MgtA (E2P.Mg),HAD,-0.58,264
+MgtA (E2P+E1) / MgtA (E2P.Mg),TM,-0.53,190
+MgtA (E2P+E1) / MgtA (E2P.Mg),C-tail,+0.25,41
+MgtA (E2P+E1) / MgtA (E2.Mg.BeF3),N-tail,+0.13,192
+MgtA (E2P+E1) / MgtA (E2.Mg.BeF3),A-domain,+0.17,417
+MgtA (E2P+E1) / MgtA (E2.Mg.BeF3),HAD,-0.48,455
+MgtA (E2P+E1) / MgtA (E2.Mg.BeF3),TM,+0.19,382
+MgtA (E2P+E1) / MgtA (E2.Mg.BeF3),C-tail,+0.15,86

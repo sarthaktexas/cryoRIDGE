@@ -1,11 +1,10 @@
-"""Compare ΔB vs Δreliability across two conformations (matched Cα, separate maps/models).
+"""Compare Cα RMSD vs Δreliability across two conformations (matched deposited models).
 
-Each state uses its own deposited map, contour, reliability.npz, and fitted PDB.
-Residues are matched by mmCIF (label_asym_id, label_seq_id, insertion); domain
-bands use auth chain/seq from the deposited model. Δ statistics use per-map
-coordinates (no superposition).
+Each state uses its own deposited map, contour, and reliability table. Per-residue Cα RMSD
+is computed after Kabsch alignment of state B onto state A. Residues are matched by mmCIF
+(label_asym_id, label_seq_id, insertion).
 
-Example (when both maps are processed)::
+Example::
 
     python scripts/run_residue_bfactor_conformation_pair.py --emd-a 23129 --emd-b 23130
 """
@@ -25,25 +24,27 @@ import numpy as np
 
 from cryoem_mrc.conformation_pair import (
     compute_conformation_pair_coverage,
+    compute_conformation_pair_stats,
+    compute_per_residue_ca_rmsd,
     get_domain_assignments,
     get_domain_regions_for_pair,
     kabsch_align_coords,
+    write_conformation_pair_md,
+    write_conformation_pairs_summary,
 )
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, bfactor_conformation_pairs_dir
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, conformation_pairs_dir
 from cryoem_mrc.structure_validation import (
-    compute_conformation_pair_stats,
     default_reliability_out_dir,
     iter_ca_residues,
     load_cohort_manifest_row,
     match_residue_rows_by_key,
     read_residue_validation_csv,
     run_emdb_bfactor_validation,
-    write_conformation_pair_md,
 )
 from cryoem_mrc.thesis_figures import (
-    DEFAULT_CLUSTER_SEPARATION_THRESHOLD,
+    DEFAULT_COUPLING_LAYOUT_THRESHOLD,
     compute_conformation_coupling,
-    compute_coupling_cluster_separation_score,
+    compute_coupling_layout_scores,
     compute_domain_coupling_block_colors,
     plot_conformation_pair_delta_reliability_supplement,
     plot_conformation_pair_domain_coupling_supplement,
@@ -56,20 +57,20 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--emd-a", type=str, required=True)
     p.add_argument("--emd-b", type=str, required=True)
     p.add_argument("--manifest", type=Path, default=COHORT_MANIFEST)
-    p.add_argument("--out-dir", type=Path, default=bfactor_conformation_pairs_dir())
+    p.add_argument("--out-dir", type=Path, default=conformation_pairs_dir())
     p.add_argument("--window-radius", type=int, default=0)
     p.add_argument("--dpi", type=int, default=150)
     p.add_argument(
         "--layout",
         choices=("auto", "block", "domain"),
         default="auto",
-        help="Main figure layout: auto from cluster separation score, or force block/domain",
+        help="Main figure layout: auto from coupling layout score, or force block/domain",
     )
     p.add_argument(
         "--cluster-threshold",
         type=float,
         default=None,
-        help="Block vs domain threshold (default: cryoem_mrc DEFAULT_CLUSTER_SEPARATION_THRESHOLD)",
+        help="Block vs domain threshold (default: DEFAULT_COUPLING_LAYOUT_THRESHOLD)",
     )
     return p.parse_args(argv)
 
@@ -85,6 +86,25 @@ def _coverage_note(coverage) -> str:
     )
 
 
+def _ensure_residue_validation(emd_id: str, *, manifest: Path, window_radius: int) -> int:
+    rel_dir = default_reliability_out_dir(emd_id)
+    residue_csv = rel_dir / "residue_validation.csv"
+    try:
+        if not residue_csv.is_file():
+            code, _, _, _ = run_emdb_bfactor_validation(
+                emd_id,
+                manifest=manifest,
+                window_radius=window_radius,
+                require_b_factor_source=False,
+            )
+            if code != 0:
+                return code
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[conformation_pair] ERROR: {e}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     pair_name = f"emd_{args.emd_a}_vs_{args.emd_b}"
@@ -97,29 +117,16 @@ def main(argv: list[str] | None = None) -> int:
     pdb_b = Path(row_b["flexibility_path_or_pdb"])
 
     for emd_id in (args.emd_a, args.emd_b):
-        try:
-            code, _, stats, _ = run_emdb_bfactor_validation(
-                emd_id,
-                manifest=args.manifest,
-                window_radius=args.window_radius,
-                require_b_factor_source=False,
-            )
-        except (FileNotFoundError, ValueError) as e:
-            print(f"[conformation_pair] ERROR: {e}", file=sys.stderr)
-            return 2
-        if code != 0 or stats is None:
+        if _ensure_residue_validation(emd_id, manifest=args.manifest, window_radius=args.window_radius) != 0:
             return 2
 
-    dir_a = default_reliability_out_dir(args.emd_a)
-    dir_b = default_reliability_out_dir(args.emd_b)
-    csv_a = dir_a / "residue_validation.csv"
-    csv_b = dir_b / "residue_validation.csv"
-    if not csv_a.exists() or not csv_b.exists():
-        print("[conformation_pair] ERROR: missing residue_validation.csv", file=sys.stderr)
+    try:
+        rows_a = read_residue_validation_csv(default_reliability_out_dir(args.emd_a) / "residue_validation.csv")
+        rows_b = read_residue_validation_csv(default_reliability_out_dir(args.emd_b) / "residue_validation.csv")
+    except FileNotFoundError as e:
+        print(f"[conformation_pair] ERROR: {e}", file=sys.stderr)
         return 2
 
-    rows_a = read_residue_validation_csv(csv_a)
-    rows_b = read_residue_validation_csv(csv_b)
     pairs = match_residue_rows_by_key(rows_a, rows_b)
     pair_stats = compute_conformation_pair_stats(
         pairs, emdb_a=args.emd_a, emdb_b=args.emd_b, in_mask_both=True
@@ -133,24 +140,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     write_conformation_pair_md(out_dir / "CONFORMATION_PAIR.md", pair_stats, coverage=coverage)
 
-    use = [(a, b) for a, b in pairs if a.in_contour_mask and b.in_contour_mask]
-    cluster_sep_score = float("nan")
+    use, _rmsd = compute_per_residue_ca_rmsd(pairs, in_mask_both=True)
+    layout_scores = {
+        "diagonal_coupling_score": float("nan"),
+        "domain_coupling_score": float("nan"),
+        "coupling_layout_score": float("nan"),
+        "hierarchical_cluster_score": float("nan"),
+    }
     figure_layout = "block"
     recommended_layout = "domain"
     cluster_threshold = (
         args.cluster_threshold
         if args.cluster_threshold is not None
-        else DEFAULT_CLUSTER_SEPARATION_THRESHOLD
+        else DEFAULT_COUPLING_LAYOUT_THRESHOLD
     )
 
     if len(use) >= 10:
-        rho = pair_stats.spearman_delta_b_vs_delta_reliability
+        rho = pair_stats.spearman_rmsd_vs_delta_reliability
         cov_note = _coverage_note(coverage)
 
         coupling_data = compute_conformation_coupling(pairs, in_mask_both=True)
         if coupling_data is not None:
-            cluster_sep_score, _, _ = compute_coupling_cluster_separation_score(
-                coupling_data["interior_corr"]
+            layout_scores = compute_coupling_layout_scores(
+                coupling_data["interior_corr"],
+                emdb_a=args.emd_a,
+                emdb_b=args.emd_b,
+                interior_use=coupling_data["interior_use"],
             )
 
         if coupling_data is not None:
@@ -170,11 +185,11 @@ def main(argv: list[str] | None = None) -> int:
             chimerax_coupling_png = None
             if has_domains:
                 from cryoem_mrc.chimerax_figures import (
-                    chimerax_render_png,
+                    ensure_chimerax_domain_render,
                     render_chimerax_domain_colored_surface,
                 )
 
-                chimerax_domain_png = chimerax_render_png(args.emd_a, "domain")
+                chimerax_domain_png = ensure_chimerax_domain_render(args.emd_a, preview=True)
                 regions = get_domain_regions_for_pair(args.emd_a, args.emd_b)
                 domain_order = [reg.name for reg in regions]
                 use_int = coupling_data["interior_use"]
@@ -195,7 +210,6 @@ def main(argv: list[str] | None = None) -> int:
                 emdb_b=args.emd_b,
                 in_mask_both=True,
                 spearman_rho=rho,
-                spearman_rho_h=pair_stats.spearman_delta_b_vs_delta_H_repro,
                 coverage_note=cov_note,
                 coords_b_aligned=coords_b_aligned,
                 cluster_separation_threshold=cluster_threshold,
@@ -244,9 +258,14 @@ def main(argv: list[str] | None = None) -> int:
                 "emdb_b": pair_stats.emdb_b,
                 "n_matched": pair_stats.n_matched,
                 "n_matched_in_mask_both": pair_stats.n_matched_in_mask_both,
-                "spearman_delta_b_vs_delta_reliability": pair_stats.spearman_delta_b_vs_delta_reliability,
-                "spearman_delta_b_vs_delta_H_repro": pair_stats.spearman_delta_b_vs_delta_H_repro,
-                "cluster_separation_score": cluster_sep_score,
+                "median_ca_rmsd_a": pair_stats.median_ca_rmsd_a,
+                "spearman_rmsd_vs_delta_reliability": pair_stats.spearman_rmsd_vs_delta_reliability,
+                "diagonal_coupling_score": layout_scores["diagonal_coupling_score"],
+                "domain_coupling_score": layout_scores["domain_coupling_score"],
+                "coupling_layout_score": layout_scores["coupling_layout_score"],
+                "hierarchical_cluster_score": layout_scores["hierarchical_cluster_score"],
+                "cluster_separation_score": layout_scores["coupling_layout_score"],
+                "coupling_layout_threshold": cluster_threshold,
                 "cluster_separation_threshold": cluster_threshold,
                 "figure_layout": figure_layout,
                 "recommended_layout": recommended_layout,
@@ -264,18 +283,26 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     flag = " [COVERAGE FLAG]" if coverage.coverage_flag else ""
-    layout_txt = (
-        f" main=cluster_matrix recommended={recommended_layout} "
-        f"coupling_block_score={cluster_sep_score:+.3f}"
-        if len(use) >= 10
-        else ""
-    )
+    layout_txt = ""
+    if len(use) >= 10:
+        layout = layout_scores["coupling_layout_score"]
+        diag = layout_scores["diagonal_coupling_score"]
+        domain = layout_scores["domain_coupling_score"]
+        hier = layout_scores["hierarchical_cluster_score"]
+        layout_txt = (
+            f" main=cluster_matrix recommended={recommended_layout} "
+            f"layout={layout:+.3f} diag={diag:+.3f} domain={domain:+.3f} hier={hier:+.3f}"
+        )
     print(
         f"[conformation_pair] matched={pair_stats.n_matched} in-mask={pair_stats.n_matched_in_mask_both} "
-        f"ρ(ΔB,Δrel)={pair_stats.spearman_delta_b_vs_delta_reliability:+.3f} "
+        f"ρ(RMSD,Δrel)={pair_stats.spearman_rmsd_vs_delta_reliability:+.3f} "
+        f"median RMSD={pair_stats.median_ca_rmsd_a:.2f} Å "
         f"missing A={coverage.missing_pct_a:.1f}% B={coverage.missing_pct_b:.1f}%{layout_txt}{flag}",
         flush=True,
     )
+    csv_path, md_path = write_conformation_pairs_summary(args.out_dir, manifest=args.manifest)
+    if csv_path is not None and md_path is not None:
+        print(f"[conformation_pair] updated {csv_path.name} and {md_path.name}", flush=True)
     return 0
 
 

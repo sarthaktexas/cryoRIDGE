@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cryoem-halfmap-qc"
-version = "0.2.2"
+version = "0.2.3"
 description = "Local map reliability from cryo-EM density and half-maps"
 readme = "README.md"
 license = "MIT"
@@ -31,4 +31,4 @@ include = ["cryoem_mrc*", "style*"]
 
 [project.urls]
 Repository = "https://github.com/sarthaktexas/cryoem-halfmap-qc"
-Zenodo = "https://doi.org/10.5281/zenodo.20618527"
+Zenodo = "https://doi.org/10.5281/zenodo.20618526"

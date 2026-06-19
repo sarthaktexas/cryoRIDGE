@@ -1,0 +1,9 @@
+{
+  "name": "Thesis Q vs V Cohort",
+  "id": "thesis-q-vs-v-cryoem",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page"
+}

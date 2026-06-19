@@ -28,7 +28,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import PALETTES, apply, label_panel, savefig as save_nature
+from style.nature import apply, label_panel, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.qscore_validation import (
     QscoreResidueRow,

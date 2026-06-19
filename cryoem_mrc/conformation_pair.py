@@ -105,7 +105,7 @@ def kabsch_align_coords(
     """
     Rigid-body alignment of ``mobile`` onto ``target`` (N×3 Cα coordinates).
 
-    Used for **matplotlib 3D overlay only** — Δ statistics remain per-map without superposition.
+    Used for per-residue Cα RMSD (state B aligned onto state A) and ChimeraX overlays.
     """
     mobile = np.asarray(mobile, dtype=np.float64)
     target = np.asarray(target, dtype=np.float64)
@@ -116,6 +116,121 @@ def kabsch_align_coords(
     rot, _ = Rotation.align_vectors(mobile - mob_ctr, target - tgt_ctr)
     aligned = rot.apply(mobile - mob_ctr) + tgt_ctr
     return aligned, rot.as_matrix()
+
+
+def compute_per_residue_ca_rmsd(
+    pairs: Sequence[tuple[ResidueValidationRow, ResidueValidationRow]],
+    *,
+    in_mask_both: bool = True,
+) -> tuple[list[tuple[ResidueValidationRow, ResidueValidationRow]], np.ndarray]:
+    """
+    Per-residue Cα displacement (Å) after Kabsch alignment of state B onto state A.
+
+    Matched residues are sorted by mmCIF chain order.
+    """
+    use = list(pairs)
+    if in_mask_both:
+        use = [
+            (a, b)
+            for a, b in pairs
+            if a.in_contour_mask
+            and b.in_contour_mask
+            and np.isfinite(a.x)
+            and np.isfinite(b.x)
+        ]
+    if len(use) < 3:
+        return use, np.array([], dtype=np.float64)
+    use.sort(key=lambda ab: (ab[0].chain, ab[0].seq_num, ab[0].seq_icode))
+    coords_a = np.array([[a.x, a.y, a.z] for a, _ in use], dtype=np.float64)
+    coords_b = np.array([[b.x, b.y, b.z] for _, b in use], dtype=np.float64)
+    coords_b_aligned, _ = kabsch_align_coords(coords_b, coords_a)
+    rmsd = np.linalg.norm(coords_b_aligned - coords_a, axis=1)
+    return use, rmsd
+
+
+@dataclass
+class ConformationPairStats:
+    """Per-residue Cα RMSD vs Δreliability on matched deposited models."""
+
+    emdb_a: str
+    emdb_b: str
+    n_matched: int
+    n_matched_in_mask_both: int
+    spearman_rmsd_vs_delta_reliability: float
+    median_ca_rmsd_a: float
+
+
+def compute_conformation_pair_stats(
+    pairs: Sequence[tuple[ResidueValidationRow, ResidueValidationRow]],
+    *,
+    emdb_a: str,
+    emdb_b: str,
+    in_mask_both: bool = True,
+) -> ConformationPairStats:
+    from scipy import stats
+
+    use, rmsd = compute_per_residue_ca_rmsd(pairs, in_mask_both=in_mask_both)
+    n_match = len(pairs)
+    n_use = len(use)
+    if n_use < 10:
+        return ConformationPairStats(
+            emdb_a=emdb_a,
+            emdb_b=emdb_b,
+            n_matched=n_match,
+            n_matched_in_mask_both=n_use,
+            spearman_rmsd_vs_delta_reliability=float("nan"),
+            median_ca_rmsd_a=float("nan"),
+        )
+    drel = np.array([b.reliability_score - a.reliability_score for a, b in use], dtype=np.float64)
+    r_rel, _ = stats.spearmanr(rmsd, drel)
+    return ConformationPairStats(
+        emdb_a=emdb_a,
+        emdb_b=emdb_b,
+        n_matched=n_match,
+        n_matched_in_mask_both=n_use,
+        spearman_rmsd_vs_delta_reliability=float(r_rel),
+        median_ca_rmsd_a=float(np.median(rmsd)),
+    )
+
+
+def write_conformation_pair_md(
+    path: Path,
+    pair_stats: ConformationPairStats,
+    coverage: ConformationPairCoverage | None = None,
+) -> None:
+    cov_block = ""
+    if coverage is not None:
+        flag = " **YES — discuss in thesis**" if coverage.coverage_flag else " no"
+        cov_block = f"""
+## Coverage vs deposited model
+
+| Metric | State A (EMD-{coverage.emdb_a}) | State B (EMD-{coverage.emdb_b}) |
+|--------|--------------------------------:|--------------------------------:|
+| Deposited Cα total | {coverage.n_ca_total_a:,} | {coverage.n_ca_total_b:,} |
+| Matched (any mask) | {coverage.n_matched:,} | {coverage.n_matched:,} |
+| Both in contour mask | {coverage.n_matched_in_mask_both:,} | {coverage.n_matched_in_mask_both:,} |
+| Analysis / deposited Cα | {100 * coverage.frac_analysis_of_a:.1f}% | {100 * coverage.frac_analysis_of_b:.1f}% |
+| Missing from analysis | {coverage.missing_pct_a:.1f}% | {coverage.missing_pct_b:.1f}% |
+
+Flag (>20% missing):{flag}
+
+{coverage.notes}
+"""
+    text = f"""# Conformation pair — EMD-{pair_stats.emdb_a} vs EMD-{pair_stats.emdb_b}
+
+Matched Cα by mmCIF (label_asym_id, label_seq_id, insertion). State B is Kabsch-aligned onto
+state A for per-residue Cα RMSD. Δreliability = reliability(B) − reliability(A).
+
+| Metric | Value |
+|--------|------:|
+| Matched residues | {pair_stats.n_matched:,} |
+| Both in contour mask | {pair_stats.n_matched_in_mask_both:,} |
+| Median Cα RMSD (Å) | {pair_stats.median_ca_rmsd_a:.2f} |
+| Spearman ρ(RMSD, Δreliability) | {pair_stats.spearman_rmsd_vs_delta_reliability:+.3f} |
+{cov_block}
+See `docs/CONFORMATION_PAIR_ANALYSIS.md` for coupling maps and figure outputs.
+"""
+    path.write_text(text)
 
 
 @dataclass(frozen=True)
@@ -345,14 +460,231 @@ def domain_index_spans(
     return spans
 
 
+_SUMMARY_CSV_FIELDS: tuple[str, ...] = (
+    "pair_id",
+    "emdb_a",
+    "emdb_b",
+    "display_name_a",
+    "display_name_b",
+    "n_matched",
+    "n_matched_in_mask_both",
+    "median_ca_rmsd_a",
+    "spearman_rmsd_vs_delta_reliability",
+    "mean_ca_count",
+    "mean_global_resolution_a",
+    "diagonal_coupling_score",
+    "domain_coupling_score",
+    "coupling_layout_score",
+    "hierarchical_cluster_score",
+    "recommended_layout",
+    "coupling_layout_threshold",
+    "coverage_flag",
+    "missing_pct_a",
+    "missing_pct_b",
+)
+
+
+def _manifest_index(manifest: Path) -> dict[str, dict[str, str]]:
+    import csv
+
+    index: dict[str, dict[str, str]] = {}
+    if not manifest.is_file():
+        return index
+    with manifest.open(newline="") as f:
+        for row in csv.DictReader(f):
+            eid = str(row.get("emdb_id", "")).strip()
+            if eid:
+                index[eid] = row
+    return index
+
+
+def _mean_pair_stat(stats: dict[str, object], key_a: str, key_b: str) -> float:
+    vals: list[float] = []
+    for key in (key_a, key_b):
+        raw = stats.get(key, "")
+        try:
+            val = float(raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(val):
+            vals.append(val)
+    return float(np.mean(vals)) if vals else float("nan")
+
+
+def _manifest_global_resolution_a(manifest_index: dict[str, dict[str, str]], emdb_id: str) -> float:
+    row = manifest_index.get(str(emdb_id).strip(), {})
+    try:
+        return float(row.get("global_resolution_a", ""))
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def collect_conformation_pair_rows(
+    root: Path,
+    *,
+    manifest: Path | None = None,
+) -> list[dict[str, object]]:
+    """Load per-pair ``conformation_pair_stats.json`` files under ``root``."""
+    from .cohort_labels import cohort_figure_label
+    from .repo_paths import COHORT_MANIFEST
+
+    manifest = manifest or COHORT_MANIFEST
+    manifest_index = _manifest_index(manifest)
+    rows: list[dict[str, object]] = []
+    for stats_path in sorted(root.glob("emd_*_vs_*/conformation_pair_stats.json")):
+        try:
+            stats = json.loads(stats_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        emdb_a = str(stats.get("emdb_a", "")).strip()
+        emdb_b = str(stats.get("emdb_b", "")).strip()
+        if not emdb_a or not emdb_b:
+            continue
+        pair_id = stats_path.parent.name
+        mean_ca = _mean_pair_stat(stats, "n_ca_total_a", "n_ca_total_b")
+        res_a = _manifest_global_resolution_a(manifest_index, emdb_a)
+        res_b = _manifest_global_resolution_a(manifest_index, emdb_b)
+        mean_res = _mean_pair_stat(
+            {"a": res_a, "b": res_b},
+            "a",
+            "b",
+        )
+        rows.append(
+            {
+                "pair_id": pair_id,
+                "emdb_a": emdb_a,
+                "emdb_b": emdb_b,
+                "display_name_a": cohort_figure_label(emdb_a, manifest=manifest, short=True),
+                "display_name_b": cohort_figure_label(emdb_b, manifest=manifest, short=True),
+                "n_matched": stats.get("n_matched", ""),
+                "n_matched_in_mask_both": stats.get("n_matched_in_mask_both", ""),
+                "median_ca_rmsd_a": stats.get("median_ca_rmsd_a", ""),
+                "spearman_rmsd_vs_delta_reliability": stats.get(
+                    "spearman_rmsd_vs_delta_reliability", ""
+                ),
+                "mean_ca_count": mean_ca,
+                "mean_global_resolution_a": mean_res,
+                "diagonal_coupling_score": stats.get("diagonal_coupling_score", ""),
+                "domain_coupling_score": stats.get("domain_coupling_score", ""),
+                "coupling_layout_score": stats.get(
+                    "coupling_layout_score", stats.get("cluster_separation_score", "")
+                ),
+                "hierarchical_cluster_score": stats.get("hierarchical_cluster_score", ""),
+                "recommended_layout": stats.get("recommended_layout", ""),
+                "coupling_layout_threshold": stats.get(
+                    "coupling_layout_threshold", stats.get("cluster_separation_threshold", "")
+                ),
+                "coverage_flag": stats.get("coverage_flag", ""),
+                "missing_pct_a": stats.get("missing_pct_a", ""),
+                "missing_pct_b": stats.get("missing_pct_b", ""),
+            }
+        )
+    return rows
+
+
+def write_conformation_pairs_summary(
+    root: Path,
+    *,
+    manifest: Path | None = None,
+) -> tuple[Path | None, Path | None]:
+    """
+    Write cohort summary table for conformation pairs.
+
+    Creates ``conformation_pairs_summary.csv`` and ``CONFORMATION_PAIRS.md`` in ``root``.
+    """
+    import csv
+    from datetime import datetime, timezone
+
+    rows = collect_conformation_pair_rows(root, manifest=manifest)
+    if not rows:
+        return None, None
+
+    csv_path = root / "conformation_pairs_summary.csv"
+    md_path = root / "CONFORMATION_PAIRS.md"
+    root.mkdir(parents=True, exist_ok=True)
+
+    with csv_path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(_SUMMARY_CSV_FIELDS))
+        w.writeheader()
+        for row in rows:
+            w.writerow({k: row.get(k, "") for k in _SUMMARY_CSV_FIELDS})
+
+    def _fmt_num(val: object, *, signed: bool = True) -> str:
+        if val == "" or val is None:
+            return "—"
+        try:
+            x = float(val)
+        except (TypeError, ValueError):
+            return str(val)
+        if not np.isfinite(x):
+            return "—"
+        return f"{x:+.3f}" if signed else f"{x:.3f}"
+
+    n_flag = sum(1 for r in rows if bool(r.get("coverage_flag")))
+    table_lines = [
+        "| Pair | ρ(RMSD,Δrel) | median RMSD (Å) | layout | recommended | n (mask) | coverage |",
+        "|------|-------------:|----------------:|-------:|------------|--------:|----------|",
+    ]
+    for row in rows:
+        flag = "flag" if bool(row.get("coverage_flag")) else "ok"
+        table_lines.append(
+            f"| EMD-{row['emdb_a']} vs {row['emdb_b']} "
+            f"| {_fmt_num(row['spearman_rmsd_vs_delta_reliability'])} "
+            f"| {_fmt_num(row['median_ca_rmsd_a'], signed=False)} "
+            f"| {_fmt_num(row['coupling_layout_score'])} "
+            f"| {row.get('recommended_layout', '—')} "
+            f"| {row.get('n_matched_in_mask_both', '—')} "
+            f"| {flag} |"
+        )
+
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    md_path.write_text(
+        f"""# Conformation pairs — cohort summary
+
+Per-residue Cα RMSD (state B aligned onto A) vs Δreliability on matched in-mask residues.
+Individual outputs live in ``emd_<A>_vs_<B>/``.
+
+**Generated:** {generated}  
+**Pairs:** {len(rows)} ({n_flag} with coverage flag >20% missing Cα)
+
+---
+
+## Summary table
+
+{chr(10).join(table_lines)}
+
+---
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `conformation_pairs_summary.csv` | Machine-readable cohort table |
+| `conformation_pairs_spearman_size_resolution_3d.png` | 3D cohort scatter (ρ vs size vs resolution) |
+| `emd_<A>_vs_<B>/conformation_pair_stats.json` | Per-pair stats |
+| `emd_<A>_vs_<B>/conformation_pair_summary.png` | Main figure |
+"""
+    )
+    from .thesis_figures import plot_conformation_pairs_spearman_size_resolution_3d
+
+    plot_conformation_pairs_spearman_size_resolution_3d(
+        rows,
+        save_path=root / "conformation_pairs_spearman_size_resolution_3d.png",
+    )
+    return csv_path, md_path
+
+
 __all__ = [
     "COVERAGE_FLAG_THRESHOLD_PCT",
     "ConformationPairCoverage",
+    "ConformationPairStats",
     "DomainRegion",
     "DOMAIN_COLORS",
     "UNASSIGNED_DOMAIN_COLOR",
     "compute_conformation_pair_coverage",
+    "compute_conformation_pair_stats",
     "compute_domain_mean_coupling",
+    "compute_per_residue_ca_rmsd",
     "domain_index_spans",
     "domain_residue_color",
     "get_domain_assignments",
@@ -366,5 +698,7 @@ __all__ = [
     "load_domain_regions_from_json",
     "load_mgta_domain_regions",
     "reload_domain_colors",
-    "load_trpv1_domain_regions",
+    "write_conformation_pair_md",
+    "collect_conformation_pair_rows",
+    "write_conformation_pairs_summary",
 ]

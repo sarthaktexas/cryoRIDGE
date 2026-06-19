@@ -25,10 +25,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import PALETTES, apply, savefig as save_nature
+from style.nature import apply, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.placement_utility import (
     PREDICTOR_LABELS,
+    RANK_RECOVERY_PROXY_KEYS,
+    RANK_RECOVERY_PROXY_LABELS,
+    median_aligned_rank_recovery,
     run_placement_utility_analysis,
     write_placement_utility_csvs,
     write_placement_utility_markdown,
@@ -122,7 +126,7 @@ def _plot_head_to_head(summary, out_dir: Path, dpi: int) -> Path:
 
     axes[2].barh(x, auc, color=colors, edgecolor="0.15", linewidth=0.5)
     axes[2].set_xlabel("Median per-map AUC")
-    axes[2].set_title("Rank recovery")
+    axes[2].set_title("Low-Q AUC")
     axes[2].set_yticks([])
 
     fig.suptitle("Head-to-head pre-model readouts (Q-score ground truth)", fontsize=11, y=1.02)
@@ -138,18 +142,8 @@ def _plot_rank_recovery(summary, out_dir: Path, dpi: int) -> Path:
     if not rows:
         raise ValueError("no rank recovery rows")
 
-    proxies = [
-        ("reliability", [r.spearman_q_vs_reliability for r in rows]),
-        ("windowed CC", [r.spearman_q_vs_cc for r in rows]),
-        ("BlocRes", [r.spearman_q_vs_locres for r in rows]),
-        ("variance", [r.spearman_q_vs_variance for r in rows]),
-        ("constraint V", [r.spearman_q_vs_v for r in rows]),
-    ]
-    labels = [p[0] for p in proxies]
-    meds = []
-    for _, vals in proxies:
-        v = [x for x in vals if np.isfinite(x)]
-        meds.append(float(np.median(v)) if v else float("nan"))
+    labels = [RANK_RECOVERY_PROXY_LABELS[k] for k in RANK_RECOVERY_PROXY_KEYS]
+    meds = [median_aligned_rank_recovery(rows, k) for k in RANK_RECOVERY_PROXY_KEYS]
 
     fig, ax = plt.subplots(figsize=(6.5, 4.2))
     apply(ax)
@@ -159,7 +153,7 @@ def _plot_rank_recovery(summary, out_dir: Path, dpi: int) -> Path:
     ax.axhline(0, color="0.5", linewidth=0.8)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=8)
-    ax.set_ylabel("Median per-map Spearman ρ(Q, proxy)")
+    ax.set_ylabel("Median per-map ρ(Q, proxy), sign-aligned")
     ax.set_title("Rank recovery: which pre-model readout tracks Q?")
     out = out_dir / "placement_rank_recovery"
     save_nature(fig, out, dpi=dpi)

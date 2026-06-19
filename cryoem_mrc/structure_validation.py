@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable, Literal, Mapping, Sequence
 
@@ -61,6 +61,8 @@ class ResidueValidationRow:
     in_contour_mask: bool
     windowed_halfmap_correlation: float = float("nan")
     local_variance: float = float("nan")
+    q_score: float = float("nan")
+    reliability_constraint_V: float = float("nan")
     auth_chain: str = ""
     auth_seq_num: int = 0
 
@@ -981,52 +983,25 @@ def match_residue_rows_by_key(
     return pairs
 
 
-@dataclass
-class ConformationPairStats:
-    """ΔB vs Δreliability on matched residues (two maps / two models)."""
+def attach_qscores_to_residue_rows(
+    rows: Sequence[ResidueValidationRow],
+    qscore_csv: str | Path,
+) -> list[ResidueValidationRow]:
+    """Merge per-residue Q-scores and LH constraint V from ``qscore_validation.csv``."""
+    from .qscore_validation import read_qscore_validation_lookups
 
-    emdb_a: str
-    emdb_b: str
-    n_matched: int
-    n_matched_in_mask_both: int
-    spearman_delta_b_vs_delta_reliability: float
-    spearman_delta_b_vs_delta_H_repro: float
-
-
-def compute_conformation_pair_stats(
-    pairs: Sequence[tuple[ResidueValidationRow, ResidueValidationRow]],
-    *,
-    emdb_a: str,
-    emdb_b: str,
-    in_mask_both: bool = True,
-) -> ConformationPairStats:
-    use = pairs
-    if in_mask_both:
-        use = [(a, b) for a, b in pairs if a.in_contour_mask and b.in_contour_mask]
-    n_match = len(pairs)
-    n_use = len(use)
-    if n_use < 10:
-        return ConformationPairStats(
-            emdb_a=emdb_a,
-            emdb_b=emdb_b,
-            n_matched=n_match,
-            n_matched_in_mask_both=n_use,
-            spearman_delta_b_vs_delta_reliability=float("nan"),
-            spearman_delta_b_vs_delta_H_repro=float("nan"),
+    q_lookup, v_lookup = read_qscore_validation_lookups(qscore_csv)
+    out: list[ResidueValidationRow] = []
+    for r in rows:
+        key = r.residue_key
+        out.append(
+            replace(
+                r,
+                q_score=q_lookup.get(key, float("nan")),
+                reliability_constraint_V=v_lookup.get(key, float("nan")),
+            )
         )
-    db = np.array([b.b_iso - a.b_iso for a, b in use], dtype=np.float64)
-    drel = np.array([b.reliability_score - a.reliability_score for a, b in use], dtype=np.float64)
-    dh = np.array([b.reliability_H_repro - a.reliability_H_repro for a, b in use], dtype=np.float64)
-    r_rel, _ = stats.spearmanr(db, drel)
-    r_h, _ = stats.spearmanr(db, dh)
-    return ConformationPairStats(
-        emdb_a=emdb_a,
-        emdb_b=emdb_b,
-        n_matched=n_match,
-        n_matched_in_mask_both=n_use,
-        spearman_delta_b_vs_delta_reliability=float(r_rel),
-        spearman_delta_b_vs_delta_H_repro=float(r_h),
-    )
+    return out
 
 
 def read_residue_validation_csv(path: str | Path) -> list[ResidueValidationRow]:
@@ -1055,6 +1030,7 @@ def read_residue_validation_csv(path: str | Path) -> list[ResidueValidationRow]:
                         or "nan"
                     ),
                     local_variance=float(row["local_variance"] or "nan"),
+                    q_score=float(row["q_score"]) if row.get("q_score") else float("nan"),
                     auth_chain=row.get("auth_chain") or row["chain"],
                     auth_seq_num=int(row.get("auth_seq_num") or row["seq_num"]),
                 )
@@ -1207,43 +1183,3 @@ A **negative** ρ(B, reliability) is the naive expectation if both proxy local o
 """
     path.write_text(text)
 
-
-def write_conformation_pair_md(
-    path: Path,
-    pair_stats: ConformationPairStats,
-    coverage: object | None = None,
-) -> None:
-    cov_block = ""
-    if coverage is not None:
-        flag = " **YES — discuss in thesis**" if coverage.coverage_flag else " no"
-        cov_block = f"""
-## Coverage vs deposited model
-
-| Metric | State A (EMD-{coverage.emdb_a}) | State B (EMD-{coverage.emdb_b}) |
-|--------|--------------------------------:|--------------------------------:|
-| Deposited Cα total | {coverage.n_ca_total_a:,} | {coverage.n_ca_total_b:,} |
-| Matched (any mask) | {coverage.n_matched:,} | {coverage.n_matched:,} |
-| Both in contour mask | {coverage.n_matched_in_mask_both:,} | {coverage.n_matched_in_mask_both:,} |
-| Analysis / deposited Cα | {100 * coverage.frac_analysis_of_a:.1f}% | {100 * coverage.frac_analysis_of_b:.1f}% |
-| Missing from analysis | {coverage.missing_pct_a:.1f}% | {coverage.missing_pct_b:.1f}% |
-
-Flag (>20% missing):{flag}
-
-{coverage.notes}
-"""
-    text = f"""# Conformation pair — EMD-{pair_stats.emdb_a} vs EMD-{pair_stats.emdb_b}
-
-Matched Cα by mmCIF (label_asym_id, label_seq_id, insertion). Δ = state B − state A.
-
-| Metric | Value |
-|--------|------:|
-| Matched residues | {pair_stats.n_matched:,} |
-| Both in contour mask | {pair_stats.n_matched_in_mask_both:,} |
-| Spearman ρ(ΔB, Δreliability_score) | {pair_stats.spearman_delta_b_vs_delta_reliability:+.3f} |
-| Spearman ρ(ΔB, ΔH_repro) | {pair_stats.spearman_delta_b_vs_delta_H_repro:+.3f} |
-{cov_block}
-Large |ΔB| often reflects **biochemical conformational change**, not map-quality change alone.
-
-See `docs/CONFORMATION_PAIR_ANALYSIS.md` for clustering, coupling maps, and figure outputs.
-"""
-    path.write_text(text)

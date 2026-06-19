@@ -4,7 +4,7 @@ Generates under ``outputs/emd_<ID>/halfmap_reliability/``:
 
 - ``reliability.npz`` — reliability_score, constraint V (legacy key reliability_H_repro), build_zone
 - ``*.mrc`` — volume overlays on deposited reference grid
-- ``figures/model_building_row.png`` — CC, reliability score, build zones (one slice)
+- ``figures/model_building_row.png`` — local resolution, reliability score, build zones, locres–reliability disagreement map
 - ``../analysis/figures/analysis_validation_panel.png`` — anchor map only (2×2 validation)
 - ``HALFMAP_RELIABILITY_RESULTS.md`` — per-map results (methods in docs/HALFMAP_RELIABILITY.md)
 
@@ -28,7 +28,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import RELIABILITY_CMAP_CC, apply, label_panel, savefig as save_nature
+from style.nature import apply, label_panel, savefig as save_nature
+from style.thesis_palette import (
+    RELIABILITY_CMAP_DISAGREEMENT,
+    RELIABILITY_CMAP_LOCRES,
+    RELIABILITY_CMAP_SCORE,
+)
 from scipy import stats
 
 from cryoem_mrc.analysis import (
@@ -53,6 +58,7 @@ from cryoem_mrc.reliability import (
     save_build_zone_mrc,
     save_reliability_mrc,
 )
+from cryoem_mrc.local_resolution_io import load_local_resolution_map
 from cryoem_mrc.repo_paths import (
     ANCHOR_EMDB_ID,
     DATA_ROOT,
@@ -61,6 +67,7 @@ from cryoem_mrc.repo_paths import (
     find_features_npz,
     halfmap_metrics_npz,
     halfmap_reliability_dir,
+    locres_blocres_mrc,
     primary_features_npz_path,
 )
 from cryoem_mrc.mask_bbox import (
@@ -71,10 +78,10 @@ from cryoem_mrc.mask_bbox import (
     pad_voxels_for_filters,
 )
 from cryoem_mrc.thesis_figures import (
+    _locres_robust_limits,
     extract_slice,
     mask_slice_values,
     pick_slice_index,
-    plot_masked_slice,
     slice_crop_from_mask,
 )
 
@@ -160,15 +167,92 @@ def _optional_density_normalized(features_path: Path) -> np.ndarray | None:
     return np.asarray(feats["density_normalized"], dtype=np.float32)
 
 
-def _plot_build_zones(ax, zones_sl: np.ndarray, mask_sl: np.ndarray, *, title: str) -> None:
+def _load_local_resolution_array(emd_id: str) -> np.ndarray:
+    """BlocRes local-resolution map on the deposited reference grid."""
+    locres_path = locres_blocres_mrc(emd_id)
+    if not locres_path.is_file():
+        raise FileNotFoundError(f"EMD-{emd_id}: missing {locres_path}")
+    return np.asarray(load_local_resolution_map(locres_path, source="blocres").data, dtype=np.float32)
+
+
+def _normalized_locres_quality(
+    local_resolution: np.ndarray,
+    mask: np.ndarray,
+    *,
+    lo_pct: float = 5.0,
+    hi_pct: float = 95.0,
+) -> np.ndarray:
+    """In-mask locres mapped to 0–1 quality (1 = sharpest / lowest Å)."""
+    vals = local_resolution[mask]
+    finite = vals[np.isfinite(vals)]
+    if finite.size == 0:
+        return np.zeros_like(local_resolution, dtype=np.float32)
+    lo, hi = np.percentile(finite, [lo_pct, hi_pct])
+    if hi <= lo:
+        hi = lo + 1e-6
+    blurry = np.clip((local_resolution - lo) / (hi - lo), 0.0, 1.0)
+    quality = (1.0 - blurry).astype(np.float32)
+    return np.where(mask, quality, 0.0).astype(np.float32)
+
+
+def _locres_reliability_disagreement(
+    local_resolution: np.ndarray,
+    reliability_score: np.ndarray,
+    mask: np.ndarray,
+) -> np.ndarray:
+    """|normalized locres quality − reliability score| inside the mask."""
+    quality = _normalized_locres_quality(local_resolution, mask)
+    rel = np.where(mask, reliability_score, 0.0).astype(np.float32)
+    return np.abs(quality - rel).astype(np.float32)
+
+
+def _plot_build_zones(
+    ax,
+    zones_sl: np.ndarray,
+    mask_sl: np.ndarray,
+    *,
+    title: str,
+    cax=None,
+) -> plt.cm.ScalarMappable:
     apply(ax)
     show = np.ma.masked_where(~mask_sl, zones_sl.astype(float))
-    im = ax.imshow(show, cmap=build_zone_colormap(), vmin=0, vmax=2, origin="lower")
+    cmap_obj = build_zone_colormap().copy()
+    cmap_obj.set_bad(color=(0.12, 0.12, 0.14, 1.0))
+    im = ax.imshow(show, cmap=cmap_obj, vmin=0, vmax=2, origin="lower")
     ax.set_title(title, fontsize=11)
     ax.set_xticks([])
     ax.set_yticks([])
-    cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.02, ticks=[0, 1, 2])
-    cbar.ax.set_yticklabels([BUILD_ZONE_LABELS[z] for z in (0, 1, 2)])
+    if cax is not None:
+        cb = plt.colorbar(im, cax=cax, orientation="horizontal", ticks=[0, 1, 2])
+        cb.ax.set_xticklabels([BUILD_ZONE_LABELS[z] for z in (0, 1, 2)])
+        cb.ax.tick_params(labelsize=8)
+    return im
+
+
+def _plot_continuous_panel(
+    ax,
+    sl: np.ndarray,
+    mask_sl: np.ndarray,
+    *,
+    cmap,
+    title: str,
+    vmin: float,
+    vmax: float,
+    cax=None,
+) -> plt.cm.ScalarMappable:
+    """Masked slice with optional horizontal colorbar on ``cax``."""
+    apply(ax)
+    masked = mask_slice_values(sl, mask_sl)
+    cmap_obj = plt.get_cmap(cmap).copy()
+    cmap_obj.set_bad(color=(0.12, 0.12, 0.14, 1.0))
+    im = ax.imshow(masked, cmap=cmap_obj, vmin=vmin, vmax=vmax, origin="lower")
+    ax.set_title(title, fontsize=11)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    if cax is not None:
+        cb = plt.colorbar(im, cax=cax, orientation="horizontal")
+        cb.set_ticks([vmin, vmax])
+        cb.ax.tick_params(labelsize=8)
     return im
 
 
@@ -177,53 +261,79 @@ def _write_model_building_row_figure(
     emd_id: str,
     contour: float,
     mask: np.ndarray,
-    cc: np.ndarray,
+    local_resolution: np.ndarray,
     reliability_score: np.ndarray,
     zones: np.ndarray,
     fig_dir: Path,
     dpi: int,
     zoom_padding: int,
 ) -> Path:
-    """Write the CC / reliability / build-zone slice row using cached volumes."""
+    """Write local resolution / reliability / build-zone slices plus disagreement map."""
     fig_dir.mkdir(parents=True, exist_ok=True)
     z = pick_slice_index(mask, axis=0)
     msl = mask[z]
     crop = slice_crop_from_mask(msl, pad_voxels=zoom_padding) if zoom_padding else None
-    kw = {"crop_bbox": crop, "already_contoured": True}
 
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4.2))
+    def _crop_2d(arr: np.ndarray) -> np.ndarray:
+        if crop is None:
+            return arr
+        return arr[crop[0]:crop[1], crop[2]:crop[3]]
+
+    disagreement = _locres_reliability_disagreement(local_resolution, reliability_score, mask)
+    loc_sl = _crop_2d(extract_slice(local_resolution, axis=0, index=z))
+    rel_sl = _crop_2d(extract_slice(reliability_score, axis=0, index=z))
+    zone_sl = _crop_2d(extract_slice(zones.astype(float), axis=0, index=z))
+    diff_sl = _crop_2d(extract_slice(disagreement, axis=0, index=z))
+    m_c = _crop_2d(msl)
+    loc_lo, loc_hi = _locres_robust_limits(loc_sl, m_c)
+
+    fig = plt.figure(figsize=(15.5, 4.8), facecolor="white")
+    gs = fig.add_gridspec(
+        2,
+        4,
+        height_ratios=[1, 0.07],
+        hspace=0.38,
+        wspace=0.16,
+        left=0.03,
+        right=0.99,
+        top=0.86,
+        bottom=0.10,
+    )
+
     panels = [
+        ("a", loc_sl, RELIABILITY_CMAP_LOCRES, "local resolution (Å)", loc_lo, loc_hi),
+        ("b", rel_sl, RELIABILITY_CMAP_SCORE, "reliability score", 0.0, 1.0),
         (
-            extract_slice(cc, axis=0, index=z),
-            RELIABILITY_CMAP_CC,
-            WINDOWED_HALFMAP_CORRELATION_LABEL,
-            {**kw, "vmin": 0, "vmax": 1, "robust": False},
+            "d",
+            diff_sl,
+            RELIABILITY_CMAP_DISAGREEMENT,
+            "locres vs reliability\n|Δ|",
+            0.0,
+            1.0,
         ),
-        (extract_slice(reliability_score, axis=0, index=z), "viridis", "reliability score", kw),
-        (extract_slice(zones.astype(float), axis=0, index=z), None, "build zones", {}),
     ]
-    cbar_labels = {
-        WINDOWED_HALFMAP_CORRELATION_LABEL: WINDOWED_HALFMAP_CORRELATION_LABEL,
-        "reliability score": "reliability score",
-    }
-    for letter, (ax, (sl, cm, title, pkw)) in zip("abc", zip(axes, panels)):
-        if title == "build zones":
-            sl_c = sl if crop is None else sl[crop[0]:crop[1], crop[2]:crop[3]]
-            m_c = msl if crop is None else msl[crop[0]:crop[1], crop[2]:crop[3]]
-            _plot_build_zones(ax, sl_c, m_c, title=f"{title}\nZ={z}")
-        else:
-            plot_masked_slice(
-                ax,
-                sl,
-                msl,
-                cmap=cm,
-                title=f"{title}\nZ={z}",
-                cbar_label=cbar_labels.get(title),
-                **pkw,
-            )
+    panel_cols = (0, 1, 3)
+    for col, (letter, sl, cmap, title, vmin, vmax) in zip(panel_cols, panels):
+        ax = fig.add_subplot(gs[0, col])
+        cax = fig.add_subplot(gs[1, col])
+        _plot_continuous_panel(
+            ax,
+            sl,
+            m_c,
+            cmap=cmap,
+            title=f"{title}\nZ = {z}",
+            vmin=vmin,
+            vmax=vmax,
+            cax=cax,
+        )
         label_panel(ax, letter)
+
+    ax_z = fig.add_subplot(gs[0, 2])
+    cax_z = fig.add_subplot(gs[1, 2])
+    _plot_build_zones(ax_z, zone_sl, m_c, title=f"build zones\nZ = {z}", cax=cax_z)
+    label_panel(ax_z, "c")
+
     fig.suptitle(f"EMD-{emd_id} model-building guidance (mask ρ≥{contour})", fontsize=12)
-    fig.tight_layout()
     out = fig_dir / "model_building_row.png"
     save_nature(fig, out, dpi=dpi)
     plt.close(fig)
@@ -300,7 +410,7 @@ Partial Spearman vs CC controlling for local_variance:
 | `reliability.npz` | reliability_score, constraint V, build_zone |
 | `emd_{emd_id}_reliability.mrc` | Reliability overlay (0–1 score) |
 | `emd_{emd_id}_build_zones.mrc` | 0/1/2 zone labels |
-| `figures/model_building_row.png` | CC, reliability score, build zones (one slice) |
+| `figures/model_building_row.png` | Local resolution, reliability score, build zones, locres–reliability disagreement map |
 | `../analysis/figures/analysis_validation_panel.png` | Anchor map: 2×2 variance / reliability validation |
 | `run_metadata.json` | Spearman / partial ρ (cohort heatmap reads this) |
 
@@ -324,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
         if not p.exists():
             print(f"{log} ERROR: missing {k}: {p}", file=sys.stderr)
             return 2
-    if not args.halfmap_npz.exists():
+    if not args.figures_only and not args.halfmap_npz.exists():
         print(f"{log} ERROR: missing {args.halfmap_npz}", file=sys.stderr)
         return 2
 
@@ -340,13 +450,12 @@ def main(argv: list[str] | None = None) -> int:
             zones = np.asarray(rel["build_zone"])
             contour = float(rel["contour"]) if "contour" in rel else args.contour
         mask = build_contour_mask(reference, contour)
-        with np.load(args.halfmap_npz, allow_pickle=False) as hm:
-            cc = load_windowed_halfmap_correlation(hm)
+        local_resolution = _load_local_resolution_array(args.emd_id)
         out = _write_model_building_row_figure(
             emd_id=args.emd_id,
             contour=contour,
             mask=mask,
-            cc=cc,
+            local_resolution=local_resolution,
             reliability_score=reliability_score,
             zones=zones,
             fig_dir=fig_dir,
@@ -473,11 +582,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # Figures
+    local_resolution = _load_local_resolution_array(args.emd_id)
     out = _write_model_building_row_figure(
         emd_id=args.emd_id,
         contour=args.contour,
         mask=mask,
-        cc=cc,
+        local_resolution=local_resolution,
         reliability_score=feats["reliability_score"],
         zones=zones,
         fig_dir=fig_dir,

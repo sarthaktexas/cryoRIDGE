@@ -15,6 +15,7 @@ THESIS_NARRATIVE_COHORT_FIGURES: dict[str, str] = {
     "cohort_variance_vs_reliability_cc.png": "fig_3_2_cohort_variance_vs_reliability_cc.png",
     "bfactor_horse_race.png": "fig_3_3_bfactor_horse_race.png",
     "cohort_reliability_by_class.png": "fig_3_4_reliability_by_class.png",
+    "cohort_q_vs_v_by_class.png": "fig_3_4_q_vs_v_by_class.png",
     "cohort_cross_metric_median.png": "fig_3_4_cross_metric_median.png",
     "cohort_cross_metric_locres_pairs.png": "fig_3_4_cross_metric_locres_pairs.png",
     "qscore_vs_V_cohort.png": "fig_3_4_qscore_vs_V_cohort.png",
@@ -162,8 +163,18 @@ def archive_rigidity_vs_mechanics_dir() -> Path:
     return OUTPUTS_ROOT / "archive" / "rigidity_vs_mechanics"
 
 
+def conformation_pairs_dir() -> Path:
+    return OUTPUTS_ROOT / "conformation_pairs"
+
+
+def qscore_conformation_pairs_dir() -> Path:
+    """Deprecated alias; use :func:`conformation_pairs_dir`."""
+    return conformation_pairs_dir()
+
+
 def bfactor_conformation_pairs_dir() -> Path:
-    return OUTPUTS_ROOT / "bfactor_conformation_pairs"
+    """Deprecated alias; use :func:`conformation_pairs_dir`."""
+    return conformation_pairs_dir()
 
 
 def avg_features_npz_path(data_dir: Path, emdb_id: str | int, contour: float) -> Path:

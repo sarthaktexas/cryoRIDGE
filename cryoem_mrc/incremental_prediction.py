@@ -256,11 +256,13 @@ def iter_eligible_emdb_ids(
     root = outputs_root or OUTPUTS_ROOT
     if target == TARGET_Q:
         ids: list[str] = []
-        for path in sorted(root.glob("emd_*/halfmap_reliability/qscore_validation.csv")):
+        from .repo_paths import glob_halfmap_reliability_files
+
+        for path in glob_halfmap_reliability_files(root, "qscore_validation.csv"):
             emdb_id = path.parts[-3].replace("emd_", "")
             if emdb_id not in exclude:
                 ids.append(emdb_id)
-        return ids
+        return sorted(set(ids))
 
     ids = []
     with manifest.open(newline="") as f:

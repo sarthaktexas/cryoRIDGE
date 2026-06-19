@@ -38,6 +38,22 @@ class GuinierFit:
     r_squared: float
 
 
+@dataclass(frozen=True)
+class GuinierSharpeningEstimate:
+    """Guinier B on avg-of-halves vs deposited primary (effective sharpening proxy)."""
+
+    b_avg_guinier: float
+    b_primary_guinier: float
+    b_sharpening_delta: float
+    b_avg_r_squared: float
+    b_primary_r_squared: float
+
+    @property
+    def reported_style_sharpening_b(self) -> float:
+        """Literature convention: negative B means sharpening was applied."""
+        return self.b_sharpening_delta
+
+
 def _mean_voxel_size(voxel_size_zyx: tuple[float, float, float] | float) -> float:
     if isinstance(voxel_size_zyx, (int, float)):
         return float(voxel_size_zyx)
@@ -177,6 +193,38 @@ def estimate_global_guinier_b(
         n_ref=n_ref,
         r_min_a=r_min_a,
         r_max_a=r_max_a,
+    )
+
+
+def compare_guinier_b_avg_vs_primary(
+    avg_volume: np.ndarray,
+    primary_volume: np.ndarray,
+    voxel_size_zyx: tuple[float, float, float],
+    *,
+    r_min_a: float = R_MIN_A_DEFAULT,
+    r_max_a: float,
+    mask: np.ndarray | None = None,
+) -> GuinierSharpeningEstimate:
+    """
+    Compare radial Guinier B on avg-of-halves vs the deposited primary map.
+
+    ``b_sharpening_delta`` = B_primary − B_avg. When the depositor sharpened the
+    map beyond the half-map average, this is typically negative (Relion-style
+    reported sharpening B).
+    """
+    fit_avg = estimate_global_guinier_b(
+        avg_volume, voxel_size_zyx, r_min_a=r_min_a, r_max_a=r_max_a, mask=mask
+    )
+    fit_pri = estimate_global_guinier_b(
+        primary_volume, voxel_size_zyx, r_min_a=r_min_a, r_max_a=r_max_a, mask=mask
+    )
+    delta = float(fit_pri.b_factor - fit_avg.b_factor)
+    return GuinierSharpeningEstimate(
+        b_avg_guinier=float(fit_avg.b_factor),
+        b_primary_guinier=float(fit_pri.b_factor),
+        b_sharpening_delta=delta,
+        b_avg_r_squared=float(fit_avg.r_squared),
+        b_primary_r_squared=float(fit_pri.r_squared),
     )
 
 

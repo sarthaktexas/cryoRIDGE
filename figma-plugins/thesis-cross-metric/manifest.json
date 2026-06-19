@@ -1,0 +1,9 @@
+{
+  "name": "Thesis Cross Metric",
+  "id": "thesis-cross-metric-cryoem",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page"
+}

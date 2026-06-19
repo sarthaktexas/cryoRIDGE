@@ -22,7 +22,8 @@ from matplotlib import colors
 from matplotlib.gridspec import GridSpecFromSubplotSpec
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
-from style.nature import PALETTES, RELIABILITY_CMAP_CC, apply, label_panel, savefig as save_nature
+from style.nature import apply, label_panel, savefig as save_nature
+from style.thesis_palette import PALETTES, RELIABILITY_CMAP_CC
 
 from .analysis import build_contour_mask
 from .half_map_repro import (
@@ -814,6 +815,66 @@ def chimerax_render_png(emdb_id: str, key: str) -> Path:
     if key == "map_shell":
         return base / "surface_map_shell.png"
     return base / f"surface_{key}.png"
+
+
+def ensure_chimerax_domain_render(
+    emdb_id: str,
+    *,
+    preview: bool = True,
+    chimerax_exe: Path | None = None,
+    dpi: int = 150,
+) -> Path | None:
+    """
+    Return fold-domain ChimeraX surface PNG, rendering on demand when missing.
+
+    Requires domain annotations in ``conformation_pair_domains.json``. Returns None
+    when no domain regions are registered for the map.
+    """
+    out_png = chimerax_render_png(emdb_id, "domain")
+    bundle = resolve_protein_bundle(emdb_id)
+    if not bundle.domain_regions:
+        return None
+    if out_png.is_file():
+        return out_png
+
+    out_dir = emd_output_dir(emdb_id) / "chimerax_figures"
+    scripts_dir = out_dir / "scripts"
+    renders_dir = out_dir / "renders"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    renders_dir.mkdir(parents=True, exist_ok=True)
+    render_kw = PREVIEW_RENDER if preview else PUBLICATION_RENDER
+    cache_dir = Path("/tmp") / f"chimerax_emd_{emdb_id}"
+    ref_for_chimerax = (
+        _stage_map_for_chimerax(bundle.reference_mrc, cache_dir) if preview else bundle.reference_mrc
+    )
+    bundle_for_chimerax = ProteinFigureBundle(
+        emdb_id=bundle.emdb_id,
+        display_name=bundle.display_name,
+        reference_mrc=ref_for_chimerax,
+        structure_path=bundle.structure_path,
+        contour=bundle.contour,
+        domain_regions=bundle.domain_regions,
+        mask=bundle.mask,
+        voxel_size_a=bundle.voxel_size_a,
+    )
+    script = scripts_dir / "surface_domain.cxc"
+    write_domain_surface_cxc(
+        bundle_for_chimerax,
+        out_png=out_png,
+        out_script=script,
+        width=render_kw["width"],
+        height=render_kw["height"],
+        step=render_kw["step"],
+        supersample=render_kw["supersample"],
+        cartoon_only=False,
+    )
+    exe = chimerax_exe or find_chimerax_executable()
+    if exe is not None:
+        ok = run_chimerax_script(script, executable=exe, timeout_s=render_kw["timeout_s"])
+        if ok and out_png.is_file():
+            return out_png
+    render_matplotlib_surface_fallback(bundle, mode="domain", out_png=out_png, dpi=dpi)
+    return out_png if out_png.is_file() else None
 
 
 def render_chimerax_domain_colored_surface(
@@ -1724,6 +1785,7 @@ __all__ = [
     "StatisticSpec",
     "chimerax_domain_select_expr",
     "chimerax_render_png",
+    "ensure_chimerax_domain_render",
     "render_chimerax_domain_colored_surface",
     "chimerax_renders_dir",
     "compose_conformation_pair_quadtych",

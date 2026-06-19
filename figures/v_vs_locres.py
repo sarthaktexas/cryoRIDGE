@@ -16,7 +16,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
-from style.nature import PALETTES, WORD_PNG_DPI, apply, savefig as save_nature
+from style.nature import WORD_PNG_DPI, apply, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.metric_comparison import load_all_metrics
 from cryoem_mrc.repo_paths import COHORT_MANIFEST

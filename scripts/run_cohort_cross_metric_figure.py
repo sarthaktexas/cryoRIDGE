@@ -26,7 +26,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from style.nature import PALETTES, apply, label_panel, savefig as save_nature
+from style.nature import apply, label_panel, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
 from cryoem_mrc.half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_LABEL

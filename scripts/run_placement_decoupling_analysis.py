@@ -25,7 +25,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import PALETTES, apply, savefig as save_nature
+from style.nature import apply, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.io import load_mrc

@@ -17,7 +17,7 @@ uv pip install -e .
 # or:
 pip install -e .
 # from GitHub (no PyPI upload yet):
-pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.2.2"
+pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.2.3"
 ```
 
 **Dependencies:** NumPy, SciPy, mrcfile, Matplotlib, gemmi (mmCIF/PDB for residue-level validation).
@@ -92,7 +92,7 @@ python scripts/run_cohort_pipeline.py
 | `scripts/run_extended_feature_validation.py`       | Extended stats, Hessian, ridge CV vs CC                  |
 | `scripts/run_residue_bfactor_validation.py`        | Cα B_iso vs reliability / build zones                    |
 | `scripts/run_residue_bfactor_score_correlation.py` | B vs multiple map scores (sphere sampling)               |
-| `scripts/run_residue_bfactor_conformation_pair.py` | ΔB vs Δreliability across two EMDB states                |
+| `scripts/run_residue_bfactor_conformation_pair.py` | Cα RMSD vs Δreliability across two EMDB states           |
 | `scripts/run_cohort_pipeline.py`                   | Batch processing from `cohort/manifest.csv`              |
 | `scripts/run_cohort_summary_figures.py`            | Cohort-level summary tables and figures                  |
 
@@ -150,16 +150,16 @@ python -m unittest discover -s tests -v
 
 ## Citation
 
-**Before the manuscript is published**, cite the software with the Zenodo concept DOI (resolves to the latest release; pin `v0.2.2` or a commit hash for exact reproducibility):
+**Before the manuscript is published**, cite the software with the Zenodo concept DOI (resolves to the latest release; pin `v0.2.3` or a commit hash for exact reproducibility):
 
 ```bibtex
 @software{mohanty2026cryoem_halfmap_qc,
   author = {Mohanty, Sarthak},
   title = {cryoem-halfmap-qc: local map reliability from cryo-EM density and half-maps},
   year = {2026},
-  doi = {10.5281/zenodo.20618527},
-  url = {https://doi.org/10.5281/zenodo.20618527},
-  version = {0.2.2}
+  doi = {10.5281/zenodo.20618526},
+  url = {https://doi.org/10.5281/zenodo.20618526},
+  version = {0.2.3}
 }
 ```
 

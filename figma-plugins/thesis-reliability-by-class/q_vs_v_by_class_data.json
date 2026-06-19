@@ -1,0 +1,332 @@
+{
+  "generated_at": "2026-06-19T01:59:36Z",
+  "figure_title": "Cohort: Q-score vs constraint V by protein class",
+  "n_structures": 32,
+  "cohort_median": 0.4744,
+  "y_lim": [
+    -0.15,
+    0.95
+  ],
+  "panel": {
+    "kind": "box_strip",
+    "title": "Cohort: Q-score vs constraint V by protein class",
+    "y_label": "Spearman \u03c1(Q-score, V), in-mask C\u03b1",
+    "cohort_median": 0.4744,
+    "cohort_median_label": "cohort median (+0.47)",
+    "box_width": 0.55,
+    "groups": [
+      {
+        "label": "Viral glycoprotein",
+        "color": "#E8303A",
+        "position": 1,
+        "n": 3,
+        "box": {
+          "q1": 0.6882,
+          "median": 0.71,
+          "q3": 0.7658,
+          "whisker_low": 0.6664,
+          "whisker_high": 0.8216
+        },
+        "points": [
+          {
+            "emdb_id": "61596",
+            "label": "HSV-2 gB (+Fab16F9)",
+            "value": 0.6664,
+            "jitter": 0.0329
+          },
+          {
+            "emdb_id": "11497",
+            "label": "SARS-CoV-2 spike 3 RBD-down",
+            "value": 0.71,
+            "jitter": -0.0553
+          },
+          {
+            "emdb_id": "33734",
+            "label": "SARS-CoV-2 spike K202B bispecific",
+            "value": 0.8216,
+            "jitter": -0.1102
+          }
+        ]
+      },
+      {
+        "label": "ATPase / transporter",
+        "color": "#4B6FD4",
+        "position": 2,
+        "n": 8,
+        "box": {
+          "q1": 0.4225,
+          "median": 0.5757,
+          "q3": 0.7398,
+          "whisker_low": 0.0061,
+          "whisker_high": 0.839
+        },
+        "points": [
+          {
+            "emdb_id": "49450",
+            "label": "MgtA (E2P+E1)",
+            "value": 0.8201,
+            "jitter": -0.116
+          },
+          {
+            "emdb_id": "48923",
+            "label": "MgtA (E2.Mg.BeF3)",
+            "value": 0.839,
+            "jitter": 0.0752
+          },
+          {
+            "emdb_id": "48534",
+            "label": "MgtA (E2P.Mg)",
+            "value": 0.7131,
+            "jitter": 0.0991
+          },
+          {
+            "emdb_id": "41596",
+            "label": "MsbA outward-facing",
+            "value": 0.4487,
+            "jitter": 0.0256
+          },
+          {
+            "emdb_id": "41598",
+            "label": "MsbA inward-facing",
+            "value": 0.3439,
+            "jitter": 0.0551
+          },
+          {
+            "emdb_id": "48311",
+            "label": "Yeast V-ATPase Vo",
+            "value": 0.6568,
+            "jitter": 0.0105
+          },
+          {
+            "emdb_id": "11149",
+            "label": "Bovine ATP synthase Fo",
+            "value": 0.0061,
+            "jitter": 0.1044
+          },
+          {
+            "emdb_id": "42603",
+            "label": "Human p97/VCP + inhibitor",
+            "value": 0.4946,
+            "jitter": 0.0758
+          }
+        ]
+      },
+      {
+        "label": "Large enzyme / assembly",
+        "color": "#3BBF6A",
+        "position": 3,
+        "n": 4,
+        "box": {
+          "q1": 0.4393,
+          "median": 0.5526,
+          "q3": 0.7093,
+          "whisker_low": 0.3945,
+          "whisker_high": 0.8847
+        },
+        "points": [
+          {
+            "emdb_id": "16091",
+            "label": "Beta-galactosidase (5ms time-resolved)",
+            "value": 0.3945,
+            "jitter": -0.1193
+          },
+          {
+            "emdb_id": "41756",
+            "label": "LRRK2 CTD (+GZD824)",
+            "value": 0.6509,
+            "jitter": 0.0858
+          },
+          {
+            "emdb_id": "52525",
+            "label": "Complex III (mitochondrial)",
+            "value": 0.4542,
+            "jitter": -0.1119
+          },
+          {
+            "emdb_id": "62841",
+            "label": "Thermophile spliceosome ILS",
+            "value": 0.8847,
+            "jitter": 0.0551
+          }
+        ]
+      },
+      {
+        "label": "Rigid control",
+        "color": "#BA3EC3",
+        "position": 4,
+        "n": 1,
+        "box": {
+          "q1": 0.3693,
+          "median": 0.3693,
+          "q3": 0.3693,
+          "whisker_low": 0.3693,
+          "whisker_high": 0.3693
+        },
+        "points": [
+          {
+            "emdb_id": "11638",
+            "label": "Apoferritin",
+            "value": 0.3693,
+            "jitter": -0.0778
+          }
+        ]
+      },
+      {
+        "label": "Nucleic acid",
+        "color": "#F5C518",
+        "position": 5,
+        "n": 1,
+        "box": {
+          "q1": 0.3386,
+          "median": 0.3386,
+          "q3": 0.3386,
+          "whisker_low": 0.3386,
+          "whisker_high": 0.3386
+        },
+        "points": [
+          {
+            "emdb_id": "44471",
+            "label": "Human nucleosome 3.0 A",
+            "value": 0.3386,
+            "jitter": 0.0872
+          }
+        ]
+      },
+      {
+        "label": "Chaperone / AAA+",
+        "color": "#00C0D8",
+        "position": 6,
+        "n": 4,
+        "box": {
+          "q1": 0.2359,
+          "median": 0.3253,
+          "q3": 0.4523,
+          "whisker_low": 0.0193,
+          "whisker_high": 0.3426
+        },
+        "points": [
+          {
+            "emdb_id": "13308",
+            "label": "GroEL-GroES ADP (tight)",
+            "value": 0.308,
+            "jitter": 0.01
+          },
+          {
+            "emdb_id": "16119",
+            "label": "GroEL-GroES ADP (turnover)",
+            "value": 0.7815,
+            "jitter": -0.0481
+          },
+          {
+            "emdb_id": "4940",
+            "label": "ClpB WT-1 (ATPgammaS)",
+            "value": 0.0193,
+            "jitter": -0.0186
+          },
+          {
+            "emdb_id": "4941",
+            "label": "ClpB WT-2A (ATPgammaS)",
+            "value": 0.3426,
+            "jitter": -0.1132
+          }
+        ]
+      },
+      {
+        "label": "Ribosome",
+        "color": "#8B84D7",
+        "position": 7,
+        "n": 2,
+        "box": {
+          "q1": 0.1068,
+          "median": 0.2952,
+          "q3": 0.4836,
+          "whisker_low": -0.0816,
+          "whisker_high": 0.672
+        },
+        "points": [
+          {
+            "emdb_id": "24120",
+            "label": "70S pre-translocation (E. coli)",
+            "value": -0.0816,
+            "jitter": -0.0902
+          },
+          {
+            "emdb_id": "25418",
+            "label": "70S post-translocation (E. coli)",
+            "value": 0.672,
+            "jitter": 0.0409
+          }
+        ]
+      },
+      {
+        "label": "Ion channel / receptor",
+        "color": "#FF4500",
+        "position": 8,
+        "n": 9,
+        "box": {
+          "q1": 0.078,
+          "median": 0.2486,
+          "q3": 0.6193,
+          "whisker_low": -0.0433,
+          "whisker_high": 0.6946
+        },
+        "points": [
+          {
+            "emdb_id": "23129",
+            "label": "TRPV1 pH 6a",
+            "value": 0.683,
+            "jitter": 0.0353
+          },
+          {
+            "emdb_id": "23130",
+            "label": "TRPV1 pH 6c",
+            "value": 0.6193,
+            "jitter": 0.0277
+          },
+          {
+            "emdb_id": "45604",
+            "label": "beta2AR inactive (carazolol)",
+            "value": 0.2486,
+            "jitter": -0.0279
+          },
+          {
+            "emdb_id": "45603",
+            "label": "beta2AR apo",
+            "value": 0.1516,
+            "jitter": 0.1193
+          },
+          {
+            "emdb_id": "28498",
+            "label": "Eag1 voltage sensor down",
+            "value": -0.0433,
+            "jitter": 0.1154
+          },
+          {
+            "emdb_id": "28487",
+            "label": "Eag1 voltage sensor up",
+            "value": 0.5942,
+            "jitter": 0.0445
+          },
+          {
+            "emdb_id": "37504",
+            "label": "GLP-1R + Gs (ligand-free)",
+            "value": 0.6946,
+            "jitter": 0.0361
+          },
+          {
+            "emdb_id": "9156",
+            "label": "NMDA GluN1-GluN2A Extended-1",
+            "value": 0.0135,
+            "jitter": 0.0452
+          },
+          {
+            "emdb_id": "7130",
+            "label": "Epithelial Na+ channel (ENaC)",
+            "value": 0.078,
+            "jitter": -0.0267
+          }
+        ]
+      }
+    ]
+  }
+}

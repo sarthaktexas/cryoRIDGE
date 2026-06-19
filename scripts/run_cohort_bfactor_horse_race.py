@@ -25,7 +25,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
-from style.nature import PALETTES, apply, label_panel, savefig as save_nature
+from style.nature import apply, label_panel, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.half_map_repro import load_windowed_halfmap_correlation

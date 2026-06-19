@@ -12,7 +12,7 @@ from scipy import stats
 
 from .analysis import build_contour_mask
 from .map_grid import MapGrid, load_map_grid
-from .repo_paths import COHORT_MANIFEST, halfmap_reliability_dir, resolve_halfmap_reliability_dir
+from .repo_paths import COHORT_MANIFEST, resolve_halfmap_reliability_dir
 from .structure_validation import (
     CaResidue,
     iter_ca_residues,
@@ -238,6 +238,29 @@ def compute_qscore_validation_stats(
     )
 
 
+def read_qscore_lookup(path: str | Path) -> dict[tuple[str, int, str], float]:
+    """Load ``q_score`` keyed by mmCIF (label_asym_id, label_seq_id, insertion)."""
+    q_lookup, _ = read_qscore_validation_lookups(path)
+    return q_lookup
+
+
+def read_qscore_validation_lookups(
+    path: str | Path,
+) -> tuple[dict[tuple[str, int, str], float], dict[tuple[str, int, str], float]]:
+    """Load Q-score and LH constraint V keyed by mmCIF residue key."""
+    path = Path(path)
+    q_lookup: dict[tuple[str, int, str], float] = {}
+    v_lookup: dict[tuple[str, int, str], float] = {}
+    with path.open(newline="") as f:
+        for row in csv.DictReader(f):
+            key = (row["chain"], int(row["seq_num"]), row["seq_icode"])
+            q_raw = row.get("q_score", "")
+            v_raw = row.get("reliability_constraint_V", "")
+            q_lookup[key] = float(q_raw) if q_raw else float("nan")
+            v_lookup[key] = float(v_raw) if v_raw else float("nan")
+    return q_lookup, v_lookup
+
+
 def write_qscore_validation_csv(path: str | Path, rows: Sequence[QscoreResidueRow]) -> Path:
     path = Path(path)
     fieldnames = [
@@ -362,8 +385,8 @@ def run_emdb_qscore_validation(
     ref_path = reference or Path(row["reference_mrc"])
     pdb_path = pdb or Path(row["flexibility_path_or_pdb"])
     contour_val = contour if contour is not None else float(row["contour"])
-    out_dir = halfmap_reliability_dir(emd_id)
-    npz_path = reliability_npz or (resolve_halfmap_reliability_dir(emd_id) / "reliability.npz")
+    out_dir = resolve_halfmap_reliability_dir(emd_id)
+    npz_path = reliability_npz or (out_dir / "reliability.npz")
 
     for label, p in (("reference", ref_path), ("pdb", pdb_path), ("reliability.npz", npz_path)):
         if not p.exists():

@@ -12,8 +12,10 @@ from cryoem_mrc.placement_utility import (
     compute_calibration_bins,
     compute_low_q_enrichment_row,
     compute_misranking_row,
+    compute_rank_recovery_row,
     rank_auc,
     _predictor_flags,
+    _predictor_scores,
 )
 
 
@@ -70,6 +72,40 @@ class TestMisranking(unittest.TestCase):
         row = compute_misranking_row(df, emdb_id="test")
         assert row is not None
         self.assertTrue(np.isfinite(row.frac_omit_zone_low_q_tercile))
+
+
+class TestLocresDirection(unittest.TestCase):
+    def test_locres_flag_agrees_with_negative_q_correlation(self) -> None:
+        """Higher BlocRes Å ⇒ lower Q; median flag should still classify better than chance."""
+        rng = np.random.default_rng(7)
+        n = 200
+        loc = rng.uniform(3.0, 5.5, size=n)
+        rel = rng.uniform(0.2, 0.9, size=n)
+        q = 0.55 - 0.15 * (loc - 3.0) + 0.05 * rel + rng.normal(0, 0.04, size=n)
+        cc = 0.3 + 0.4 * rel + rng.normal(0, 0.05, size=n)
+        var = rng.uniform(0.5, 3.0, size=n)
+        zone = np.digitize(rel, [1 / 3, 2 / 3]) - 1
+        df = pd.DataFrame(
+            {
+                "reliability_score": rel,
+                "q_score": q,
+                "windowed_halfmap_correlation": cc,
+                "local_resolution": loc,
+                "local_variance": var,
+                "v_metric": rng.uniform(0.1, 0.9, size=n),
+                "build_zone": zone,
+                "in_contour_mask": True,
+            }
+        )
+        rr = compute_rank_recovery_row(df, emdb_id="test")
+        assert rr is not None
+        self.assertLess(rr.spearman_q_vs_locres, 0.0)
+
+        low = q < 0.45
+        flags = _predictor_flags(df)["locres_worse_than_median"]
+        scores = _predictor_scores(df)["locres_worse_than_median"]
+        self.assertGreater(balanced_accuracy(low, flags), 0.55)
+        self.assertGreater(rank_auc(low, scores), 0.55)
 
 
 class TestCalibration(unittest.TestCase):

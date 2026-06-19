@@ -10,6 +10,88 @@ from typing import Any
 
 EMDB_ENTRY_API = "https://www.ebi.ac.uk/emdb/api/entry/{emdb_id}"
 
+# Free-text patterns for depositor-reported map sharpening B (Å²), when present.
+_SHARPENING_B_PATTERNS = (
+    r"map\s+sharpening\s+b[\s\-]*factor[^0-9\-+]*([+-]?\d+(?:\.\d+)?)",
+    r"sharpening\s+b[\s\-]*factor[^0-9\-+]*([+-]?\d+(?:\.\d+)?)",
+    r"b[\s\-]*factor\s+sharpening[^0-9\-+]*([+-]?\d+(?:\.\d+)?)",
+    r"sharpened\s+(?:with|using|at)\s+b\s*[=:]?\s*([+-]?\d+(?:\.\d+)?)",
+)
+
+
+def _walk_strings(obj: Any) -> list[str]:
+    out: list[str] = []
+    if isinstance(obj, dict):
+        for value in obj.values():
+            out.extend(_walk_strings(value))
+    elif isinstance(obj, list):
+        for value in obj:
+            out.extend(_walk_strings(value))
+    elif isinstance(obj, str):
+        out.append(obj)
+    return out
+
+
+def parse_emdb_reported_sharpening_b(entry_json: dict[str, Any]) -> float | None:
+    """
+    Extract depositor-reported map sharpening B (Å²) from an EMDB entry JSON blob.
+
+    EMDB rarely stores this in a structured field; we scan all string values for
+    common publication phrases (e.g. "map sharpening B-factor: -67").
+    """
+    import re
+
+    for text in _walk_strings(entry_json):
+        for pattern in _SHARPENING_B_PATTERNS:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                try:
+                    return float(match.group(1))
+                except ValueError:
+                    continue
+    return None
+
+
+def fetch_emdb_entry_json(
+    emdb_id: str | int,
+    *,
+    timeout_s: float = 30.0,
+    retries: int = 2,
+    retry_delay_s: float = 0.5,
+) -> dict[str, Any]:
+    """Fetch the full EMDB REST entry JSON for one map."""
+    eid = str(emdb_id).strip().removeprefix("EMD-").removeprefix("emd-")
+    url = EMDB_ENTRY_API.format(emdb_id=eid)
+    last_err: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout_s) as resp:
+                return json.load(resp)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last_err = exc
+            if attempt < retries:
+                time.sleep(retry_delay_s)
+    if last_err is not None:
+        raise RuntimeError(f"EMDB API failed for EMD-{eid}: {last_err}") from last_err
+    return {}
+
+
+def fetch_emdb_reported_sharpening_b(
+    emdb_id: str | int,
+    *,
+    timeout_s: float = 30.0,
+    retries: int = 2,
+    retry_delay_s: float = 0.5,
+) -> float | None:
+    """Query EMDB for a depositor-reported map sharpening B (Å²), if present."""
+    data = fetch_emdb_entry_json(
+        emdb_id,
+        timeout_s=timeout_s,
+        retries=retries,
+        retry_delay_s=retry_delay_s,
+    )
+    return parse_emdb_reported_sharpening_b(data)
+
 
 def parse_emdb_global_resolution_a(entry_json: dict[str, Any]) -> float | None:
     """
@@ -39,18 +121,10 @@ def fetch_emdb_global_resolution_a(
     retry_delay_s: float = 0.5,
 ) -> float | None:
     """Query the EMDB REST API for one entry's global resolution (Å)."""
-    eid = str(emdb_id).strip().removeprefix("EMD-").removeprefix("emd-")
-    url = EMDB_ENTRY_API.format(emdb_id=eid)
-    last_err: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            with urllib.request.urlopen(url, timeout=timeout_s) as resp:
-                data = json.load(resp)
-            return parse_emdb_global_resolution_a(data)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-            last_err = exc
-            if attempt < retries:
-                time.sleep(retry_delay_s)
-    if last_err is not None:
-        raise RuntimeError(f"EMDB API failed for EMD-{eid}: {last_err}") from last_err
-    return None
+    data = fetch_emdb_entry_json(
+        emdb_id,
+        timeout_s=timeout_s,
+        retries=retries,
+        retry_delay_s=retry_delay_s,
+    )
+    return parse_emdb_global_resolution_a(data)

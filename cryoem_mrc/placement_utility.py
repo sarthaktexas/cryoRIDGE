@@ -8,6 +8,7 @@ recovery ρ(proxy, Q) compared across pre-model readouts.
 from __future__ import annotations
 
 import csv
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Sequence
@@ -44,6 +45,40 @@ PREDICTOR_LABELS: dict[PredictorId, str] = {
     "locres_worse_than_median": "BlocRes worse than in-map median (Å)",
     "variance_above_median": "Local variance above in-map median",
 }
+
+# Rank-recovery bar charts compare proxies on a common axis: higher ⇒ better Q coupling.
+# BlocRes is stored in Å (larger = blurrier), so raw ρ(Q, locres) is usually negative
+# when the median-split flag (loc > in-map median) tracks low Q.
+RANK_RECOVERY_PROXY_KEYS: tuple[str, ...] = (
+    "spearman_q_vs_reliability",
+    "spearman_q_vs_cc",
+    "spearman_q_vs_locres",
+    "spearman_q_vs_variance",
+    "spearman_q_vs_v",
+)
+
+RANK_RECOVERY_PROXY_LABELS: dict[str, str] = {
+    "spearman_q_vs_reliability": "reliability",
+    "spearman_q_vs_cc": "windowed CC",
+    "spearman_q_vs_locres": "BlocRes (sharpness)",
+    "spearman_q_vs_variance": "variance",
+    "spearman_q_vs_v": "constraint V",
+}
+
+RANK_RECOVERY_Q_COUPLING_SIGN: dict[str, float] = {
+    "spearman_q_vs_reliability": 1.0,
+    "spearman_q_vs_cc": 1.0,
+    "spearman_q_vs_locres": -1.0,
+    "spearman_q_vs_variance": 1.0,
+    "spearman_q_vs_v": 1.0,
+}
+
+
+def aligned_rank_recovery_rho(raw_rho: float, proxy_key: str) -> float:
+    """Sign-align ρ(Q, proxy) so larger bars mean stronger placement-consistent coupling."""
+    if not np.isfinite(raw_rho):
+        return float("nan")
+    return float(RANK_RECOVERY_Q_COUPLING_SIGN.get(proxy_key, 1.0) * raw_rho)
 
 
 @dataclass(frozen=True)
@@ -89,6 +124,18 @@ class RankRecoveryRow:
     spearman_q_vs_locres: float
     spearman_q_vs_variance: float
     spearman_q_vs_v: float
+
+
+def median_aligned_rank_recovery(
+    rows: Sequence[RankRecoveryRow],
+    proxy_key: str,
+) -> float:
+    vals = [
+        aligned_rank_recovery_rho(getattr(r, proxy_key), proxy_key)
+        for r in rows
+        if np.isfinite(getattr(r, proxy_key))
+    ]
+    return float(np.median(vals)) if vals else float("nan")
 
 
 @dataclass(frozen=True)
@@ -215,6 +262,7 @@ def _predictor_flags(df: pd.DataFrame) -> dict[PredictorId, np.ndarray]:
     loc_med = np.nanmedian(loc) if np.isfinite(loc).any() else float("nan")
     var_med = np.nanmedian(var) if np.isfinite(var).any() else float("nan")
 
+    # BlocRes Å increases with blur; flag residues worse than the in-map median.
     return {
         "omit_zone": zone == 0,
         "reliability_below_0_33": rel < 0.33,
@@ -813,17 +861,19 @@ def write_placement_utility_markdown(
     lines.extend(["## Tier 2 — Rank recovery ρ(Q, proxy) medians", ""])
     if summary.rank_recovery_rows:
         def med_rr(attr: str) -> float:
-            vals = [getattr(r, attr) for r in summary.rank_recovery_rows]
-            vals = [v for v in vals if np.isfinite(v)]
-            return float(np.median(vals)) if vals else float("nan")
+            return median_aligned_rank_recovery(summary.rank_recovery_rows, attr)
 
         lines.extend(
             [
                 f"- ρ(Q, reliability): **{med_rr('spearman_q_vs_reliability'):.3f}**",
                 f"- ρ(Q, windowed CC): {med_rr('spearman_q_vs_cc'):.3f}",
-                f"- ρ(Q, BlocRes): {med_rr('spearman_q_vs_locres'):.3f}",
+                f"- ρ(Q, BlocRes sharpness): {med_rr('spearman_q_vs_locres'):.3f} "
+                f"(raw ρ vs Å: {float(np.median([r.spearman_q_vs_locres for r in summary.rank_recovery_rows if np.isfinite(r.spearman_q_vs_locres)])):.3f})",
                 f"- ρ(Q, local variance): {med_rr('spearman_q_vs_variance'):.3f}",
                 f"- ρ(Q, constraint V): {med_rr('spearman_q_vs_v'):.3f}",
+                "",
+                "_BlocRes bars use sign-aligned coupling (negate raw ρ vs Å); "
+                "median-split flags use loc > in-map median as low-confidence._",
                 "",
             ]
         )
@@ -905,6 +955,135 @@ class RocCurve:
     fpr: tuple[float, ...]
     tpr: tuple[float, ...]
     auc: float
+
+
+@dataclass(frozen=True)
+class CohortRocSummary:
+    """Per-map AUC summary plus ROC from the map nearest the cohort median AUC."""
+
+    predictor: PredictorId
+    median_auc: float
+    representative_emdb_id: str
+    representative_auc: float
+    n_maps: int
+    fpr: tuple[float, ...]
+    tpr: tuple[float, ...]
+    per_map_aucs: tuple[tuple[str, float], ...]
+
+
+def finite_qv_emdb_ids() -> frozenset[str]:
+    """EMDB IDs with finite in-mask ρ(Q, V) from ``qscore_correlations.csv``."""
+    path = OUTPUTS_ROOT / "cohort_summary" / "qscore_correlations.csv"
+    if not path.is_file():
+        return frozenset()
+    ids: set[str] = set()
+    with path.open(newline="") as f:
+        for row in csv.DictReader(f):
+            eid = str(row.get("emdb_id", "")).strip()
+            raw = str(row.get("spearman_q_vs_V", "")).strip()
+            if not eid or eid in QSCORE_PANEL_EXCLUDE or raw in ("", "nan"):
+                continue
+            try:
+                rho = float(raw)
+            except ValueError:
+                continue
+            if np.isfinite(rho):
+                ids.add(eid)
+    return frozenset(ids)
+
+
+def _roc_points_from_scores(y_true: np.ndarray, scores: np.ndarray) -> tuple[tuple[float, ...], tuple[float, ...], float]:
+    """Return (fpr, tpr, auc) for binary labels and higher-is-risk scores."""
+    y = y_true.astype(bool)
+    s = np.asarray(scores, dtype=np.float64)
+    m = np.isfinite(s)
+    y = y[m]
+    s = s[m]
+    auc = rank_auc(y, s)
+    order = np.argsort(-s)
+    y_sorted = y[order]
+    n_pos = int(y.sum())
+    n_neg = int((~y).sum())
+    if n_pos == 0 or n_neg == 0:
+        return (), (), float(auc)
+    tps = np.cumsum(y_sorted).astype(np.float64)
+    fps = np.cumsum(~y_sorted).astype(np.float64)
+    tpr_pts = np.concatenate([[0.0], tps / n_pos])
+    fpr_pts = np.concatenate([[0.0], fps / n_neg])
+    return (
+        tuple(float(x) for x in fpr_pts),
+        tuple(float(x) for x in tpr_pts),
+        float(auc),
+    )
+
+
+def single_map_roc_curve(
+    df: pd.DataFrame,
+    predictor: PredictorId,
+    *,
+    q_threshold: float,
+) -> RocCurve:
+    """ROC/AUC for one map's in-mask residues."""
+    q = pd.to_numeric(df["q_score"], errors="coerce").to_numpy()
+    m = np.isfinite(q)
+    if int(m.sum()) < 5:
+        return RocCurve(predictor=predictor, fpr=(), tpr=(), auc=float("nan"))
+    y = (q < q_threshold)[m]
+    s = _predictor_scores(df)[predictor][m]
+    fpr, tpr, auc = _roc_points_from_scores(y, s)
+    return RocCurve(predictor=predictor, fpr=fpr, tpr=tpr, auc=auc)
+
+
+def cohort_representative_roc(
+    per_map_frames: Sequence[tuple[str, pd.DataFrame]],
+    predictor: PredictorId,
+    *,
+    q_threshold: float,
+    eligible_emdb_ids: frozenset[str] | None = None,
+) -> CohortRocSummary:
+    """
+    Per-map AUC on eligible maps; plot curve from the map whose AUC is nearest
+    the cohort median (illustrative single-map ROC).
+    """
+    per_map_aucs: list[tuple[str, float]] = []
+    curves: dict[str, RocCurve] = {}
+    for emdb_id, df in per_map_frames:
+        if eligible_emdb_ids is not None and str(emdb_id) not in eligible_emdb_ids:
+            continue
+        curve = single_map_roc_curve(df, predictor, q_threshold=q_threshold)
+        if not np.isfinite(curve.auc):
+            continue
+        per_map_aucs.append((str(emdb_id), float(curve.auc)))
+        curves[str(emdb_id)] = curve
+
+    if not per_map_aucs:
+        return CohortRocSummary(
+            predictor=predictor,
+            median_auc=float("nan"),
+            representative_emdb_id="",
+            representative_auc=float("nan"),
+            n_maps=0,
+            fpr=(),
+            tpr=(),
+            per_map_aucs=(),
+        )
+
+    auc_vals = np.array([a for _, a in per_map_aucs], dtype=np.float64)
+    median_auc = float(np.median(auc_vals))
+    rep_id, rep_auc = min(per_map_aucs, key=lambda item: abs(item[1] - median_auc))
+    rep_curve = curves[rep_id]
+    per_map_aucs.sort(key=lambda item: item[1])
+
+    return CohortRocSummary(
+        predictor=predictor,
+        median_auc=median_auc,
+        representative_emdb_id=rep_id,
+        representative_auc=float(rep_auc),
+        n_maps=len(per_map_aucs),
+        fpr=rep_curve.fpr,
+        tpr=rep_curve.tpr,
+        per_map_aucs=tuple(per_map_aucs),
+    )
 
 
 def _train_medians(train_dfs: Sequence[pd.DataFrame]) -> tuple[float, float]:
@@ -1067,24 +1246,83 @@ def pooled_roc_curve(
 
     y = np.concatenate(low_list).astype(bool)
     s = np.concatenate(score_list)
-    auc = rank_auc(y, s)
-    order = np.argsort(-s)
-    y_sorted = y[order]
-    n_pos = int(y.sum())
-    n_neg = int((~y).sum())
-    if n_pos == 0 or n_neg == 0:
-        return RocCurve(predictor=predictor, fpr=(), tpr=(), auc=auc)
+    fpr, tpr, auc = _roc_points_from_scores(y, s)
+    return RocCurve(predictor=predictor, fpr=fpr, tpr=tpr, auc=auc)
 
-    tps = np.cumsum(y_sorted).astype(np.float64)
-    fps = np.cumsum(~y_sorted).astype(np.float64)
-    tpr_pts = np.concatenate([[0.0], tps / n_pos])
-    fpr_pts = np.concatenate([[0.0], fps / n_neg])
-    return RocCurve(
-        predictor=predictor,
-        fpr=tuple(float(x) for x in fpr_pts),
-        tpr=tuple(float(x) for x in tpr_pts),
-        auc=float(auc),
-    )
+
+def write_roc_per_map_csv(
+    summaries: Sequence[CohortRocSummary],
+    out_dir: Path,
+) -> Path:
+    """Write per-map AUC rows for each main ROC predictor."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "placement_roc_per_map.csv"
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=[
+                "predictor",
+                "label",
+                "emdb_id",
+                "auc",
+                "cohort_median_auc",
+                "representative_emdb_id",
+            ],
+        )
+        w.writeheader()
+        for summary in summaries:
+            for emdb_id, auc in summary.per_map_aucs:
+                w.writerow(
+                    {
+                        "predictor": summary.predictor,
+                        "label": PREDICTOR_LABELS[summary.predictor],
+                        "emdb_id": emdb_id,
+                        "auc": f"{auc:.4f}",
+                        "cohort_median_auc": f"{summary.median_auc:.4f}"
+                        if np.isfinite(summary.median_auc)
+                        else "",
+                        "representative_emdb_id": summary.representative_emdb_id,
+                    }
+                )
+    return path
+
+
+def write_roc_figma_json(
+    summaries: Sequence[CohortRocSummary],
+    path: Path,
+    *,
+    q_threshold: float,
+    n_maps: int,
+) -> Path:
+    """Compact ROC curve bundle for the Figma placement plugin."""
+    colors = ("#E8303A", "#4B6FD4", "#3BBF6A", "#BA3EC3")
+    payload = {
+        "q_threshold": q_threshold,
+        "n_maps": n_maps,
+        "curves": [
+            {
+                "predictor": summary.predictor,
+                "label": PREDICTOR_LABELS[summary.predictor],
+                "color": colors[i % len(colors)],
+                "median_auc": round(summary.median_auc, 4)
+                if np.isfinite(summary.median_auc)
+                else None,
+                "representative_emdb_id": summary.representative_emdb_id,
+                "representative_auc": round(summary.representative_auc, 4)
+                if np.isfinite(summary.representative_auc)
+                else None,
+                "fpr": [round(x, 5) for x in summary.fpr],
+                "tpr": [round(y, 5) for y in summary.tpr],
+            }
+            for i, summary in enumerate(summaries)
+            if summary.fpr
+        ],
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def load_per_map_frames_for_lomo(

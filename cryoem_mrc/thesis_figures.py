@@ -15,21 +15,20 @@ from matplotlib import colors as mcolors
 from matplotlib.gridspec import GridSpecFromSubplotSpec
 from matplotlib.patches import Rectangle
 
-from style.nature import (
+from style.nature import apply, label_panel, savefig as save_nature
+from style.thesis_palette import (
     PALETTES,
     RELIABILITY_CMAP_CC,
     RELIABILITY_CMAP_LOCRES,
     THESIS_BLUE,
     THESIS_RED,
-    apply,
-    label_panel,
-    savefig as save_nature,
 )
 
 from .conformation_pair import (
     DOMAIN_COLORS,
     UNASSIGNED_DOMAIN_COLOR,
     compute_domain_mean_coupling,
+    compute_per_residue_ca_rmsd,
     get_domain_assignments,
     get_domain_regions_for_pair,
     interior_residue_indices,
@@ -40,7 +39,7 @@ from .cohort_composition import resolve_cohort_na_residue_fraction
 from .cohort_labels import cohort_figure_label, short_display_name
 from .cohort_resolution import RESOLUTION_BIN_ORDER, resolution_bin_label
 from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_LABEL
-from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
+from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, glob_halfmap_reliability_files
 from .structure_validation import load_cohort_manifest_row
 
 CC_CBAR_LABEL = f"{WINDOWED_HALFMAP_CORRELATION_LABEL} (high = reliable)"
@@ -596,6 +595,17 @@ class CohortMetricRow:
     na_residue_fraction: float = float("nan")
 
 
+@dataclass(frozen=True)
+class QscoreClassRow:
+    """Per-structure ρ(Q-score, V) for cohort stratification by protein class."""
+
+    emdb_id: str
+    spearman_q_vs_V: float
+    display_name: str = ""
+    protein_class: str = "Other"
+    n_in_mask: int = 0
+
+
 def _load_manifest_index(manifest_path: Path = COHORT_MANIFEST) -> dict[str, dict[str, str]]:
     """Index ``cohort/manifest.csv`` rows by ``emdb_id``."""
     index: dict[str, dict[str, str]] = {}
@@ -717,7 +727,7 @@ def collect_cohort_metrics(
     root = OUTPUTS_ROOT if outputs_root is None else Path(outputs_root)
     manifest = _load_manifest_index(manifest_path)
     rows: list[CohortMetricRow] = []
-    for meta_path in sorted(root.glob("emd_*/halfmap_reliability/run_metadata.json")):
+    for meta_path in glob_halfmap_reliability_files(root, "run_metadata.json"):
         emdb_id = meta_path.parent.parent.name.removeprefix("emd_")
         with meta_path.open() as f:
             meta = json.load(f)
@@ -761,6 +771,51 @@ def collect_cohort_metrics(
                 na_residue_fraction=na_residue_fraction,
             )
         )
+    return rows
+
+
+def collect_cohort_q_vs_v_rows(
+    *,
+    manifest_path: Path = COHORT_MANIFEST,
+    qscore_csv: Path | None = None,
+) -> list[QscoreClassRow]:
+    """
+    Gather per-structure ρ(Q-score, V) from ``outputs/cohort_summary/qscore_correlations.csv``.
+
+    Uses the same inclusion rules as the cohort Q vs V bar/scatter figure
+    (finite ρ, ``QSCORE_PANEL_EXCLUDE`` omitted).
+    """
+    from .placement_utility import QSCORE_PANEL_EXCLUDE
+
+    csv_path = qscore_csv or (OUTPUTS_ROOT / "cohort_summary" / "qscore_correlations.csv")
+    if not csv_path.is_file():
+        return []
+
+    manifest = _load_manifest_index(manifest_path)
+    rows: list[QscoreClassRow] = []
+    with csv_path.open(newline="") as f:
+        for row in csv.DictReader(f):
+            raw = row.get("spearman_q_vs_V", "")
+            if raw in ("", "nan"):
+                continue
+            rho = float(raw)
+            if not np.isfinite(rho):
+                continue
+            eid = str(row.get("emdb_id", "")).strip()
+            if not eid or eid in QSCORE_PANEL_EXCLUDE:
+                continue
+            mrow = manifest.get(eid, {})
+            display_name = str(mrow.get("display_name", "")).strip() or f"EMD-{eid}"
+            flex_src = str(mrow.get("flexibility_source", "")).strip()
+            rows.append(
+                QscoreClassRow(
+                    emdb_id=eid,
+                    spearman_q_vs_V=rho,
+                    display_name=display_name,
+                    protein_class=infer_protein_class(display_name, flex_src),
+                    n_in_mask=int(row.get("n_in_mask", 0) or 0),
+                )
+            )
     return rows
 
 
@@ -1739,6 +1794,31 @@ def plot_cohort_reliability_by_class(
     )
 
 
+def plot_cohort_q_vs_v_by_class(
+    rows: Sequence[QscoreClassRow],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+    color_by: str = "protein_class",
+) -> plt.Figure:
+    """
+    Box-and-strip summary of ρ(Q-score, V) by coarse protein class.
+
+    Classes are ordered by median ρ; each point is one deposited structure.
+    """
+    return _plot_cohort_grouped_box_strip(
+        rows,
+        group_attr="protein_class",
+        value_attr="spearman_q_vs_V",
+        ylabel="Spearman ρ(Q-score, V), in-mask Cα",
+        title="Cohort: Q-score vs constraint V by protein class",
+        save_path=save_path,
+        dpi=dpi,
+        ylim=(-0.15, 0.95),
+        color_by=color_by,
+    )
+
+
 def plot_cohort_size_vs_reliability_by_na_fraction(
     rows: Sequence[CohortMetricRow], **kwargs
 ) -> plt.Figure:
@@ -1799,22 +1879,18 @@ def plot_cohort_reliability_by_class_by_na_fraction(
     return plot_cohort_reliability_by_class(rows, color_by="na_fraction", **kwargs)
 
 
-def _sorted_conformation_deltas(
+def _sorted_conformation_motion(
     pairs: Sequence[tuple[object, object]],
     *,
     in_mask_both: bool = True,
 ) -> tuple[list[tuple[object, object]], np.ndarray, np.ndarray, list[str]] | None:
-    """Matched in-mask pairs sorted by chain order with ΔB_iso and Δreliability (B − A)."""
-    use = list(pairs)
-    if in_mask_both:
-        use = [(a, b) for a, b in pairs if a.in_contour_mask and b.in_contour_mask]
+    """Matched in-mask pairs with per-residue Cα RMSD and Δreliability (B − A)."""
+    use, rmsd = compute_per_residue_ca_rmsd(pairs, in_mask_both=in_mask_both)
     if len(use) < 10:
         return None
-    use.sort(key=lambda ab: (ab[0].chain, ab[0].seq_num, ab[0].seq_icode))
-    db = np.array([b.b_iso - a.b_iso for a, b in use], dtype=np.float64)
     drel = np.array([b.reliability_score - a.reliability_score for a, b in use], dtype=np.float64)
     chains = [a.chain for a, _ in use]
-    return use, db, drel, chains
+    return use, rmsd, drel, chains
 
 
 def _local_profile_cross_corr_matrix(
@@ -1827,7 +1903,7 @@ def _local_profile_cross_corr_matrix(
     Residue × residue matrix of Pearson r between local sequence windows.
 
     Entry (i, j) compares a window centered at residue i in ``a`` with a window centered
-    at j in ``b``. Diagonal entries summarize local ΔB vs Δreliability co-variation
+    at j in ``b``. Diagonal entries summarize local Cα RMSD vs Δreliability co-variation
     (AlphaFold-PAE-style layout on sequence axes).
     """
     a = np.asarray(a, dtype=np.float64)
@@ -1879,27 +1955,27 @@ def compute_conformation_coupling(
     half_window: int | None = None,
 ) -> dict[str, object] | None:
     """
-    Coupling matrices and per-residue Δ tracks for conformation-pair summary figures.
+    Coupling matrices and per-residue motion tracks for conformation-pair summary figures.
 
     Returns full in-mask arrays plus an interior crop with complete local windows.
     """
-    packed = _sorted_conformation_deltas(pairs, in_mask_both=in_mask_both)
+    packed = _sorted_conformation_motion(pairs, in_mask_both=in_mask_both)
     if packed is None:
         return None
-    use, db, drel, chains = packed
+    use, rmsd, drel, chains = packed
     n = len(use)
     hw = half_window if half_window is not None else max(5, min(21, n // 25))
-    corr = _local_profile_cross_corr_matrix(db, drel, half_window=hw)
+    corr = _local_profile_cross_corr_matrix(rmsd, drel, half_window=hw)
     row_mean_abs = np.full(n, np.nan, dtype=np.float64)
     has_finite = np.any(np.isfinite(corr), axis=1)
     if has_finite.any():
         row_mean_abs[has_finite] = np.nanmean(np.abs(corr[has_finite]), axis=1)
-    corr_i, db_i, drel_i, use_i, idx = _coupling_interior_slice(
-        corr, db, drel, use, half_window=hw
+    corr_i, rmsd_i, drel_i, use_i, idx = _coupling_interior_slice(
+        corr, rmsd, drel, use, half_window=hw
     )
     return {
         "use": use,
-        "db": db,
+        "rmsd": rmsd,
         "drel": drel,
         "chains": chains,
         "corr": corr,
@@ -1907,7 +1983,7 @@ def compute_conformation_coupling(
         "half_window": hw,
         "interior_use": use_i,
         "interior_corr": corr_i,
-        "interior_db": db_i,
+        "interior_rmsd": rmsd_i,
         "interior_drel": drel_i,
         "interior_indices": idx,
     }
@@ -1978,6 +2054,103 @@ def compute_coupling_cluster_separation_score(
     return best, order, z
 
 
+def compute_diagonal_coupling_contrast_score(corr: np.ndarray) -> float:
+    """
+    Coupling layout diagnostic: contrast of mean |r| on the diagonal (local RMSD vs Δrel
+    at the same residue index) versus off-diagonal entries in the coupling matrix.
+    """
+    n = int(corr.shape[0])
+    if n < 3:
+        return 0.0
+    diag = np.abs(np.diag(corr))
+    diag = diag[np.isfinite(diag)]
+    off = corr.astype(np.float64, copy=True)
+    np.fill_diagonal(off, np.nan)
+    off_abs = np.abs(off[np.isfinite(off)])
+    if diag.size == 0 or off_abs.size == 0:
+        return 0.0
+    ms = float(diag.mean())
+    md = float(off_abs.mean())
+    return float((ms - md) / (ms + md + 1e-9))
+
+
+def compute_domain_coupling_block_score(
+    corr: np.ndarray,
+    assignments: dict[str, list[int]],
+    domain_order: Sequence[str],
+) -> float:
+    """
+    Coupling layout diagnostic: within-domain vs cross-domain mean |coupling| contrast
+    on the annotated domain×domain summary of the interior coupling matrix.
+    """
+    mat, names = compute_domain_mean_coupling(
+        corr, assignments, domain_order=domain_order, metric="mean_abs"
+    )
+    if len(names) < 2:
+        return 0.0
+    within: list[float] = []
+    across: list[float] = []
+    for i in range(len(names)):
+        for j in range(len(names)):
+            val = float(mat[i, j])
+            if not np.isfinite(val):
+                continue
+            (within if i == j else across).append(val)
+    if not within or not across:
+        return 0.0
+    ms = float(np.mean(within))
+    md = float(np.mean(across))
+    return float((ms - md) / (ms + md + 1e-9))
+
+
+def compute_coupling_layout_scores(
+    corr: np.ndarray,
+    *,
+    emdb_a: str | None = None,
+    emdb_b: str | None = None,
+    interior_use: Sequence[tuple[object, object]] | None = None,
+) -> dict[str, float]:
+    """
+    Coupling layout scores for conformation-pair figures.
+
+    ``coupling_layout_score`` is max(domain, diagonal) when domain annotations exist;
+    otherwise diagonal only. ``hierarchical_cluster_score`` is retained for comparison
+    with legacy cluster contrast.
+    """
+    diag = compute_diagonal_coupling_contrast_score(corr)
+    hierarchical, _, _ = compute_coupling_cluster_separation_score(corr)
+    domain = float("nan")
+    if emdb_a and emdb_b and interior_use is not None:
+        regions = get_domain_regions_for_pair(emdb_a, emdb_b)
+        if regions:
+            domain_order = [reg.name for reg in regions]
+            assignments = get_domain_assignments(interior_use, regions)
+            domain = compute_domain_coupling_block_score(corr, assignments, domain_order)
+    if np.isfinite(domain):
+        layout = max(float(domain), diag)
+    else:
+        layout = diag
+    return {
+        "diagonal_coupling_score": diag,
+        "domain_coupling_score": domain,
+        "coupling_layout_score": layout,
+        "hierarchical_cluster_score": float(hierarchical),
+    }
+
+
+def compute_qscore_coupling_layout_scores(
+    corr: np.ndarray,
+    *,
+    emdb_a: str | None = None,
+    emdb_b: str | None = None,
+    interior_use: Sequence[tuple[object, object]] | None = None,
+) -> dict[str, float]:
+    """Deprecated alias for :func:`compute_coupling_layout_scores`."""
+    return compute_coupling_layout_scores(
+        corr, emdb_a=emdb_a, emdb_b=emdb_b, interior_use=interior_use
+    )
+
+
 def _hierarchical_residue_order(corr: np.ndarray) -> np.ndarray:
     order, _ = _hierarchical_cluster(corr)
     return order
@@ -1985,7 +2158,7 @@ def _hierarchical_residue_order(corr: np.ndarray) -> np.ndarray:
 
 def _coupling_interior_slice(
     corr: np.ndarray,
-    db: np.ndarray,
+    rmsd: np.ndarray,
     drel: np.ndarray,
     use: list[tuple[object, object]],
     *,
@@ -1998,7 +2171,7 @@ def _coupling_interior_slice(
     sub_use = [use[int(i)] for i in idx]
     return (
         corr[np.ix_(idx, idx)],
-        db[idx],
+        rmsd[idx],
         drel[idx],
         sub_use,
         idx,
@@ -2033,6 +2206,8 @@ def _conformation_pair_summary_data(
     *,
     in_mask_both: bool,
     half_window: int | None,
+    emdb_a: str | None = None,
+    emdb_b: str | None = None,
 ) -> dict[str, object] | None:
     """Shared arrays for conformation-pair summary figures."""
     coupling = compute_conformation_coupling(
@@ -2040,22 +2215,28 @@ def _conformation_pair_summary_data(
     )
     if coupling is None:
         return None
-    packed = _sorted_conformation_deltas(pairs, in_mask_both=in_mask_both)
+    packed = _sorted_conformation_motion(pairs, in_mask_both=in_mask_both)
     if packed is None:
         return None
-    use_full_list, db_full, drel_full, _chains = packed
+    use_full_list, rmsd_full, drel_full, _chains = packed
     corr_i = coupling["interior_corr"]
     use_int = coupling["interior_use"]
     n_int = len(use_int)
     hw = int(coupling["half_window"])
-    sep_score, cluster_order, _z_link = compute_coupling_cluster_separation_score(corr_i)
+    layout_scores = compute_coupling_layout_scores(
+        corr_i,
+        emdb_a=emdb_a,
+        emdb_b=emdb_b,
+        interior_use=use_int,
+    )
+    _, cluster_order, _z_link = compute_coupling_cluster_separation_score(corr_i)
     corr_ord = corr_i[np.ix_(cluster_order, cluster_order)]
     use_all = coupling["use"]
     row_mean = np.asarray(coupling["row_mean_abs"], dtype=np.float64)
     coords_all = np.array([[a.x, a.y, a.z] for a, _ in use_all], dtype=np.float64)
     return {
         "coupling": coupling,
-        "db_full": db_full,
+        "rmsd_full": rmsd_full,
         "drel_full": drel_full,
         "use_full": use_full_list,
         "n_full": len(use_full_list),
@@ -2064,7 +2245,11 @@ def _conformation_pair_summary_data(
         "corr_ord": corr_ord,
         "corr_int": corr_i,
         "cluster_order": cluster_order,
-        "cluster_separation_score": sep_score,
+        "cluster_separation_score": layout_scores["coupling_layout_score"],
+        "hierarchical_cluster_score": layout_scores["hierarchical_cluster_score"],
+        "diagonal_coupling_score": layout_scores["diagonal_coupling_score"],
+        "domain_coupling_score": layout_scores["domain_coupling_score"],
+        "coupling_layout_score": layout_scores["coupling_layout_score"],
         "interior_use": use_int,
         "coords_all": coords_all,
         "row_mean": row_mean,
@@ -2074,6 +2259,8 @@ def _conformation_pair_summary_data(
 
 
 DEFAULT_CLUSTER_SEPARATION_THRESHOLD = 0.10
+DEFAULT_COUPLING_LAYOUT_THRESHOLD = 0.08
+DEFAULT_QSCORE_COUPLING_LAYOUT_THRESHOLD = DEFAULT_COUPLING_LAYOUT_THRESHOLD  # deprecated alias
 
 
 def _cohort_display_name(emdb_id: str, manifest: Path | None = None) -> str:
@@ -2084,11 +2271,11 @@ def _cohort_display_name(emdb_id: str, manifest: Path | None = None) -> str:
 def select_conformation_pair_figure_layout(
     separation_score: float,
     *,
-    threshold: float = DEFAULT_CLUSTER_SEPARATION_THRESHOLD,
+    threshold: float = DEFAULT_COUPLING_LAYOUT_THRESHOLD,
     layout: str = "auto",
 ) -> str:
     """
-    Diagnostic label from coupling block-structure score (legacy / stats only).
+    Diagnostic label from coupling layout score (domain/diagonal contrast).
 
     Main figures always use the cluster-reordered matrix in panel a regardless of
     this recommendation. ``block`` = score ≥ threshold; ``domain`` = diffuse coupling.
@@ -2100,6 +2287,126 @@ def select_conformation_pair_figure_layout(
     if separation_score >= threshold:
         return "block"
     return "domain"
+
+
+def plot_conformation_pairs_spearman_size_resolution_3d(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+) -> plt.Figure | None:
+    """
+    3D cohort scatter: each conformation pair is one point.
+
+    Axes: Spearman ρ(RMSD, Δreliability), mean deposited Cα count (log10), and mean
+    global resolution (Å) averaged across the two states.
+    """
+    usable: list[Mapping[str, object]] = []
+    for row in rows:
+        try:
+            rho = float(row.get("spearman_rmsd_vs_delta_reliability", float("nan")))
+            size = float(row.get("mean_ca_count", float("nan")))
+            res_a = float(row.get("mean_global_resolution_a", float("nan")))
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(rho) and np.isfinite(size) and size > 0 and np.isfinite(res_a):
+            usable.append(row)
+    if not usable:
+        return None
+
+    rhos = np.array(
+        [float(r["spearman_rmsd_vs_delta_reliability"]) for r in usable],
+        dtype=np.float64,
+    )
+    sizes = np.array([float(r["mean_ca_count"]) for r in usable], dtype=np.float64)
+    resolutions = np.array(
+        [float(r["mean_global_resolution_a"]) for r in usable],
+        dtype=np.float64,
+    )
+    log_sizes = np.log10(sizes)
+
+    classes = sorted(
+        {
+            infer_protein_class(
+                str(r.get("display_name_a", "")),
+                flexibility_source="conformational_pair",
+            )
+            for r in usable
+        }
+    )
+    class_colors = _cohort_class_colors(classes)
+
+    fig = plt.figure(figsize=(7.0, 6.0), facecolor="white")
+    ax = fig.add_subplot(111, projection="3d")
+    apply(ax)
+
+    for cls in classes:
+        idx = [
+            i
+            for i, r in enumerate(usable)
+            if infer_protein_class(
+                str(r.get("display_name_a", "")),
+                flexibility_source="conformational_pair",
+            )
+            == cls
+        ]
+        if not idx:
+            continue
+        ax.scatter(
+            rhos[idx],
+            log_sizes[idx],
+            resolutions[idx],
+            s=42,
+            c=class_colors[cls],
+            alpha=0.9,
+            edgecolors="white",
+            linewidths=0.4,
+            depthshade=True,
+            label=cls,
+        )
+
+    for i, row in enumerate(usable):
+        label = f"{row.get('emdb_a', '')} vs {row.get('emdb_b', '')}"
+        ax.text(
+            rhos[i],
+            log_sizes[i],
+            resolutions[i],
+            f"  {label}",
+            fontsize=5,
+            color="0.35",
+        )
+
+    ax.set_xlabel("Spearman ρ(RMSD, Δreliability)", fontsize=7, labelpad=8)
+    ax.set_ylabel("Protein size (log10 Cα count)", fontsize=7, labelpad=8)
+    ax.set_zlabel("Global resolution (Å)", fontsize=7, labelpad=8)
+    ax.set_title("Conformation pairs: motion–reliability coupling vs size and resolution", fontsize=8)
+    ax.view_init(elev=22, azim=-58)
+    ax.grid(True, linewidth=0.3, alpha=0.35)
+
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(
+            handles,
+            labels,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            frameon=False,
+            fontsize=6,
+        )
+
+    fig.text(
+        0.5,
+        0.02,
+        f"n = {len(usable)} pairs · size and resolution are means of states A and B",
+        ha="center",
+        fontsize=6,
+        color="#555555",
+    )
+    fig.subplots_adjust(left=0.02, right=0.82, top=0.94, bottom=0.08)
+
+    if save_path:
+        save_nature(fig, save_path, dpi=dpi)
+    return fig
 
 
 def _draw_conformation_domain_coupling_heatmap(
@@ -2245,7 +2552,7 @@ def _per_domain_correlation_stats(
     method: str = "spearman",
     domain_colors: Mapping[str, str] | None = None,
 ) -> list[tuple[str, float, int, str]]:
-    """Per-domain correlation of ΔB vs Δrel: (name, rho, n, color)."""
+    """Per-domain correlation of Cα RMSD vs Δrel: (name, rho, n, color)."""
     from scipy import stats
 
     stats_out: list[tuple[str, float, int, str]] = []
@@ -2505,13 +2812,12 @@ def _draw_conformation_clustered_coupling_panel(
 def _draw_conformation_summary_scatter_panel(
     ax,
     *,
-    db_full: np.ndarray,
+    rmsd_full: np.ndarray,
     drel_full: np.ndarray,
     n_full: int,
     emdb_a: str,
     emdb_b: str,
     spearman_rho: float | None,
-    spearman_rho_h: float | None = None,
     use_full: Sequence[tuple[object, object]] | None = None,
     regions: Sequence[object] | None = None,
     domain_order: Sequence[str] | None = None,
@@ -2524,20 +2830,19 @@ def _draw_conformation_summary_scatter_panel(
     point_colors: str | list[str] = UNASSIGNED_DOMAIN_COLOR
     if use_full and regions and color_by_domain_rho and domain_order:
         point_colors, _ = _residue_colors_by_domain_rho(
-            use_full, regions, domain_order, db_full, drel_full
+            use_full, regions, domain_order, rmsd_full, drel_full
         )
     elif use_full and regions:
         point_colors = _domain_scatter_colors(use_full, regions)
-    ax.scatter(db_full, drel_full, s=8, alpha=0.6, c=point_colors, edgecolors="none")
+    ax.scatter(rmsd_full, drel_full, s=8, alpha=0.6, c=point_colors, edgecolors="none")
     ax.axhline(0, color="#999999", lw=0.5)
-    ax.axvline(0, color="#999999", lw=0.5)
     domain_rho_map: dict[str, float] = {}
     if use_full and regions and domain_order:
         assignments = get_domain_assignments(use_full, regions)
         domain_rho_map = {
             name: rho
             for name, rho, _n, _color in _per_domain_correlation_stats(
-                db_full,
+                rmsd_full,
                 drel_full,
                 assignments,
                 domain_order,
@@ -2545,9 +2850,9 @@ def _draw_conformation_summary_scatter_panel(
                 domain_colors=domain_colors,
             )
         }
-    ax.set_xlabel(f"ΔB_iso ({emdb_b} − {emdb_a})", fontsize=7)
+    ax.set_xlabel("Cα RMSD (Å, B aligned onto A)", fontsize=7)
     ax.set_ylabel(f"Δreliability ({emdb_b} − {emdb_a})", fontsize=7)
-    ax.set_title("ΔB vs Δreliability", fontsize=7)
+    ax.set_title("Cα RMSD vs Δreliability", fontsize=7)
 
     def _rho_txt(rho: float | None) -> str:
         if rho is not None and np.isfinite(rho):
@@ -2557,8 +2862,7 @@ def _draw_conformation_summary_scatter_panel(
     ax.text(
         0.03,
         0.97,
-        f"Spearman ρ(ΔB, Δrel) = {_rho_txt(spearman_rho)}\n"
-        f"Spearman ρ(ΔB, ΔH) = {_rho_txt(spearman_rho_h)}\n"
+        f"Spearman ρ(RMSD, Δrel) = {_rho_txt(spearman_rho)}\n"
         f"n = {n_full}",
         transform=ax.transAxes,
         fontsize=6.5,
@@ -2601,7 +2905,11 @@ def plot_conformation_pair_domain_coupling_supplement(
 ) -> plt.Figure | None:
     """Supplementary single-panel domain mean |coupling| heatmap."""
     data = _conformation_pair_summary_data(
-        pairs, in_mask_both=in_mask_both, half_window=half_window
+        pairs,
+        in_mask_both=in_mask_both,
+        half_window=half_window,
+        emdb_a=emdb_a,
+        emdb_b=emdb_b,
     )
     if data is None:
         return None
@@ -2617,6 +2925,7 @@ def plot_conformation_pair_domain_coupling_supplement(
     n_full = int(data["n_full"])
 
     fig, ax = plt.subplots(figsize=(5.5, 4.8), facecolor="white")
+    fig.subplots_adjust(top=0.76, bottom=0.14, left=0.22, right=0.82)
     result = _draw_conformation_domain_coupling_heatmap(
         ax,
         corr=corr_full,
@@ -2632,11 +2941,11 @@ def plot_conformation_pair_domain_coupling_supplement(
         f"{name_a} vs {name_b} · domain mean |coupling|",
         fontsize=10,
         fontweight="bold",
-        y=0.98,
+        y=0.97,
     )
     fig.text(
         0.5,
-        0.93,
+        0.90,
         f"EMD-{emdb_a} vs EMD-{emdb_b} · n = {n_full} in-mask Cα · coverage {coverage_str}",
         fontsize=7,
         ha="center",
@@ -2646,7 +2955,7 @@ def plot_conformation_pair_domain_coupling_supplement(
     fig.canvas.draw()
     if result is not None:
         mappable, cbar_label = result
-        _add_anchor_colorbar(fig, mappable, ax, label=cbar_label, pad=0.04, width=0.025)
+        _add_anchor_colorbar(fig, mappable, ax, label=cbar_label, pad=0.02, width=0.022)
 
     if save_path:
         save_nature(fig, save_path, dpi=dpi)
@@ -2657,18 +2966,18 @@ def _residue_colors_by_domain_rho(
     use_full: Sequence[tuple[object, object]],
     regions: Sequence[object],
     domain_order: Sequence[str],
-    db_full: np.ndarray,
+    rmsd_full: np.ndarray,
     drel_full: np.ndarray,
     *,
     vmin: float = -1.0,
     vmax: float = 1.0,
 ) -> tuple[list, dict[str, float]]:
-    """Map each residue to diverging red/blue from its domain's Spearman ρ(ΔB, Δrel)."""
+    """Map each residue to diverging red/blue from its domain's Spearman ρ(RMSD, Δrel)."""
     assignments = get_domain_assignments(use_full, regions)
     rho_by_name = {
         name: rho
         for name, rho, _n, _color in _per_domain_correlation_stats(
-            db_full, drel_full, assignments, domain_order, method="spearman"
+            rmsd_full, drel_full, assignments, domain_order, method="spearman"
         )
     }
     cmap = plt.get_cmap(PALETTES["diverging"])
@@ -2810,7 +3119,11 @@ def plot_conformation_pair_delta_reliability_supplement(
 ) -> plt.Figure | None:
     """Supplementary per-residue Δreliability profile (former panel c)."""
     data = _conformation_pair_summary_data(
-        pairs, in_mask_both=in_mask_both, half_window=half_window
+        pairs,
+        in_mask_both=in_mask_both,
+        half_window=half_window,
+        emdb_a=emdb_a,
+        emdb_b=emdb_b,
     )
     if data is None:
         return None
@@ -2826,15 +3139,16 @@ def plot_conformation_pair_delta_reliability_supplement(
     coverage_str = coverage_note if coverage_note else ""
 
     fig, ax = plt.subplots(figsize=(14.0, 3.8), facecolor="white")
+    fig.subplots_adjust(top=0.72, bottom=0.24, left=0.06, right=0.98)
     fig.suptitle(
         f"{name_a} vs {name_b} · per-residue Δreliability",
         fontsize=10,
         fontweight="bold",
-        y=0.98,
+        y=0.96,
     )
     fig.text(
         0.5,
-        0.915,
+        0.88,
         f"EMD-{emdb_a} vs EMD-{emdb_b} · n = {n_full} in-mask Cα · coverage {coverage_str}",
         ha="center",
         fontsize=7,
@@ -2858,7 +3172,7 @@ def plot_conformation_pair_delta_reliability_supplement(
             domain_order,
             domain_colors=pair_domain_colors,
         )
-        _add_figure_domain_legend(fig, ax, c_legend, gap_below_ax=0.06)
+        _add_figure_domain_legend(fig, ax, c_legend, gap_below_ax=0.10)
 
     if save_path:
         save_nature(fig, save_path, dpi=dpi)
@@ -2873,10 +3187,9 @@ def plot_conformation_pair_summary_triptych(
     in_mask_both: bool = True,
     half_window: int | None = None,
     spearman_rho: float | None = None,
-    spearman_rho_h: float | None = None,
     coverage_note: str | None = None,
     coords_b_aligned: np.ndarray | None = None,
-    cluster_separation_threshold: float = DEFAULT_CLUSTER_SEPARATION_THRESHOLD,
+    cluster_separation_threshold: float = DEFAULT_COUPLING_LAYOUT_THRESHOLD,
     layout: str = "auto",
     manifest: Path | None = None,
     include_structure_panel: bool = False,
@@ -2888,7 +3201,7 @@ def plot_conformation_pair_summary_triptych(
     """
     Conformation-pair summary figure (14×10 in).
 
-    Default **triptych**: panels a–c (coupling matrix, Δ scatter, Δreliability profile).
+    Default **triptych**: panels a–c (coupling matrix, RMSD scatter, Δreliability profile).
 
     When ``include_structure_panel`` is True and domain regions exist, the figure is a
     single top row **[a: coupling ChimeraX + matrix | b: domain ChimeraX + scatter]**
@@ -2897,7 +3210,11 @@ def plot_conformation_pair_summary_triptych(
     """
     del coords_b_aligned
     data = _conformation_pair_summary_data(
-        pairs, in_mask_both=in_mask_both, half_window=half_window
+        pairs,
+        in_mask_both=in_mask_both,
+        half_window=half_window,
+        emdb_a=emdb_a,
+        emdb_b=emdb_b,
     )
     if data is None:
         return None, "domain"
@@ -2906,10 +3223,10 @@ def plot_conformation_pair_summary_triptych(
 
     n_full = int(data["n_full"])
     hw = int(data["hw"])
-    sep_score = float(data["cluster_separation_score"])
+    sep_score = float(data["coupling_layout_score"])
     cluster_order = data["cluster_order"]
     use_full = data["use_full"]
-    db_full = data["db_full"]
+    rmsd_full = data["rmsd_full"]
     drel_full = data["drel_full"]
     row_mean = data["row_mean"]
     recommended_layout = select_conformation_pair_figure_layout(
@@ -3013,13 +3330,12 @@ def plot_conformation_pair_summary_triptych(
     ax_b = fig.add_subplot(gs[0, scatter_col])
     _draw_conformation_summary_scatter_panel(
         ax_b,
-        db_full=db_full,
+        rmsd_full=rmsd_full,
         drel_full=drel_full,
         n_full=n_full,
         emdb_a=emdb_a,
         emdb_b=emdb_b,
         spearman_rho=spearman_rho,
-        spearman_rho_h=spearman_rho_h,
         use_full=use_full,
         regions=regions or None,
         domain_order=domain_order or None,
@@ -3072,7 +3388,7 @@ def plot_conformation_pair_summary_triptych(
         domain_rho_map = {
             name: rho
             for name, rho, _n, _color in _per_domain_correlation_stats(
-                db_full,
+                rmsd_full,
                 drel_full,
                 c_assignments,
                 domain_order,
@@ -3114,7 +3430,9 @@ __all__ = [
     "plot_reliability_pair_only",
     "plot_spearman_top_bar",
     "CohortMetricRow",
+    "QscoreClassRow",
     "collect_cohort_metrics",
+    "collect_cohort_q_vs_v_rows",
     "cohort_protein_size",
     "cohort_global_resolution_a",
     "cohort_resolution_bin_label",
@@ -3134,6 +3452,7 @@ __all__ = [
     "plot_cohort_reliability_by_var_cc_bin",
     "plot_cohort_partial_reliability_by_var_cc_bin",
     "plot_cohort_reliability_by_class",
+    "plot_cohort_q_vs_v_by_class",
     "plot_cohort_size_vs_reliability_by_na_fraction",
     "plot_cohort_variance_vs_reliability_cc_by_na_fraction",
     "plot_cohort_partial_reliability_by_class_by_na_fraction",
@@ -3147,9 +3466,16 @@ __all__ = [
     "plot_conformation_pair_delta_reliability_supplement",
     "plot_conformation_pair_summary_triptych",
     "plot_conformation_pair_domain_coupling_supplement",
+    "plot_conformation_pairs_spearman_size_resolution_3d",
     "compute_conformation_coupling",
     "compute_domain_coupling_block_colors",
     "compute_coupling_cluster_separation_score",
+    "compute_diagonal_coupling_contrast_score",
+    "compute_domain_coupling_block_score",
+    "compute_coupling_layout_scores",
+    "compute_qscore_coupling_layout_scores",
     "select_conformation_pair_figure_layout",
     "DEFAULT_CLUSTER_SEPARATION_THRESHOLD",
+    "DEFAULT_COUPLING_LAYOUT_THRESHOLD",
+    "DEFAULT_QSCORE_COUPLING_LAYOUT_THRESHOLD",
 ]

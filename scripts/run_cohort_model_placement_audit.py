@@ -26,7 +26,8 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import numpy as np
 
-from style.nature import PALETTES, apply, savefig as save_nature
+from style.nature import apply, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.placement_supplement import plot_placement_supplement
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, sync_thesis_doc_figure

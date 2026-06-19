@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from style.nature import THESIS_GREEN, THESIS_RED, THESIS_YELLOW
+from style.thesis_palette import THESIS_GREEN, THESIS_RED, THESIS_YELLOW
 
 from .io import save_volume_like_reference
 

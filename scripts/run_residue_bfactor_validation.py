@@ -31,7 +31,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import PALETTES, apply, label_panel, savefig as save_nature
+from style.nature import apply, label_panel, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.figure_cleanup import prune_halfmap_reliability_retired_figures
 from cryoem_mrc.reliability import BUILD_ZONE_COLORS, BUILD_ZONE_LABELS

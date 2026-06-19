@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font: 12px/1.45 "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0;
+      padding: 12px;
+      color: #1e1e1e;
+    }
+    h1 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+    .sub { color: #666; margin: 0 0 12px; font-size: 11px; }
+    label { display: block; font-weight: 500; margin: 10px 0 4px; }
+    select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      font: inherit;
+      background: #fff;
+    }
+    button {
+      width: 100%;
+      margin-top: 14px;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      background: #0d99ff;
+      color: #fff;
+    }
+    button:hover { background: #007be5; }
+    .status { margin-top: 10px; font-size: 11px; min-height: 16px; }
+    .status.error { color: #c62828; }
+    .status.ok { color: #2e7d32; }
+    .info-box {
+      background: #f6f8fa;
+      border: 1px solid #e8ebef;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 10px;
+      line-height: 1.5;
+      color: #444;
+    }
+    .info-box strong { color: #1e1e1e; }
+  </style>
+</head>
+<body>
+
+<!-- CROSS_METRIC_DATA_START -->
+<script type="application/json" id="cross-metric-data">
+{"generated_at": "2026-06-18T23:40:25Z", "figure_title": "Cross-metric coupling \u2014 cohort", "n_structures": 32, "panels": {"median_heatmap": {"kind": "heatmap", "title": "Cross-metric coupling \u2014 cohort median", "colorbar_label": "Median Spearman \u03c1 (in-mask C\u03b1)", "vmin": -1.0, "vmax": 1.0, "row_labels": ["V", "B_iso", "Windowed Half-Map Correlation", "Local variance", "BlocRes locres"], "col_labels": ["V", "B_iso", "Windowed Half-Map Correlation", "Local variance", "BlocRes locres"], "cells": [{"row": 0, "col": 0, "value": 1.0, "label": "+1.00"}, {"row": 0, "col": 1, "value": -0.8314, "label": "-0.83"}, {"row": 0, "col": 2, "value": 0.7787, "label": "+0.78"}, {"row": 0, "col": 3, "value": 0.956, "label": "+0.96"}, {"row": 0, "col": 4, "value": -0.1901, "label": "-0.19"}, {"row": 1, "col": 0, "value": -0.8314, "label": "-0.83"}, {"row": 1, "col": 1, "value": 1.0, "label": "+1.00"}, {"row": 1, "col": 2, "value": -0.7319, "label": "-0.73"}, {"row": 1, "col": 3, "value": -0.7838, "label": "-0.78"}, {"row": 1, "col": 4, "value": 0.1683, "label": "+0.17"}, {"row": 2, "col": 0, "value": 0.7787, "label": "+0.78"}, {"row": 2, "col": 1, "value": -0.7319, "label": "-0.73"}, {"row": 2, "col": 2, "value": 1.0, "label": "+1.00"}, {"row": 2, "col": 3, "value": 0.8485, "label": "+0.85"}, {"row": 2, "col": 4, "value": -0.2324, "label": "-0.23"}, {"row": 3, "col": 0, "value": 0.956, "label": "+0.96"}, {"row": 3, "col": 1, "value": -0.7838, "label": "-0.78"}, {"row": 3, "col": 2, "value": 0.8485, "label": "+0.85"}, {"row": 3, "col": 3, "value": 1.0, "label": "+1.00"}, {"row": 3, "col": 4, "value": -0.2052, "label": "-0.21"}, {"row": 4, "col": 0, "value": -0.1901, "label": "-0.19"}, {"row": 4, "col": 1, "value": 0.1683, "label": "+0.17"}, {"row": 4, "col": 2, "value": -0.2324, "label": "-0.23"}, {"row": 4, "col": 3, "value": -0.2052, "label": "-0.21"}, {"row": 4, "col": 4, "value": 1.0, "label": "+1.00"}]}, "locres_pairs": {"kind": "grouped_barh", "title": "Per-map locres coupling (n = 32)", "x_label": "Spearman \u03c1 vs BlocRes local resolution", "series": [{"key": "v_metric|local_resolution", "label": "V vs locres", "color": "#E8303A", "offset_index": -1.5, "values": [{"emdb_id": "62841", "label": "Thermophile spliceosome ILS", "rho": -0.5739}, {"emdb_id": "48923", "label": "MgtA", "rho": -0.5245}, {"emdb_id": "49450", "label": "MgtA", "rho": -0.5191}, {"emdb_id": "16119", "label": "GroEL-GroES ADP", "rho": -0.4235}, {"emdb_id": "11497", "label": "SARS-CoV-2 spike 3 RBD-down", "rho": -0.3999}, {"emdb_id": "28487", "label": "Eag1 voltage sensor up", "rho": -0.38}, {"emdb_id": "37504", "label": "GLP-1R + Gs", "rho": -0.3694}, {"emdb_id": "41756", "label": "LRRK2 CTD", "rho": -0.3435}, {"emdb_id": "16091", "label": "Beta-galactosidase", "rho": -0.3334}, {"emdb_id": "61596", "label": "HSV-2 gB", "rho": -0.3273}, {"emdb_id": "33734", "label": "SARS-CoV-2 spike K202B bispecific", "rho": -0.2709}, {"emdb_id": "23130", "label": "TRPV1 pH 6c", "rho": -0.2342}, {"emdb_id": "41596", "label": "MsbA outward-facing", "rho": -0.2289}, {"emdb_id": "41598", "label": "MsbA inward-facing", "rho": -0.2266}, {"emdb_id": "28498", "label": "Eag1 voltage sensor down", "rho": -0.2076}, {"emdb_id": "25418", "label": "70S post-translocation", "rho": -0.1909}, {"emdb_id": "11638", "label": "Apoferritin", "rho": -0.1893}, {"emdb_id": "4941", "label": "ClpB WT-2A", "rho": -0.1772}, {"emdb_id": "45603", "label": "beta2AR apo", "rho": -0.154}, {"emdb_id": "13308", "label": "GroEL-GroES ADP", "rho": -0.1443}, {"emdb_id": "52525", "label": "Complex III", "rho": -0.1427}, {"emdb_id": "48311", "label": "Yeast V-ATPase Vo", "rho": -0.1344}, {"emdb_id": "45604", "label": "beta2AR inactive", "rho": -0.1059}, {"emdb_id": "9156", "label": "NMDA GluN1-GluN2A Extended-1", "rho": -0.1019}, {"emdb_id": "48534", "label": "MgtA", "rho": -0.0819}, {"emdb_id": "44471", "label": "Human nucleosome 3.0 A", "rho": -0.0714}, {"emdb_id": "42603", "label": "Human p97/VCP + inhibitor", "rho": -0.0591}, {"emdb_id": "4940", "label": "ClpB WT-1", "rho": -0.0317}, {"emdb_id": "7130", "label": "Epithelial Na+ channel", "rho": -0.0246}, {"emdb_id": "23129", "label": "TRPV1 pH 6a", "rho": 0.0358}, {"emdb_id": "24120", "label": "70S pre-translocation", "rho": 0.05}, {"emdb_id": "11149", "label": "Bovine ATP synthase Fo", "rho": 0.1507}]}, {"key": "b_factor|local_resolution", "label": "B vs locres", "color": "#4B6FD4", "offset_index": -0.5, "values": [{"emdb_id": "62841", "label": "Thermophile spliceosome ILS", "rho": 0.453}, {"emdb_id": "48923", "label": "MgtA", "rho": 0.521}, {"emdb_id": "49450", "label": "MgtA", "rho": 0.5171}, {"emdb_id": "16119", "label": "GroEL-GroES ADP", "rho": 0.4077}, {"emdb_id": "11497", "label": "SARS-CoV-2 spike 3 RBD-down", "rho": 0.3757}, {"emdb_id": "28487", "label": "Eag1 voltage sensor up", "rho": 0.2959}, {"emdb_id": "37504", "label": "GLP-1R + Gs", "rho": 0.3992}, {"emdb_id": "41756", "label": "LRRK2 CTD", "rho": 0.372}, {"emdb_id": "16091", "label": "Beta-galactosidase", "rho": 0.4714}, {"emdb_id": "61596", "label": "HSV-2 gB", "rho": 0.3386}, {"emdb_id": "33734", "label": "SARS-CoV-2 spike K202B bispecific", "rho": -0.0267}, {"emdb_id": "23130", "label": "TRPV1 pH 6c", "rho": 0.2135}, {"emdb_id": "41596", "label": "MsbA outward-facing", "rho": 0.2131}, {"emdb_id": "41598", "label": "MsbA inward-facing", "rho": 0.1723}, {"emdb_id": "28498", "label": "Eag1 voltage sensor down", "rho": 0.0872}, {"emdb_id": "25418", "label": "70S post-translocation", "rho": 0.1769}, {"emdb_id": "11638", "label": "Apoferritin", "rho": 0.1642}, {"emdb_id": "4941", "label": "ClpB WT-2A", "rho": 0.2034}, {"emdb_id": "45603", "label": "beta2AR apo", "rho": 0.1607}, {"emdb_id": "13308", "label": "GroEL-GroES ADP", "rho": null}, {"emdb_id": "52525", "label": "Complex III", "rho": 0.1513}, {"emdb_id": "48311", "label": "Yeast V-ATPase Vo", "rho": 0.1201}, {"emdb_id": "45604", "label": "beta2AR inactive", "rho": 0.0885}, {"emdb_id": "9156", "label": "NMDA GluN1-GluN2A Extended-1", "rho": 0.112}, {"emdb_id": "48534", "label": "MgtA", "rho": 0.0032}, {"emdb_id": "44471", "label": "Human nucleosome 3.0 A", "rho": 0.0508}, {"emdb_id": "42603", "label": "Human p97/VCP + inhibitor", "rho": 0.043}, {"emdb_id": "4940", "label": "ClpB WT-1", "rho": 0.0076}, {"emdb_id": "7130", "label": "Epithelial Na+ channel", "rho": 0.0515}, {"emdb_id": "23129", "label": "TRPV1 pH 6a", "rho": -0.1428}, {"emdb_id": "24120", "label": "70S pre-translocation", "rho": -0.0443}, {"emdb_id": "11149", "label": "Bovine ATP synthase Fo", "rho": null}]}, {"key": "windowed_halfmap_correlation|local_resolution", "label": "windowed corr vs locres", "color": "#3BBF6A", "offset_index": 0.5, "values": [{"emdb_id": "62841", "label": "Thermophile spliceosome ILS", "rho": -0.6132}, {"emdb_id": "48923", "label": "MgtA", "rho": -0.5287}, {"emdb_id": "49450", "label": "MgtA", "rho": -0.5419}, {"emdb_id": "16119", "label": "GroEL-GroES ADP", "rho": -0.4801}, {"emdb_id": "11497", "label": "SARS-CoV-2 spike 3 RBD-down", "rho": -0.4307}, {"emdb_id": "28487", "label": "Eag1 voltage sensor up", "rho": -0.4495}, {"emdb_id": "37504", "label": "GLP-1R + Gs", "rho": -0.3407}, {"emdb_id": "41756", "label": "LRRK2 CTD", "rho": -0.3458}, {"emdb_id": "16091", "label": "Beta-galactosidase", "rho": -0.3903}, {"emdb_id": "61596", "label": "HSV-2 gB", "rho": -0.3779}, {"emdb_id": "33734", "label": "SARS-CoV-2 spike K202B bispecific", "rho": -0.2852}, {"emdb_id": "23130", "label": "TRPV1 pH 6c", "rho": -0.2339}, {"emdb_id": "41596", "label": "MsbA outward-facing", "rho": -0.204}, {"emdb_id": "41598", "label": "MsbA inward-facing", "rho": -0.1707}, {"emdb_id": "28498", "label": "Eag1 voltage sensor down", "rho": -0.3457}, {"emdb_id": "25418", "label": "70S post-translocation", "rho": -0.2205}, {"emdb_id": "11638", "label": "Apoferritin", "rho": -0.2308}, {"emdb_id": "4941", "label": "ClpB WT-2A", "rho": -0.119}, {"emdb_id": "45603", "label": "beta2AR apo", "rho": -0.234}, {"emdb_id": "13308", "label": "GroEL-GroES ADP", "rho": -0.1375}, {"emdb_id": "52525", "label": "Complex III", "rho": -0.1924}, {"emdb_id": "48311", "label": "Yeast V-ATPase Vo", "rho": -0.2073}, {"emdb_id": "45604", "label": "beta2AR inactive", "rho": -0.1077}, {"emdb_id": "9156", "label": "NMDA GluN1-GluN2A Extended-1", "rho": -0.2895}, {"emdb_id": "48534", "label": "MgtA", "rho": -0.1434}, {"emdb_id": "44471", "label": "Human nucleosome 3.0 A", "rho": -0.019}, {"emdb_id": "42603", "label": "Human p97/VCP + inhibitor", "rho": -0.1312}, {"emdb_id": "4940", "label": "ClpB WT-1", "rho": -0.1655}, {"emdb_id": "7130", "label": "Epithelial Na+ channel", "rho": -0.0635}, {"emdb_id": "23129", "label": "TRPV1 pH 6a", "rho": -0.0861}, {"emdb_id": "24120", "label": "70S pre-translocation", "rho": -0.3721}, {"emdb_id": "11149", "label": "Bovine ATP synthase Fo", "rho": 0.0512}]}, {"key": "local_variance|local_resolution", "label": "Var vs locres", "color": "#BA3EC3", "offset_index": 1.5, "values": [{"emdb_id": "62841", "label": "Thermophile spliceosome ILS", "rho": -0.5703}, {"emdb_id": "48923", "label": "MgtA", "rho": -0.5192}, {"emdb_id": "49450", "label": "MgtA", "rho": -0.5176}, {"emdb_id": "16119", "label": "GroEL-GroES ADP", "rho": -0.419}, {"emdb_id": "11497", "label": "SARS-CoV-2 spike 3 RBD-down", "rho": -0.3935}, {"emdb_id": "28487", "label": "Eag1 voltage sensor up", "rho": -0.3787}, {"emdb_id": "37504", "label": "GLP-1R + Gs", "rho": -0.3619}, {"emdb_id": "41756", "label": "LRRK2 CTD", "rho": -0.3353}, {"emdb_id": "16091", "label": "Beta-galactosidase", "rho": -0.2898}, {"emdb_id": "61596", "label": "HSV-2 gB", "rho": -0.3355}, {"emdb_id": "33734", "label": "SARS-CoV-2 spike K202B bispecific", "rho": -0.2744}, {"emdb_id": "23130", "label": "TRPV1 pH 6c", "rho": -0.2484}, {"emdb_id": "41596", "label": "MsbA outward-facing", "rho": -0.2483}, {"emdb_id": "41598", "label": "MsbA inward-facing", "rho": -0.2273}, {"emdb_id": "28498", "label": "Eag1 voltage sensor down", "rho": -0.2074}, {"emdb_id": "25418", "label": "70S post-translocation", "rho": -0.1661}, {"emdb_id": "11638", "label": "Apoferritin", "rho": -0.2052}, {"emdb_id": "4941", "label": "ClpB WT-2A", "rho": -0.0153}, {"emdb_id": "45603", "label": "beta2AR apo", "rho": -0.1326}, {"emdb_id": "13308", "label": "GroEL-GroES ADP", "rho": -0.1172}, {"emdb_id": "52525", "label": "Complex III", "rho": null}, {"emdb_id": "48311", "label": "Yeast V-ATPase Vo", "rho": -0.1303}, {"emdb_id": "45604", "label": "beta2AR inactive", "rho": -0.1113}, {"emdb_id": "9156", "label": "NMDA GluN1-GluN2A Extended-1", "rho": -0.1464}, {"emdb_id": "48534", "label": "MgtA", "rho": -0.0804}, {"emdb_id": "44471", "label": "Human nucleosome 3.0 A", "rho": -0.0714}, {"emdb_id": "42603", "label": "Human p97/VCP + inhibitor", "rho": -0.085}, {"emdb_id": "4940", "label": "ClpB WT-1", "rho": -0.0199}, {"emdb_id": "7130", "label": "Epithelial Na+ channel", "rho": 0.0145}, {"emdb_id": "23129", "label": "TRPV1 pH 6a", "rho": -0.0232}, {"emdb_id": "24120", "label": "70S pre-translocation", "rho": -0.1257}, {"emdb_id": "11149", "label": "Bovine ATP synthase Fo", "rho": 0.1891}]}], "structures": [{"emdb_id": "62841", "label": "Thermophile spliceosome ILS"}, {"emdb_id": "48923", "label": "MgtA"}, {"emdb_id": "49450", "label": "MgtA"}, {"emdb_id": "16119", "label": "GroEL-GroES ADP"}, {"emdb_id": "11497", "label": "SARS-CoV-2 spike 3 RBD-down"}, {"emdb_id": "28487", "label": "Eag1 voltage sensor up"}, {"emdb_id": "37504", "label": "GLP-1R + Gs"}, {"emdb_id": "41756", "label": "LRRK2 CTD"}, {"emdb_id": "16091", "label": "Beta-galactosidase"}, {"emdb_id": "61596", "label": "HSV-2 gB"}, {"emdb_id": "33734", "label": "SARS-CoV-2 spike K202B bispecific"}, {"emdb_id": "23130", "label": "TRPV1 pH 6c"}, {"emdb_id": "41596", "label": "MsbA outward-facing"}, {"emdb_id": "41598", "label": "MsbA inward-facing"}, {"emdb_id": "28498", "label": "Eag1 voltage sensor down"}, {"emdb_id": "25418", "label": "70S post-translocation"}, {"emdb_id": "11638", "label": "Apoferritin"}, {"emdb_id": "4941", "label": "ClpB WT-2A"}, {"emdb_id": "45603", "label": "beta2AR apo"}, {"emdb_id": "13308", "label": "GroEL-GroES ADP"}, {"emdb_id": "52525", "label": "Complex III"}, {"emdb_id": "48311", "label": "Yeast V-ATPase Vo"}, {"emdb_id": "45604", "label": "beta2AR inactive"}, {"emdb_id": "9156", "label": "NMDA GluN1-GluN2A Extended-1"}, {"emdb_id": "48534", "label": "MgtA"}, {"emdb_id": "44471", "label": "Human nucleosome 3.0 A"}, {"emdb_id": "42603", "label": "Human p97/VCP + inhibitor"}, {"emdb_id": "4940", "label": "ClpB WT-1"}, {"emdb_id": "7130", "label": "Epithelial Na+ channel"}, {"emdb_id": "23129", "label": "TRPV1 pH 6a"}, {"emdb_id": "24120", "label": "70S pre-translocation"}, {"emdb_id": "11149", "label": "Bovine ATP synthase Fo"}]}}}
+</script>
+<!-- CROSS_METRIC_DATA_END -->
+
+  <h1>Cross Metric — Cohort</h1>
+  <p class="sub">From <code>cross_metric_correlations.csv</code> per map.</p>
+
+  <div class="info-box" id="summary">Run export script to embed data…</div>
+
+  <label for="mode">Generate</label>
+  <select id="mode">
+    <option value="both">Both panels (heatmap + locres pairs)</option>
+    <option value="median_heatmap">Median ρ heatmap</option>
+    <option value="locres_pairs">Per-map locres pairs</option>
+  </select>
+
+  <button id="generate">Generate in Figma</button>
+
+  <div id="status" class="status"></div>
+
+  <script>
+    var statusEl = document.getElementById("status");
+    var exportData = null;
+
+    function loadExportData() {
+      var el = document.getElementById("cross-metric-data");
+      if (!el) throw new Error("Missing export data block.");
+      exportData = JSON.parse(el.textContent);
+      var heat = (exportData.panels && exportData.panels.median_heatmap) || {};
+      var locres = (exportData.panels && exportData.panels.locres_pairs) || {};
+      var nMaps = exportData.n_structures || (locres.structures || []).length;
+      var nMetrics = (heat.row_labels || []).length;
+      var nCells = (heat.cells || []).length;
+      document.getElementById("summary").innerHTML =
+        "<strong>Cross-metric export</strong> " + (exportData.generated_at || "(not refreshed)") + "<br>" +
+        (nMaps || "?") + " maps · <strong>" + nMetrics + "×" + nMetrics + "</strong> heatmap · " +
+        "<strong>" + nCells + "</strong> cells<br>" +
+        (locres.series || []).length + " locres pair series";
+      if (!nCells && !nMaps) {
+        statusEl.textContent = "No data embedded — run export script first.";
+        statusEl.className = "status error";
+      }
+    }
+
+    document.getElementById("generate").onclick = function () {
+      statusEl.textContent = "Building…";
+      statusEl.className = "status";
+      parent.postMessage({
+        pluginMessage: {
+          type: "generate",
+          mode: document.getElementById("mode").value,
+          data: exportData
+        }
+      }, "*");
+    };
+
+    window.onmessage = function (event) {
+      var msg = event.data.pluginMessage;
+      if (!msg) return;
+      if (msg.type === "done") {
+        statusEl.textContent = "Created: " + msg.name;
+        statusEl.className = "status ok";
+      } else if (msg.type === "error") {
+        statusEl.textContent = msg.message;
+        statusEl.className = "status error";
+      }
+    };
+
+    try {
+      loadExportData();
+    } catch (e) {
+      statusEl.textContent = e.message;
+      statusEl.className = "status error";
+    }
+  </script>
+</body>
+</html>

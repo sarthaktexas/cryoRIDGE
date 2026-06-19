@@ -22,16 +22,20 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import PALETTES, apply, savefig as save_nature
+from style.nature import apply, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.placement_utility import (
     MAIN_ROC_PREDICTORS,
     PREDICTOR_LABELS,
+    cohort_representative_roc,
+    finite_qv_emdb_ids,
     load_per_map_frames_for_lomo,
-    pooled_roc_curve,
     run_lomo_placement_validation,
     write_lomo_placement_csvs,
     write_lomo_placement_markdown,
+    write_roc_figma_json,
+    write_roc_per_map_csv,
 )
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, sync_thesis_doc_figure
 
@@ -105,29 +109,51 @@ def _plot_lomo_violin(lomo_summary, out_dir: Path, dpi: int) -> Path:
     return out.with_suffix(".png")
 
 
-def _plot_low_q_roc(per_map_frames, q_threshold: float, out_dir: Path, dpi: int) -> Path:
+def _plot_low_q_roc(
+    per_map_frames,
+    q_threshold: float,
+    out_dir: Path,
+    dpi: int,
+    *,
+    eligible_emdb_ids: frozenset[str],
+) -> Path:
     fig, ax = plt.subplots(figsize=(5.8, 5.2))
     apply(ax)
     colors = PALETTES["categorical"]
+    summaries = []
 
     for i, pid in enumerate(MAIN_ROC_PREDICTORS):
-        curve = pooled_roc_curve(per_map_frames, pid, q_threshold=q_threshold)
-        if not curve.fpr:
+        summary = cohort_representative_roc(
+            per_map_frames,
+            pid,
+            q_threshold=q_threshold,
+            eligible_emdb_ids=eligible_emdb_ids,
+        )
+        summaries.append(summary)
+        if not summary.fpr:
             continue
-        label = f"{PREDICTOR_LABELS[pid]} (AUC={curve.auc:.2f})"
-        ax.plot(curve.fpr, curve.tpr, color=colors[i % len(colors)], linewidth=1.8, label=label)
+        label = (
+            f"{PREDICTOR_LABELS[pid]} "
+            f"(median AUC={summary.median_auc:.2f}, EMD-{summary.representative_emdb_id})"
+        )
+        ax.plot(summary.fpr, summary.tpr, color=colors[i % len(colors)], linewidth=1.8, label=label)
 
     ax.plot([0, 1], [0, 1], color="0.75", linestyle="--", linewidth=0.9)
     ax.set_xlabel("False positive rate")
     ax.set_ylabel("True positive rate (Q < threshold)")
-    ax.set_title(f"Pooled low-Q ROC (cohort, Q < {q_threshold:.1f})")
+    n_maps = summaries[0].n_maps if summaries else 0
+    ax.set_title(
+        f"Low-Q ROC — representative map per predictor "
+        f"(n={n_maps} maps with finite ρ(Q, V), Q < {q_threshold:.1f})"
+    )
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.02)
-    ax.legend(loc="lower right", frameon=False, fontsize=7)
+    ax.legend(loc="lower right", frameon=False, fontsize=6.5)
     out = out_dir / "placement_low_q_roc"
     save_nature(fig, out, dpi=dpi)
     plt.close(fig)
-    return out.with_suffix(".png")
+    write_roc_per_map_csv(summaries, out_dir)
+    return out.with_suffix(".png"), summaries
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -141,6 +167,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     per_map = [(eid, df) for eid, df, _ in frames_full]
+    qv_ids = finite_qv_emdb_ids()
+    if len(qv_ids) < 3:
+        print("[placement_lomo] need >= 3 maps with finite ρ(Q, V)", file=sys.stderr)
+        return 2
     lomo = run_lomo_placement_validation(frames_full, q_threshold=args.q_threshold)
 
     paths = write_lomo_placement_csvs(lomo, args.out_dir)
@@ -167,12 +197,41 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if not args.no_figures:
+        roc_png, roc_summaries = _plot_low_q_roc(
+            per_map,
+            args.q_threshold,
+            args.out_dir,
+            args.dpi,
+            eligible_emdb_ids=qv_ids,
+        )
         fig_paths = [
             _plot_lomo_violin(lomo, args.out_dir, args.dpi),
-            _plot_low_q_roc(per_map, args.q_threshold, args.out_dir, args.dpi),
+            roc_png,
         ]
+        write_roc_figma_json(
+            roc_summaries,
+            args.out_dir / "placement_roc_figma.json",
+            q_threshold=args.q_threshold,
+            n_maps=roc_summaries[0].n_maps if roc_summaries else 0,
+        )
         for fp in fig_paths:
             print(f"  figure: {fp}", flush=True)
+        for pid in MAIN_ROC_PREDICTORS:
+            summary = cohort_representative_roc(
+                per_map,
+                pid,
+                q_threshold=args.q_threshold,
+                eligible_emdb_ids=qv_ids,
+            )
+            if summary.n_maps:
+                print(
+                    f"  ROC {PREDICTOR_LABELS[pid]}: "
+                    f"median AUC={summary.median_auc:.3f} · "
+                    f"representative EMD-{summary.representative_emdb_id} "
+                    f"(AUC={summary.representative_auc:.3f})",
+                    flush=True,
+                )
+        print(f"  per-map AUC table: {args.out_dir / 'placement_roc_per_map.csv'}", flush=True)
         sync_thesis_doc_figure(
             args.out_dir / "placement_lomo_held_out.png",
             "fig_placement_lomo_held_out.png",

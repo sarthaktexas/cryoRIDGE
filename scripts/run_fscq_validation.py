@@ -353,7 +353,8 @@ def _build_cohort_figure(manifest: Path, dpi: int) -> Path | None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from style.nature import PALETTES, apply, label_panel, savefig as save_nature
+    from style.nature import apply, label_panel, savefig as save_nature
+    from style.thesis_palette import PALETTES
     from cryoem_mrc.repo_paths import OUTPUTS_ROOT
 
     csv_path = OUTPUTS_ROOT / "cohort_summary" / "fscq_correlations.csv"

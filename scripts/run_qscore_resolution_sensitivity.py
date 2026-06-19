@@ -23,7 +23,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats as scipy_stats
 
-from style.nature import PALETTES, apply, label_panel, savefig as save_nature
+from style.nature import apply, label_panel, savefig as save_nature
+from style.thesis_palette import PALETTES
 
 from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
 from cryoem_mrc.cohort_resolution import (

@@ -25,8 +25,9 @@ import style.nature  # noqa: F401 — apply Nature rcParams before thesis figure
 from cryoem_mrc.repo_paths import OUTPUTS_ROOT, sync_thesis_narrative_cohort_figures
 from cryoem_mrc.thesis_figures import (
     collect_cohort_metrics,
+    collect_cohort_q_vs_v_rows,
     plot_cohort_metrics_heatmap,
-    plot_cohort_reliability_by_class,
+    plot_cohort_q_vs_v_by_class,
     plot_cohort_reliability_by_resolution_bin,
     plot_cohort_reliability_by_resolution_bin_by_na_fraction,
     plot_cohort_reliability_by_var_cc_bin,
@@ -54,6 +55,7 @@ _RETIRED_FIGURE_STEMS = (
     "cohort_reliability_by_flexibility_source_by_na_fraction",
     "cohort_bfactor_vs_reliability_cc",
     "cohort_bfactor_vs_reliability_cc_by_na_fraction",
+    "cohort_reliability_by_class",
     "cohort_reliability_by_class_by_na_fraction",
     "cohort_reliability_by_var_cc_bin_by_na_fraction",
     "cohort_variance_vs_reliability_cc_by_na_fraction",
@@ -89,8 +91,11 @@ def main(argv: list[str] | None = None) -> int:
         keep = {e.strip() for e in args.emdb_ids.split(",") if e.strip()}
         rows = [r for r in rows if r.emdb_id in keep]
     if not rows:
-        print("[cohort_summary] no run_metadata.json found under outputs/emd_*/halfmap_reliability/",
-              file=sys.stderr)
+        print(
+            "[cohort_summary] no run_metadata.json found under outputs/emd_*/"
+            "halfmap_reliability/ or lh_map_reliability/",
+            file=sys.stderr,
+        )
         return 2
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -115,10 +120,21 @@ def main(argv: list[str] | None = None) -> int:
         ("cohort_reliability_by_resolution_bin_by_na_fraction.png", lambda: plot_cohort_reliability_by_resolution_bin_by_na_fraction(
             rows, save_path=args.out_dir / "cohort_reliability_by_resolution_bin_by_na_fraction.png", dpi=args.dpi,
         )),
-        ("cohort_reliability_by_class.png", lambda: plot_cohort_reliability_by_class(
-            rows, save_path=args.out_dir / "cohort_reliability_by_class.png", dpi=args.dpi,
-        )),
     ]
+
+    q_rows = collect_cohort_q_vs_v_rows()
+    if q_rows:
+        figure_jobs.append(
+            ("cohort_q_vs_v_by_class.png", lambda: plot_cohort_q_vs_v_by_class(
+                q_rows, save_path=args.out_dir / "cohort_q_vs_v_by_class.png", dpi=args.dpi,
+            )),
+        )
+    else:
+        print(
+            "[cohort_summary] skip cohort_q_vs_v_by_class — "
+            "no qscore_correlations.csv (run run_qscore_validation.py --cohort-summary)",
+            file=sys.stderr,
+        )
 
     write_cohort_metrics_csv(rows, csv_path)
     written = [csv_path.name]

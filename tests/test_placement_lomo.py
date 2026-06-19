@@ -8,9 +8,11 @@ import numpy as np
 import pandas as pd
 
 from cryoem_mrc.placement_utility import (
+    cohort_representative_roc,
     evaluate_map_predictor,
     pooled_roc_curve,
     run_lomo_placement_validation,
+    single_map_roc_curve,
 )
 
 
@@ -49,6 +51,32 @@ class TestLomoPlacement(unittest.TestCase):
         per_map = [("x", df)]
         curve = pooled_roc_curve(per_map, "reliability_below_0_33", q_threshold=0.5)
         self.assertGreater(curve.auc, 0.7)
+
+    def test_representative_roc_median_matches_per_map(self) -> None:
+        frames = [_frame("a", 10, n=120), _frame("b", 11, n=120), _frame("c", 12, n=120)]
+        per_map = [(eid, df) for eid, df, _ in frames]
+        eligible = frozenset({"a", "b", "c"})
+        summary = cohort_representative_roc(
+            per_map,
+            "reliability_below_0_33",
+            q_threshold=0.5,
+            eligible_emdb_ids=eligible,
+        )
+        self.assertEqual(summary.n_maps, 3)
+        aucs = [a for _, a in summary.per_map_aucs]
+        self.assertAlmostEqual(summary.median_auc, float(np.median(aucs)))
+        self.assertIn(summary.representative_emdb_id, {"a", "b", "c"})
+        self.assertAlmostEqual(
+            summary.representative_auc,
+            dict(summary.per_map_aucs)[summary.representative_emdb_id],
+        )
+        single = single_map_roc_curve(
+            dict(per_map)[summary.representative_emdb_id],
+            "reliability_below_0_33",
+            q_threshold=0.5,
+        )
+        self.assertEqual(summary.fpr, single.fpr)
+        self.assertEqual(summary.tpr, single.tpr)
 
     def test_train_derived_locres_differs_from_in_map(self) -> None:
         frames = [_frame("a", 4), _frame("b", 5), _frame("c", 6)]
