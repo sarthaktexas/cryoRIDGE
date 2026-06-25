@@ -9,9 +9,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colors import Colormap, LinearSegmentedColormap
 
-# ---------------------------------------------------------------------------
-# Global rcParams (applied on import)
-# ---------------------------------------------------------------------------
 
 _NATURE_RC = {
     "font.family": "sans-serif",
@@ -41,13 +38,13 @@ logging.getLogger("fontTools").setLevel(logging.ERROR)
 
 # Thesis figure palette (user-defined; used for cohort scatters, bars, domain bands).
 _CATEGORICAL = [
-    "#E8303A",  # red
-    "#30C8E8",  # cyan
-    "#3BBF6A",  # green
-    "#4B6FD4",  # royal blue
+    "#E8303A",
+    "#30C8E8",
+    "#3BBF6A",
+    "#4B6FD4",
     "#8B84D7",  # purple
-    "#F0A8C8",  # pink
-    "#F4A0A8",  # salmon
+    "#F0A8C8",
+    "#F4A0A8",
     "#F5C518",  # yellow / gold
 ]
 

@@ -391,7 +391,7 @@ Partial Spearman vs CC controlling for local_variance:
 
 ## Draft paragraphs (methods)
 
-> We computed voxel-wise **reliability scores** from half-map–derived statistics: local features on ``0.5*(h₁+h₂)`` and constraint **V** on z-scored ``ρ = ½(h₁+h₂)`` (Decision 001). The exported **reliability_score** is the in-mask percentile rank of constraint V (higher = more reliable locally). Macromolecular voxels were selected with the EMDB-recommended contour ρ_ref ≥ {contour} on the **deposited primary map** (Decision 002). Reliability and build-zone **MRC overlays** are written on that deposited grid for model-building visualization. **Build zones** (omit / caution / build) were assigned by terciles of reliability_score inside this mask.
+> We computed voxel-wise **reliability scores** from half-map–derived statistics: local features on ``0.5*(h₁+h₂)`` and constraint **V** on z-scored ``ρ = ½(h₁+h₂)``. The exported **reliability_score** is the in-mask percentile rank of constraint V (higher = more reliable locally). Macromolecular voxels were selected with the EMDB-recommended contour ρ_ref ≥ {contour} on the **deposited primary map**. Reliability and build-zone **MRC overlays** are written on that deposited grid for model-building visualization. **Build zones** (omit / caution / build) were assigned by terciles of reliability_score inside this mask.
 
 ## Draft paragraphs (results)
 
@@ -544,7 +544,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     spearman = {c.feature_name: c.correlation for c in result.correlations}
 
-    # Partial vs variance
     idx = np.flatnonzero(mask)
     y = cc.ravel()[idx]
     ctrl = local_var.ravel()[idx]
@@ -564,7 +563,6 @@ def main(argv: list[str] | None = None) -> int:
     zones = feats["build_zone"]
     zone_counts = {int(z): int((zones[mask] == z).sum()) for z in (0, 1, 2)}
 
-    # Save NPZ + MRC
     np.savez_compressed(
         out_dir / "reliability.npz",
         reliability_score=feats["reliability_score"],
@@ -581,7 +579,6 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps({"spearman": spearman, "partial": partial, "zone_counts": zone_counts, "n_mask": n_mask}, indent=2) + "\n"
     )
 
-    # Figures
     local_resolution = _load_local_resolution_array(args.emd_id)
     out = _write_model_building_row_figure(
         emd_id=args.emd_id,

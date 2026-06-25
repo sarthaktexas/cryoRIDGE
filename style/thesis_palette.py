@@ -9,32 +9,26 @@ from __future__ import annotations
 
 from matplotlib.colors import Colormap, LinearSegmentedColormap
 
-# ---------------------------------------------------------------------------
-# Master swatch book (user palette — all 16 hex codes)
-# ---------------------------------------------------------------------------
 
 MASTER_PALETTE: tuple[str, ...] = (
-    "#00A8FA",  # bright blue
-    "#00B241",  # deep green
-    "#00C0D8",  # cyan
-    "#30C8E8",  # light cyan
-    "#3BBF6A",  # green
-    "#4B6FD4",  # royal blue
-    "#8B84D7",  # lavender
-    "#BA3EC3",  # magenta
-    "#CADE00",  # lime
-    "#E8303A",  # red
-    "#F0A8C8",  # pink
-    "#F4A0A8",  # salmon
-    "#F5C518",  # gold
-    "#FF2727",  # bright red
-    "#FF4500",  # orange-red
-    "#FFAE03",  # amber
+    "#00A8FA",
+    "#00B241",
+    "#00C0D8",
+    "#30C8E8",
+    "#3BBF6A",
+    "#4B6FD4",
+    "#8B84D7",
+    "#BA3EC3",
+    "#CADE00",
+    "#E8303A",
+    "#F0A8C8",
+    "#F4A0A8",
+    "#F5C518",
+    "#FF2727",
+    "#FF4500",
+    "#FFAE03",
 )
 
-# ---------------------------------------------------------------------------
-# Semantic swatches (best picks for recurring thesis semantics)
-# ---------------------------------------------------------------------------
 
 ZONE_OMIT = "#E8303A"
 ZONE_CAUTION = "#F5C518"

@@ -101,7 +101,7 @@ def main() -> int:
         "--reference",
         type=Path,
         default=None,
-        help="Deposited map for contour mask when computing build_zone (Decision 002)",
+        help="Deposited map for contour mask when computing build_zone",
     )
     p.add_argument(
         "--contour",

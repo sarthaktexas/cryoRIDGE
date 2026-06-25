@@ -114,7 +114,6 @@ __all__ = [
     "plot_half_map_metric_distributions",
     "plot_central_orthogonal_slices",
     "plot_volume_histogram",
-    # analysis layer
     "BinnedRelationship",
     "FeatureCorrelation",
     "MaskedAnalysisResult",

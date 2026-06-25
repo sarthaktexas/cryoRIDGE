@@ -3,7 +3,7 @@
 Usage
 -----
 
-End-to-end on EMD-49450 (after the user-side rerun documented in DECISIONS.md):
+End-to-end on EMD-49450 (after the user-side rerun on the anchor map):
 
     python scripts/run_analysis.py \
         --features data/emd_49450-mgtA_e2p+e1/emd_49450_avg_features_t0116.npz \
@@ -227,7 +227,6 @@ def main(argv: list[str] | None = None) -> int:
     metrics_npz = out_dir / "halfmap_metrics.npz"
     metrics_mrc_dir = out_dir / "halfmap_metrics"
 
-    # -- load aligned halves on the reference grid -----------------------------
     print(f"[run_analysis] loading halves vs reference {args.reference}")
     bundle = load_full_and_half_maps(
         args.reference,
@@ -283,7 +282,6 @@ def main(argv: list[str] | None = None) -> int:
               "is this the right intensity scale for the reference map?", file=sys.stderr)
         return 2
 
-    # -- features --------------------------------------------------------------
     print(f"[run_analysis] loading features from {args.features}")
     features = load_feature_maps(args.features)
 

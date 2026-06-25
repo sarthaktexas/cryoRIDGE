@@ -1,7 +1,7 @@
 """Stats-vs-half-map-agreement analysis layer.
 
 This module turns the per-voxel feature maps produced by :mod:`cryoem_mrc.pipeline`
-into the comparison tables and figures called for in the project handoff §4 and §7:
+into comparison tables and figures:
 
 - A masked, per-voxel correlation table (Pearson + Spearman) of every density-derived
   feature against a chosen reliability target — typically
@@ -55,9 +55,6 @@ from .half_map_repro import (
 from .mask_bbox import VolumeBbox, bbox_from_mask, crop_array, embed_array
 
 
-# ---------------------------------------------------------------------------
-# Half-map metrics: chunked wrapper for large volumes
-# ---------------------------------------------------------------------------
 
 
 def half_map_local_metrics_chunked(
@@ -162,9 +159,6 @@ def half_map_local_metrics_chunked_bbox(
     return {k: embed_array(shape, bbox, v, dtype=out_dtype) for k, v in cropped.items()}
 
 
-# ---------------------------------------------------------------------------
-# Mask construction
-# ---------------------------------------------------------------------------
 
 
 def build_contour_mask(
@@ -178,8 +172,7 @@ def build_contour_mask(
 
     ``contour`` should be in the same intensity units as ``density`` (typically the
     raw or threshold-aware MRC intensity, **not** a z-scored normalization). For
-    EMD-49450 the deposited recommended contour is 0.116 — see DECISIONS Decision
-    002 for the discussion.
+    EMD-49450 the deposited recommended contour is 0.116.
 
     Optional ``erode_voxels`` shrinks the mask by morphological erosion so that
     boundary voxels (where uniform-filter neighborhoods straddle the protein /
@@ -196,9 +189,6 @@ def build_contour_mask(
     return mask
 
 
-# ---------------------------------------------------------------------------
-# Correlation analysis
-# ---------------------------------------------------------------------------
 
 
 CorrelationMethod = Literal["pearson", "spearman"]
@@ -333,9 +323,6 @@ def compute_feature_target_correlations(
     )
 
 
-# ---------------------------------------------------------------------------
-# Binned analysis (handoff §4: "binned analysis")
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -363,7 +350,7 @@ def binned_feature_by_target(
 ) -> BinnedRelationship:
     """
     Bin masked voxels by ``target`` (quantile-bins by default for balanced counts),
-    return mean / std of ``feature`` per bin. Handoff §4 binned-analysis primitive.
+    return mean / std of ``feature`` per bin.
     """
     f = _flatten_under_mask(feature, mask)
     t = _flatten_under_mask(target, mask)
@@ -403,9 +390,6 @@ def binned_feature_by_target(
     )
 
 
-# ---------------------------------------------------------------------------
-# Output writers (CSV, summary text, JSON metadata)
-# ---------------------------------------------------------------------------
 
 
 def write_correlation_csv(result: MaskedAnalysisResult, path: str | Path) -> Path:
@@ -438,7 +422,7 @@ def write_summary_text(
     method_for_ranking: CorrelationMethod = "spearman",
 ) -> Path:
     """
-    Plain-text summary suitable for ``outputs/reports/summary.txt`` (handoff §7).
+    Plain-text summary suitable for ``outputs/reports/summary.txt``.
 
     Lists the top-``top_n`` features by ``|correlation|`` under the chosen method,
     plus mask coverage and the standard scientific caveats. Wording is intentionally
@@ -500,9 +484,7 @@ ANALYSIS_PANEL_FEATURE_KEYS: tuple[str, ...] = (
 )
 
 
-# ---------------------------------------------------------------------------
 # Figures (matplotlib)
-# ---------------------------------------------------------------------------
 
 
 def plot_feature_vs_target_on_ax(

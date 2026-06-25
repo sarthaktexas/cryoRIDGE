@@ -1,6 +1,6 @@
 """Run avg-half features → analysis → LH export → B-factor for cohort rows.
 
-Features and ρ for constraint V are computed on ``0.5 * (half1 + half2)`` (Decision 001).
+Features and ρ for constraint V are computed on ``0.5 * (half1 + half2)``.
 Reliability MRCs and build zones are written on the deposited primary grid for display.
 
 Skips entries already present under ``outputs/emd_<ID>/halfmap_reliability/reliability.npz``
@@ -38,7 +38,7 @@ SKIP_SOURCES = frozenset({"excluded", "optional"})
 
 def _feature_start_threshold(avg_path: Path, ref_path: Path, mask_contour: float) -> float:
     """
-    Depositor contour applies to the sharpened reference map (Decision 002).
+    Depositor contour applies to the sharpened reference map.
 
     Averaged half maps are unsharpened and often sit on a lower absolute scale.
     When max(avg) inside the reference mask is below ``mask_contour``, use 0 so

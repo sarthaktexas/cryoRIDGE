@@ -94,11 +94,8 @@ python scripts/run_cohort_pipeline.py
 | `scripts/run_residue_bfactor_score_correlation.py` | B vs multiple map scores (sphere sampling)               |
 | `scripts/run_residue_bfactor_conformation_pair.py` | Cα RMSD vs Δreliability across two EMDB states           |
 | `scripts/run_cohort_pipeline.py`                   | Batch processing from `cohort/manifest.csv`              |
-| `scripts/run_cohort_pipeline.py`                   | Batch processing from `cohort/manifest.csv`              |
 
 Thesis figure runners (`scripts/rerun_all_figures.py`, `scripts/run_cohort_summary_figures.py`, Figma export scripts, etc.) and `cryoem_mrc/thesis_figures.py` are **local-only** (gitignored) like `figma-plugins/`. Clone the repo on a machine that already has those files, or keep a local copy from before they were untracked.
-
-Archive / sensitivity scripts live under `scripts/archive/`.
 
 ---
 
@@ -134,8 +131,6 @@ zones = classify_build_zones(reliability["reliability_score"])
 - **Local FSC** is computed in-repo (`cryoem_mrc.local_fsc`); external BlocRes / ResMap / MonoRes maps are not loaded.
 - **H_repro** is the windowed gradient-constraint map *V* (legacy export name; ranked as **reliability_score**); **reliability_score** is an in-mask percentile used for build/caution/omit terciles. Resolvability gating uses windowed half-map CC or local FSC, not a separate disagreement map.
 - **Local variance** is often the strongest single feature predictor of windowed half-map correlation; treat B-factor correlations as exploratory and report partial correlations when comparing scores.
-
-Design choices and parameter defaults are recorded in [DECISIONS.md](DECISIONS.md).
 
 **Thesis prose:** full narrative draft in [docs/THESIS_NARRATIVE.md](docs/THESIS_NARRATIVE.md). Writing guide and defense notes in [docs/THESIS_AND_PUBLICATION.md](docs/THESIS_AND_PUBLICATION.md).
 

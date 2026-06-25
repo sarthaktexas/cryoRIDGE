@@ -307,7 +307,6 @@ def compute_mechanics_headlines(
         "rigidity_like_legacy_L": rigidity_like_from_energy(legacy_l),
         "rigidity_like_legacy_H": rigidity_like_from_energy(legacy_h),
         "rigidity_like_el": rigidity_like_from_energy(el_norm),
-        # Backward-compatible aliases for archive scripts
         "lagrangian_density": legacy_l,
         "hamiltonian": legacy_h,
         "rigidity_like_H": rigidity_like_from_energy(legacy_h),

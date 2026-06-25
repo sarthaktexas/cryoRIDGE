@@ -66,7 +66,7 @@ def sync_thesis_narrative_cohort_figures(
 PDB_ROOT = Path("pdb")
 COHORT_MANIFEST = Path("cohort/manifest.csv")
 
-# Canonical anchor map for thesis validation panels (Decision 004).
+# Canonical anchor map for thesis validation panels.
 ANCHOR_EMDB_ID = "49450"
 
 # Subset of b_factor manifest rows worth B-factor validation figures in the thesis.
@@ -178,7 +178,7 @@ def bfactor_conformation_pairs_dir() -> Path:
 
 
 def avg_features_npz_path(data_dir: Path, emdb_id: str | int, contour: float) -> Path:
-    """Feature NPZ from averaged half-maps (Decision 001 canonical)."""
+    """Feature NPZ from averaged half-maps."""
     emd = f"emd_{str(emdb_id).strip()}"
     tag = f"t{int(round(float(contour) * 1000)):04d}"
     return data_dir / f"{emd}_avg_features_{tag}.npz"
@@ -213,7 +213,7 @@ def find_features_npz(
     """
     Locate feature NPZ for one EMDB entry.
 
-    Default ``avg_half``: prefer ``emd_*_avg_features_*`` (Decision 001).
+    Default ``avg_half``: prefer ``emd_*_avg_features_*``.
     ``primary``: prefer ``emd_*_features_*`` from deposited-map pipeline.
     """
     emd = f"emd_{str(emdb_id).strip()}"

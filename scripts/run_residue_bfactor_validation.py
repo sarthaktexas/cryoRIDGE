@@ -8,13 +8,10 @@ Example::
     source .venv/bin/activate
     uv pip install gemmi   # or: pip install -e .
 
-    # EMD-49450 (anchor)
     python scripts/run_residue_bfactor_validation.py --emd-id 49450
 
-    # Thesis anchor maps (default for rerun_all_figures)
     python scripts/run_residue_bfactor_validation.py --anchors
 
-    # All manifest rows with flexibility_source=b_factor and local PDB
     python scripts/run_residue_bfactor_validation.py --all
 """
 

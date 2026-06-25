@@ -913,7 +913,6 @@ def write_placement_utility_markdown(
     return path
 
 
-# --- Semi-prospective (leave-one-map-out) and ROC utilities ---
 
 TRAIN_DERIVED_PREDICTORS: frozenset[PredictorId] = frozenset(
     {"locres_worse_than_median", "variance_above_median"}

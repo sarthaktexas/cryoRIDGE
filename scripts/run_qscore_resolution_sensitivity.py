@@ -109,7 +109,6 @@ def _build_figure(
 ) -> Path:
     fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.8))
 
-    # Panel a: standard cohort bins
     ax = axes[0]
     apply(ax)
     if standard_bins:
@@ -127,7 +126,6 @@ def _build_figure(
         ax.set_title("Standard resolution bins")
     label_panel(ax, "a")
 
-    # Panel b: 0.5 Å sweep
     ax = axes[1]
     apply(ax)
     if fine_bins:
@@ -142,7 +140,6 @@ def _build_figure(
         ax.legend(frameon=False, fontsize=6)
     label_panel(ax, "b")
 
-    # Panel c: cutoff sensitivity
     ax = axes[2]
     apply(ax)
     if cutoffs:

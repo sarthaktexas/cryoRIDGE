@@ -1,4 +1,4 @@
-"""Density source for reliability / feature pipeline (Decision 001)."""
+"""Density source for reliability / feature pipeline."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def zscore_global(volume: np.ndarray) -> np.ndarray:
 
 
 def zscore_halfmap_average(half1: np.ndarray, half2: np.ndarray) -> np.ndarray:
-    """Global z-score of ρ = ½(h₁+h₂) for constraint V / reliability ranking (Decision 001)."""
+    """Global z-score of ρ = ½(h₁+h₂) for constraint V / reliability ranking."""
     rho = 0.5 * (np.asarray(half1, dtype=np.float32) + np.asarray(half2, dtype=np.float32))
     return zscore_global(rho)
 

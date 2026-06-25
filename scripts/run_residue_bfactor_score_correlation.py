@@ -208,7 +208,6 @@ def run_one(
         residue_mask=residue_mask,
         mask_policy=mask_policy,
     )
-    # Stable row order for thesis tables
     order = {n: i for i, n in enumerate(DEFAULT_SCORE_ORDER)}
     corr_rows.sort(
         key=lambda r: (

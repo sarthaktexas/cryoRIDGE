@@ -7,10 +7,8 @@ Requires ``qscore`` from https://github.com/3dem/qscore (plus biopython, tqdm)::
 
 Example::
 
-    # EMD-49450 anchor
     python scripts/run_qscore_validation.py --emd-id 49450
 
-    # Thesis anchor maps
     python scripts/run_qscore_validation.py --anchors
 """
 

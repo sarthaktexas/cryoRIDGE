@@ -95,7 +95,6 @@ def plot_placement_supplement(
     positions = np.arange(3, dtype=np.float64)
     width = 0.35
 
-    # (a) CC by zone — shows inversion when omit median > build median
     cc_groups = [cc[zones == z] for z in zone_order]
     bp_cc = axes[0].boxplot(
         cc_groups,
@@ -117,7 +116,6 @@ def plot_placement_supplement(
     axes[0].set_title("Correlation by build zone")
     label_panel(axes[0], "a")
 
-    # (b) B_iso by zone
     b_groups = [b[zones == z] for z in zone_order]
     bp_b = axes[1].boxplot(
         b_groups,
@@ -139,7 +137,6 @@ def plot_placement_supplement(
     axes[1].set_title("B-factor by build zone")
     label_panel(axes[1], "b")
 
-    # (c) reliability vs CC, colored by zone
     for z in zone_order:
         m = zones == z
         if not m.any():

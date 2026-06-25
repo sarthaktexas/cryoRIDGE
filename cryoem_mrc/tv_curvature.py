@@ -66,9 +66,6 @@ TV_FEATURE_KEYS: tuple[str, ...] = (
 TV_TARGET_KEYS: tuple[str, ...] = ("b_factor", "local_resolution")
 
 
-# ---------------------------------------------------------------------------
-# Density-derived scalar maps
-# ---------------------------------------------------------------------------
 
 
 def _tv_block(block: np.ndarray, spacing: tuple[float, float, float]) -> dict[str, np.ndarray]:
@@ -158,9 +155,7 @@ def density_tv_curvature_maps(
     return out
 
 
-# ---------------------------------------------------------------------------
 # Per-map Cα sampling against B-factor and local resolution
-# ---------------------------------------------------------------------------
 
 
 def compute_map_tv_table(
@@ -246,9 +241,7 @@ def compute_map_tv_table(
     return df
 
 
-# ---------------------------------------------------------------------------
 # Block-structure correlations
-# ---------------------------------------------------------------------------
 
 
 @dataclass
