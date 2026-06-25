@@ -10,13 +10,13 @@ from cryoem_mrc.conformation_pair import (
     compute_per_residue_ca_rmsd,
 )
 from cryoem_mrc.structure_validation import ResidueValidationRow
-from cryoem_mrc.thesis_figures import (
-    _sorted_conformation_motion,
+from cryoem_mrc.conformation_coupling import (
+    DEFAULT_COUPLING_LAYOUT_THRESHOLD,
     compute_coupling_layout_scores,
     compute_diagonal_coupling_contrast_score,
     compute_domain_coupling_block_score,
     select_conformation_pair_figure_layout,
-    DEFAULT_COUPLING_LAYOUT_THRESHOLD,
+    sorted_conformation_motion,
 )
 
 
@@ -64,7 +64,7 @@ def test_sorted_conformation_motion_returns_rmsd_and_drel() -> None:
         )
         for i in range(1, 21)
     ]
-    packed = _sorted_conformation_motion(pairs)
+    packed = sorted_conformation_motion(pairs)
     assert packed is not None
     _use, rmsd, drel, _chains = packed
     assert rmsd.shape == drel.shape

@@ -77,9 +77,9 @@ from cryoem_mrc.mask_bbox import (
     format_bbox_log,
     pad_voxels_for_filters,
 )
-from cryoem_mrc.thesis_figures import (
-    _locres_robust_limits,
+from cryoem_mrc.volume_slices import (
     extract_slice,
+    locres_robust_limits,
     mask_slice_values,
     pick_slice_index,
     slice_crop_from_mask,
@@ -285,7 +285,7 @@ def _write_model_building_row_figure(
     zone_sl = _crop_2d(extract_slice(zones.astype(float), axis=0, index=z))
     diff_sl = _crop_2d(extract_slice(disagreement, axis=0, index=z))
     m_c = _crop_2d(msl)
-    loc_lo, loc_hi = _locres_robust_limits(loc_sl, m_c)
+    loc_lo, loc_hi = locres_robust_limits(loc_sl, m_c)
 
     fig = plt.figure(figsize=(15.5, 4.8), facecolor="white")
     gs = fig.add_gridspec(

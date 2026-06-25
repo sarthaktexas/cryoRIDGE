@@ -33,6 +33,11 @@ from cryoem_mrc.conformation_pair import (
     write_conformation_pair_md,
     write_conformation_pairs_summary,
 )
+from cryoem_mrc.conformation_coupling import (
+    DEFAULT_COUPLING_LAYOUT_THRESHOLD,
+    compute_conformation_coupling,
+    compute_coupling_layout_scores,
+)
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, conformation_pairs_dir
 from cryoem_mrc.structure_validation import (
     default_reliability_out_dir,
@@ -42,15 +47,121 @@ from cryoem_mrc.structure_validation import (
     read_residue_validation_csv,
     run_emdb_bfactor_validation,
 )
-from cryoem_mrc.thesis_figures import (
-    DEFAULT_COUPLING_LAYOUT_THRESHOLD,
-    compute_conformation_coupling,
-    compute_coupling_layout_scores,
-    compute_domain_coupling_block_colors,
-    plot_conformation_pair_delta_reliability_supplement,
-    plot_conformation_pair_domain_coupling_supplement,
-    plot_conformation_pair_summary_triptych,
-)
+
+
+def _write_conformation_pair_figures(
+    *,
+    pairs,
+    args: argparse.Namespace,
+    coupling_data: dict[str, object],
+    rho: float,
+    cov_note: str,
+    cluster_threshold: float,
+    out_dir: Path,
+) -> str:
+    """Render thesis figures when local ``cryoem_mrc.thesis_figures`` is available."""
+    try:
+        from cryoem_mrc.thesis_figures import (
+            compute_domain_coupling_block_colors,
+            plot_conformation_pair_delta_reliability_supplement,
+            plot_conformation_pair_domain_coupling_supplement,
+            plot_conformation_pair_summary_triptych,
+        )
+    except ImportError:
+        print(
+            "[conformation_pair] skipping figures (local thesis_figures.py not installed)",
+            flush=True,
+        )
+        return "block"
+
+    use_full = coupling_data["use"]
+    coords_a = np.array([[a.x, a.y, a.z] for a, _ in use_full], dtype=np.float64)
+    coords_b = np.array([[b.x, b.y, b.z] for _, b in use_full], dtype=np.float64)
+    coords_b_aligned, _ = kabsch_align_coords(coords_b, coords_a)
+
+    has_domains = bool(get_domain_regions_for_pair(args.emd_a, args.emd_b))
+    summary_name = (
+        "conformation_pair_summary.png"
+        if has_domains
+        else "conformation_pair_summary_triptych.png"
+    )
+
+    chimerax_domain_png = None
+    chimerax_coupling_png = None
+    if has_domains:
+        try:
+            from cryoem_mrc.chimerax_figures import (
+                ensure_chimerax_domain_render,
+                render_chimerax_domain_colored_surface,
+            )
+        except ImportError:
+            ensure_chimerax_domain_render = None  # type: ignore[assignment,misc]
+            render_chimerax_domain_colored_surface = None  # type: ignore[assignment,misc]
+
+        if ensure_chimerax_domain_render is not None:
+            chimerax_domain_png = ensure_chimerax_domain_render(args.emd_a, preview=True)
+            regions = get_domain_regions_for_pair(args.emd_a, args.emd_b)
+            domain_order = [reg.name for reg in regions]
+            use_int = coupling_data["interior_use"]
+            assignments = get_domain_assignments(use_int, regions)
+            block_hex, _ = compute_domain_coupling_block_colors(
+                coupling_data["interior_corr"], assignments, domain_order
+            )
+            if render_chimerax_domain_colored_surface is not None:
+                chimerax_coupling_png = render_chimerax_domain_colored_surface(
+                    args.emd_a,
+                    domain_colors=block_hex,
+                    out_png=out_dir / f"chimerax_emd_{args.emd_a}_domain_coupling.png",
+                    preview=True,
+                )
+
+    triptych, recommended_layout = plot_conformation_pair_summary_triptych(
+        pairs,
+        emdb_a=args.emd_a,
+        emdb_b=args.emd_b,
+        in_mask_both=True,
+        spearman_rho=rho,
+        coverage_note=cov_note,
+        coords_b_aligned=coords_b_aligned,
+        cluster_separation_threshold=cluster_threshold,
+        layout=args.layout,
+        manifest=args.manifest,
+        include_structure_panel=has_domains,
+        chimerax_domain_png=chimerax_domain_png,
+        chimerax_coupling_png=chimerax_coupling_png,
+        save_path=out_dir / summary_name,
+        dpi=args.dpi,
+    )
+    if triptych is not None:
+        plt.close(triptych)
+
+    if has_domains:
+        delta_supp = plot_conformation_pair_delta_reliability_supplement(
+            pairs,
+            emdb_a=args.emd_a,
+            emdb_b=args.emd_b,
+            in_mask_both=True,
+            coverage_note=cov_note,
+            manifest=args.manifest,
+            save_path=out_dir / "conformation_pair_delta_reliability_supplement.png",
+            dpi=args.dpi,
+        )
+        if delta_supp is not None:
+            plt.close(delta_supp)
+
+    supplement = plot_conformation_pair_domain_coupling_supplement(
+        pairs,
+        emdb_a=args.emd_a,
+        emdb_b=args.emd_b,
+        in_mask_both=True,
+        coverage_note=cov_note,
+        manifest=args.manifest,
+        save_path=out_dir / "conformation_pair_domain_coupling_supplement.png",
+        dpi=args.dpi,
+    )
+    if supplement is not None:
+        plt.close(supplement)
+    return recommended_layout
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -170,87 +281,15 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if coupling_data is not None:
-            use_full = coupling_data["use"]
-            coords_a = np.array([[a.x, a.y, a.z] for a, _ in use_full], dtype=np.float64)
-            coords_b = np.array([[b.x, b.y, b.z] for _, b in use_full], dtype=np.float64)
-            coords_b_aligned, _ = kabsch_align_coords(coords_b, coords_a)
-
-            has_domains = bool(get_domain_regions_for_pair(args.emd_a, args.emd_b))
-            summary_name = (
-                "conformation_pair_summary.png"
-                if has_domains
-                else "conformation_pair_summary_triptych.png"
+            recommended_layout = _write_conformation_pair_figures(
+                pairs=pairs,
+                args=args,
+                coupling_data=coupling_data,
+                rho=rho,
+                cov_note=cov_note,
+                cluster_threshold=cluster_threshold,
+                out_dir=out_dir,
             )
-
-            chimerax_domain_png = None
-            chimerax_coupling_png = None
-            if has_domains:
-                from cryoem_mrc.chimerax_figures import (
-                    ensure_chimerax_domain_render,
-                    render_chimerax_domain_colored_surface,
-                )
-
-                chimerax_domain_png = ensure_chimerax_domain_render(args.emd_a, preview=True)
-                regions = get_domain_regions_for_pair(args.emd_a, args.emd_b)
-                domain_order = [reg.name for reg in regions]
-                use_int = coupling_data["interior_use"]
-                assignments = get_domain_assignments(use_int, regions)
-                block_hex, _ = compute_domain_coupling_block_colors(
-                    coupling_data["interior_corr"], assignments, domain_order
-                )
-                chimerax_coupling_png = render_chimerax_domain_colored_surface(
-                    args.emd_a,
-                    domain_colors=block_hex,
-                    out_png=out_dir / f"chimerax_emd_{args.emd_a}_domain_coupling.png",
-                    preview=True,
-                )
-
-            triptych, recommended_layout = plot_conformation_pair_summary_triptych(
-                pairs,
-                emdb_a=args.emd_a,
-                emdb_b=args.emd_b,
-                in_mask_both=True,
-                spearman_rho=rho,
-                coverage_note=cov_note,
-                coords_b_aligned=coords_b_aligned,
-                cluster_separation_threshold=cluster_threshold,
-                layout=args.layout,
-                manifest=args.manifest,
-                include_structure_panel=has_domains,
-                chimerax_domain_png=chimerax_domain_png,
-                chimerax_coupling_png=chimerax_coupling_png,
-                save_path=out_dir / summary_name,
-                dpi=args.dpi,
-            )
-            if triptych is not None:
-                plt.close(triptych)
-
-            if has_domains:
-                delta_supp = plot_conformation_pair_delta_reliability_supplement(
-                    pairs,
-                    emdb_a=args.emd_a,
-                    emdb_b=args.emd_b,
-                    in_mask_both=True,
-                    coverage_note=cov_note,
-                    manifest=args.manifest,
-                    save_path=out_dir / "conformation_pair_delta_reliability_supplement.png",
-                    dpi=args.dpi,
-                )
-                if delta_supp is not None:
-                    plt.close(delta_supp)
-
-            supplement = plot_conformation_pair_domain_coupling_supplement(
-                pairs,
-                emdb_a=args.emd_a,
-                emdb_b=args.emd_b,
-                in_mask_both=True,
-                coverage_note=cov_note,
-                manifest=args.manifest,
-                save_path=out_dir / "conformation_pair_domain_coupling_supplement.png",
-                dpi=args.dpi,
-            )
-            if supplement is not None:
-                plt.close(supplement)
 
     rmsd_diagnostics: dict[str, object] = {}
     if len(use) >= 10:

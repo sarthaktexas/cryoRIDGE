@@ -20,5 +20,43 @@ cohort/*_download_report.json
 # Figma Dev plugins (local only; export scripts write JSON here)
 figma-plugins/
 
-# Thesis figure scripts and exports (local only; regenerate as needed)
+# Thesis figure generation (local only; like figma-plugins/)
 figures/
+cryoem_mrc/thesis_figures.py
+cryoem_mrc/chimerax_figures.py
+cryoem_mrc/metric_schematic.py
+cryoem_mrc/conformation_pair_figma_export.py
+cryoem_mrc/cross_metric_figma_export.py
+cryoem_mrc/placement_figma_export.py
+cryoem_mrc/qscore_figma_export.py
+cryoem_mrc/reliability_by_class_figma_export.py
+cryoem_mrc/graphical_abstract_export.py
+scripts/prune_retired_figures.py
+scripts/rerun_all_figures.py
+scripts/sync_thesis_narrative_figures.py
+scripts/run_chimerax_mgta_pair_thesis_figures.py
+scripts/run_chimerax_protein_figures.py
+scripts/run_cohort_cross_metric_figure.py
+scripts/run_cohort_summary_figures.py
+scripts/run_conformation_pair_figma_export.py
+scripts/run_cross_metric_figma_export.py
+scripts/run_graphical_abstract_export.py
+scripts/run_metric_schematic_figure.py
+scripts/run_placement_figma_export.py
+scripts/run_qscore_figma_export.py
+scripts/run_reliability_by_class_figma_export.py
+scripts/run_thesis_overview_figures.py
+scripts/run_model_building_exports.py
+scripts/run_cohort_model_placement_audit.py
+scripts/run_cohort_bfactor_horse_race.py
+scripts/run_cohort_bfactor_sharpening_sensitivity.py
+scripts/run_v_incremental_prediction.py
+scripts/run_placement_decoupling_analysis.py
+tests/test_chimerax_figures.py
+tests/test_chimerax_mgta_pair.py
+tests/test_conformation_pair_figma_export.py
+tests/test_cross_metric_figma_export.py
+tests/test_graphical_abstract_export.py
+tests/test_placement_figma_export.py
+tests/test_qscore_figma_export.py
+tests/test_reliability_by_class_figma_export.py
