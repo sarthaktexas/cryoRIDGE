@@ -119,7 +119,7 @@ def _draw_comparison_panel(ax) -> None:
         ["Windowed half-map CC", "Yes", "5³ box", "Real-space correlation", "Yes (every voxel)", "Weak"],
         ["In-repo local FSC", "Yes", "17^3 patch, stride 4", "Fourier FSC to A", "Yes (interpolated)", "Weak"],
         ["BlocRes local res", "Yes", "Tool patches", "Fourier FSC to A", "Yes", "Weak"],
-        ["Constraint V (zones)", "No (avg only)", "5^3 box on grad^2", "Real-space gradient", "Yes (every voxel)", "Strong"],
+        ["Constraint V (zones)", "No (avg only)", "5^3 box on grad^2 of z-scored avg", "Real-space gradient on rho_tilde", "Yes (every voxel)", "Strong"],
     ]
     col_x = [0.02, 0.24, 0.38, 0.54, 0.72, 0.88]
     y = 0.92

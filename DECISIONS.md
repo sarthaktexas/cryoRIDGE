@@ -402,8 +402,8 @@ contour from EMDB."
 
 **Status: ACCEPTED** (does not change Decision 001 computation)
 
-- **Compute:** local features, ρ, and constraint **V** on ``0.5*(h₁+h₂)`` (same
-  processing state as half-map CC validation).
+- **Compute:** local features and constraint **V** on ``0.5*(h₁+h₂)`` with **global z-scoring**
+  before gradients (``ρ̃ = zscore(½(h₁+h₂))``; same processing state as half-map CC validation).
 - **Display:** reliability / build-zone MRCs and figure underlays on the
   **deposited primary map** grid (`reference_mrc`) — the map used for model building.
 - **Sensitivity:** ``--density-source primary`` recomputes features/ρ on the

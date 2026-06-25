@@ -122,3 +122,17 @@ def test_select_layout_uses_coupling_threshold() -> None:
     assert select_conformation_pair_figure_layout(0.05) == "domain"
     assert select_conformation_pair_figure_layout(0.12) == "block"
     assert select_conformation_pair_figure_layout(0.12, threshold=DEFAULT_COUPLING_LAYOUT_THRESHOLD) == "block"
+
+
+def test_rmsd_superposition_diagnostics_per_chain() -> None:
+    from cryoem_mrc.conformation_pair import compute_rmsd_superposition_diagnostics
+
+    body_a = [_row("A", i, 0.1, x=0, y=float(i), z=0) for i in range(10)]
+    body_b = [_row("B", i, 0.2, x=50, y=float(i), z=0) for i in range(10)]
+    rotated_b = [_row("B", i, 0.2, x=50 + float(i), y=0, z=0) for i in range(10)]
+    pairs = list(zip(body_a + body_b, body_a + rotated_b, strict=True))
+    use, rmsd = compute_per_residue_ca_rmsd(pairs)
+    diag = compute_rmsd_superposition_diagnostics(use, rmsd_global=rmsd)
+    assert diag["median_ca_rmsd_by_chain"]["A"] == 0.0
+    assert diag["median_ca_rmsd_by_chain"]["B"] > 0.0
+    assert diag["median_ca_rmsd_per_chain_median"] < diag["median_ca_rmsd_global"]

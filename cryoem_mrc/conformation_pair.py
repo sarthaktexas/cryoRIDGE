@@ -193,6 +193,81 @@ def compute_conformation_pair_stats(
     )
 
 
+def compute_rmsd_superposition_diagnostics(
+    use: Sequence[tuple[ResidueValidationRow, ResidueValidationRow]],
+    *,
+    rmsd_global: np.ndarray,
+    emdb_a: str | None = None,
+    emdb_b: str | None = None,
+) -> dict[str, object]:
+    """Registration sanity checks for Table 3 median RMSD interpretation.
+
+    Global Kabsch on all matched Cα can inflate medians when subunits move as
+    independent rigid bodies (70S, GroEL) or when deposited models sit in
+    different map origins. Per-chain medians and domain medians help distinguish
+    biology from superposition artifacts.
+    """
+    if len(use) < 3:
+        return {}
+
+    coords_a = np.array([[a.x, a.y, a.z] for a, _ in use], dtype=np.float64)
+    coords_b = np.array([[b.x, b.y, b.z] for _, b in use], dtype=np.float64)
+    centroid_sep = float(np.linalg.norm(coords_a.mean(axis=0) - coords_b.mean(axis=0)))
+
+    by_chain: dict[str, list[int]] = {}
+    for i, (row, _) in enumerate(use):
+        by_chain.setdefault(row.chain, []).append(i)
+
+    per_chain_medians: dict[str, float] = {}
+    for chain, idx in sorted(by_chain.items()):
+        if len(idx) < 3:
+            continue
+        ca = coords_a[idx]
+        cb = coords_b[idx]
+        cb_aligned, _ = kabsch_align_coords(cb, ca)
+        chain_rmsd = np.linalg.norm(cb_aligned - ca, axis=1)
+        per_chain_medians[chain] = float(np.median(chain_rmsd))
+
+    median_global = float(np.median(rmsd_global))
+    median_per_chain = (
+        float(np.median(list(per_chain_medians.values()))) if per_chain_medians else float("nan")
+    )
+
+    domain_medians: dict[str, float] = {}
+    if emdb_a is not None and emdb_b is not None:
+        regions = get_domain_regions_for_pair(emdb_a, emdb_b)
+        if regions:
+            assignments = get_domain_assignments(use, regions)
+            for name, idx in assignments.items():
+                if len(idx) >= 3:
+                    domain_medians[name] = float(np.median(rmsd_global[idx]))
+
+    note_parts: list[str] = []
+    if centroid_sep > 50.0:
+        note_parts.append("large pre-alignment centroid offset between deposited models")
+    if (
+        np.isfinite(median_per_chain)
+        and median_global > 25.0
+        and median_per_chain < 0.5 * median_global
+    ):
+        note_parts.append(
+            "global superposition limited (per-chain median much lower than global)"
+        )
+    if len(by_chain) >= 2 and per_chain_medians:
+        spread = max(per_chain_medians.values()) - min(per_chain_medians.values())
+        if spread > 30.0:
+            note_parts.append("heterogeneous per-chain RMSD (asymmetric oligomer or ring motion)")
+
+    return {
+        "centroid_separation_angstrom": centroid_sep,
+        "median_ca_rmsd_global": median_global,
+        "median_ca_rmsd_per_chain_median": median_per_chain,
+        "median_ca_rmsd_by_chain": per_chain_medians,
+        "median_ca_rmsd_by_domain": domain_medians,
+        "rmsd_registration_note": "; ".join(note_parts) if note_parts else "",
+    }
+
+
 def write_conformation_pair_md(
     path: Path,
     pair_stats: ConformationPairStats,
@@ -685,6 +760,7 @@ __all__ = [
     "compute_conformation_pair_stats",
     "compute_domain_mean_coupling",
     "compute_per_residue_ca_rmsd",
+    "compute_rmsd_superposition_diagnostics",
     "domain_index_spans",
     "domain_residue_color",
     "get_domain_assignments",

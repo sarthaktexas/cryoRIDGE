@@ -2,9 +2,14 @@
 
 Primary thesis functional (see docs/THESIS_AND_PUBLICATION.md):
 
-    T = (1/2) * delta_rho^2      fluctuation proxy (half-map disagreement)
-    V = (1/2) * |grad rho|^2      constraint proxy (density gradient)
-    L = T - V                     flexible-like when positive, rigid-like when negative
+    rho = 0.5 * (half1 + half2)
+    rho_tilde = global z-score(rho)   # production input to this module
+    T = (1/2) * delta_rho^2           fluctuation proxy (half-map disagreement)
+    V = (1/2) * |grad rho_tilde|^2    constraint proxy (density gradient)
+    L = T - V                         flexible-like when positive, rigid-like when negative
+
+Callers pass z-scored ``rho`` (``density_normalized`` / ``rho_tilde``); gradients are
+not taken on raw half-map averages.
 
 Optional window > 1 box-filters T and V before forming L (local summaries).
 
@@ -46,7 +51,7 @@ def fluctuation_constraint_decomposition(
     Lagrangian-inspired fluctuation-constraint balance from averaged map and half difference.
 
     T = (alpha/2) * delta_rho^2
-    V = (beta/2) * ||grad rho||^2
+    V = (beta/2) * ||grad rho||^2   (rho must be globally z-scored rho_tilde in production)
     L = T - V   (positive: fluctuation dominates; negative: gradient constraint dominates)
     H = T + V   (Hamiltonian sum; exploratory secondary scalar)
 

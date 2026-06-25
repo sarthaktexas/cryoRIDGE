@@ -20,5 +20,5 @@ cohort/*_download_report.json
 # Figma Dev plugins (local only; export scripts write JSON here)
 figma-plugins/
 
-# Large thesis figure exports (regenerate via figures/v_vs_locres.py)
-figures/output/
+# Thesis figure scripts and exports (local only; regenerate as needed)
+figures/

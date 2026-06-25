@@ -26,6 +26,7 @@ from cryoem_mrc.conformation_pair import (
     compute_conformation_pair_coverage,
     compute_conformation_pair_stats,
     compute_per_residue_ca_rmsd,
+    compute_rmsd_superposition_diagnostics,
     get_domain_assignments,
     get_domain_regions_for_pair,
     kabsch_align_coords,
@@ -251,6 +252,16 @@ def main(argv: list[str] | None = None) -> int:
             if supplement is not None:
                 plt.close(supplement)
 
+    rmsd_diagnostics: dict[str, object] = {}
+    if len(use) >= 10:
+        _, rmsd_vec = compute_per_residue_ca_rmsd(pairs, in_mask_both=True)
+        rmsd_diagnostics = compute_rmsd_superposition_diagnostics(
+            use,
+            rmsd_global=rmsd_vec,
+            emdb_a=args.emd_a,
+            emdb_b=args.emd_b,
+        )
+
     (out_dir / "conformation_pair_stats.json").write_text(
         json.dumps(
             {
@@ -260,6 +271,7 @@ def main(argv: list[str] | None = None) -> int:
                 "n_matched_in_mask_both": pair_stats.n_matched_in_mask_both,
                 "median_ca_rmsd_a": pair_stats.median_ca_rmsd_a,
                 "spearman_rmsd_vs_delta_reliability": pair_stats.spearman_rmsd_vs_delta_reliability,
+                **rmsd_diagnostics,
                 "diagonal_coupling_score": layout_scores["diagonal_coupling_score"],
                 "domain_coupling_score": layout_scores["domain_coupling_score"],
                 "coupling_layout_score": layout_scores["coupling_layout_score"],
