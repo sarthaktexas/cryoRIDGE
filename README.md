@@ -155,6 +155,35 @@ See also [CITATION.cff](CITATION.cff) for GitHub's **Cite this repository** butt
 
 ---
 
+## ARC / Great Lakes (module load)
+
+Login nodes default to **Python 3.6** — ignore that `python3`. Load Miniconda (Python 3.12) instead:
+
+```bash
+module load miniconda/24.4.0
+# or: module load anaconda3/2024.10-1
+
+python --version          # should be 3.12.x
+conda create -n halfmap-qc python=3.12 -y
+conda activate halfmap-qc
+
+pip install -U pip
+pip install cryoem-halfmap-qc -i https://pypi.org/simple
+halfmap-qc --version
+```
+
+Install on a **login node** (compute nodes may block PyPI). Then run jobs with:
+
+```bash
+module load miniconda/24.4.0
+conda activate halfmap-qc
+halfmap-qc cohort --emd-id 49450
+```
+
+Add `conda activate halfmap-qc` to your local `*.sbatch` script (gitignored).
+
+---
+
 ## Troubleshooting install
 
 **`No matching distribution found` / `from versions:` empty**
@@ -162,10 +191,10 @@ See also [CITATION.cff](CITATION.cff) for GitHub's **Cite this repository** butt
 1. **Check Python version** (most common cause):
 
    ```bash
-   python3 --version   # must be 3.10 or newer
+   python3 --version   # must be 3.10 or newer — NOT the cluster default 3.6
    ```
 
-   macOS `/usr/bin/python3` is often **3.9** — it cannot install this package. Use Homebrew `python3.12`, `pyenv`, a venv, or on ARC `module load python/3.11`.
+   On ARC: `module load miniconda/24.4.0` then `python --version`. macOS `/usr/bin/python3` is often **3.9** — use Homebrew `python3.12` or a venv.
 
 2. **Upgrade pip** (old pip hides available versions):
 
