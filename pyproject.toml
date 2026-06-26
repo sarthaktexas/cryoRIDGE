@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cryoem-halfmap-qc"
-version = "0.3.1"
+version = "0.3.2"
 description = "Local map reliability from cryo-EM density and half-maps"
 readme = "README.md"
 license = { text = "MIT" }
@@ -31,9 +31,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-qscore = [
-    "qscore @ git+https://github.com/3dem/qscore.git",
-]
+# Q-score is not on PyPI with a stable name; install separately for qscore scripts:
+#   pip install git+https://github.com/3dem/qscore.git
+dev = ["build", "twine"]
 
 [project.scripts]
 halfmap-qc = "cryoem_mrc.cli:main"

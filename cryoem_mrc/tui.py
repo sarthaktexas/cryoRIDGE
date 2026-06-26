@@ -16,7 +16,7 @@ HELP_TEXT = dedent(
     halfmap-qc — half-map reproducibility and local reliability for cryo-EM maps
 
     INSTALL (PyPI not published yet — use GitHub or a local checkout)
-      pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.1"
+      pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.2"
       git clone … && cd cryoem-halfmap-qc && pip install -e .
 
     INTERACTIVE

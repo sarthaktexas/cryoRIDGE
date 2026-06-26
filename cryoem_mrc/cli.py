@@ -24,7 +24,7 @@ _CLI_EPILOG = dedent(
       halfmap-qc cohort-ids                   EMDB IDs for SLURM arrays
 
     install (PyPI pending):
-      pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.1"
+      pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.2"
       pip install -e .                        from a git checkout
 
     subcommand help:

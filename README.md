@@ -22,7 +22,7 @@ cd cryoem-halfmap-qc
 pip install -e .
 
 # or without cloning:
-pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.1"
+pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.2"
 ```
 
 This installs the **`halfmap-qc`** command on your PATH (PyPI package name will be `cryoem-halfmap-qc` once published).
@@ -138,12 +138,12 @@ Release:
 ```bash
 # bump version in pyproject.toml first, then:
 git add pyproject.toml cryoem_mrc/__init__.py
-git commit -m "Release v0.3.1"
-git tag v0.3.1
+git commit -m "Release v0.3.2"
+git tag v0.3.2
 git push origin main --tags
 ```
 
-On GitHub → **Releases** → **Draft a new release** → choose tag `v0.3.1` → **Publish release**. The [`.github/workflows/publish.yml`](.github/workflows/publish.yml) workflow builds the wheel and uploads to PyPI.
+On GitHub → **Releases** → **Draft a new release** → choose tag `v0.3.2` → **Publish release**. The [`.github/workflows/publish.yml`](.github/workflows/publish.yml) workflow builds the wheel and uploads to PyPI.
 
 Test install after publish:
 
@@ -213,7 +213,7 @@ python -m unittest discover -s tests -v
 
 ## Citation
 
-**Before the manuscript is published**, cite the software with the Zenodo concept DOI (resolves to the latest release; pin `v0.3.1` or a commit hash for exact reproducibility):
+**Before the manuscript is published**, cite the software with the Zenodo concept DOI (resolves to the latest release; pin `v0.3.2` or a commit hash for exact reproducibility):
 
 ```bibtex
 @software{mohanty2026cryoem_halfmap_qc,
@@ -222,7 +222,7 @@ python -m unittest discover -s tests -v
   year = {2026},
   doi = {10.5281/zenodo.20618526},
   url = {https://doi.org/10.5281/zenodo.20618526},
-  version = {0.3.1}
+  version = {0.3.2}
 }
 ```
 
