@@ -5,7 +5,7 @@ try:
 
     __version__ = _pkg_version("cryoem-halfmap-qc")
 except Exception:
-    __version__ = "0.3.2"
+    __version__ = "0.3.3"
 
 from .analysis import (
     BinnedRelationship,

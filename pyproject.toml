@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cryoem-halfmap-qc"
-version = "0.3.2"
-description = "Local map reliability from cryo-EM density and half-maps"
+version = "0.3.3"
+description = "Half-map QC and local reliability scores for cryo-EM density maps"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -42,5 +42,8 @@ halfmap-qc = "cryoem_mrc.cli:main"
 include = ["cryoem_mrc*", "style*"]
 
 [project.urls]
+Homepage = "https://github.com/sarthaktexas/cryoem-halfmap-qc"
+Documentation = "https://github.com/sarthaktexas/cryoem-halfmap-qc#readme"
 Repository = "https://github.com/sarthaktexas/cryoem-halfmap-qc"
-Zenodo = "https://doi.org/10.5281/zenodo.20618526"
+Issues = "https://github.com/sarthaktexas/cryoem-halfmap-qc/issues"
+Changelog = "https://github.com/sarthaktexas/cryoem-halfmap-qc/releases"
