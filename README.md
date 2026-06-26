@@ -6,9 +6,12 @@
 
 Half-map reproducibility and **local reliability scores** for cryo-EM density maps: density features, windowed half-map correlation, **reliability_score**, and build / caution / omit zones.
 
+**Requires Python 3.10+** (`python --version`).
+
 Install the **`halfmap-qc`** command:
 
 ```bash
+python3 -m pip install -U pip
 pip install cryoem-halfmap-qc
 halfmap-qc --version
 ```
@@ -149,6 +152,40 @@ python -m unittest discover -s tests -q
 ```
 
 See also [CITATION.cff](CITATION.cff) for GitHub's **Cite this repository** button.
+
+---
+
+## Troubleshooting install
+
+**`No matching distribution found` / `from versions:` empty**
+
+1. **Check Python version** (most common cause):
+
+   ```bash
+   python3 --version   # must be 3.10 or newer
+   ```
+
+   macOS `/usr/bin/python3` is often **3.9** — it cannot install this package. Use Homebrew `python3.12`, `pyenv`, a venv, or on ARC `module load python/3.11`.
+
+2. **Upgrade pip** (old pip hides available versions):
+
+   ```bash
+   python3 -m pip install -U pip
+   ```
+
+3. **HPC / offline index** — point at PyPI explicitly:
+
+   ```bash
+   pip install cryoem-halfmap-qc -i https://pypi.org/simple
+   ```
+
+4. **No PyPI access on compute nodes** — install on a login node, or from git:
+
+   ```bash
+   pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.3"
+   ```
+
+Verify the package exists: https://pypi.org/project/cryoem-halfmap-qc/
 
 ---
 
