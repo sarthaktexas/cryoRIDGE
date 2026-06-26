@@ -2,7 +2,7 @@
 
 [![DOI](https://zenodo.org/badge/1262218538.svg)](https://doi.org/10.5281/zenodo.20618526)
 
-Python tools for **local map reliability** in cryo-EM reconstructions: density statistics, half-map reproducibility, windowed local FSC (Å), a reproducibility score (H_repro), build/caution/omit zones, and optional deposited-model B-factor checks.
+Python tools for **local map reliability** in cryo-EM reconstructions: density statistics, half-map reproducibility, windowed local FSC (Å), a reproducibility score (H_repro), and build/caution/omit zones.
 
 The goal is to test whether inexpensive map features track **half-map cross-correlation** and **local FSC** well enough to guide modeling. This is **not** a claim that density alone defines molecular flexibility.
 
@@ -37,7 +37,7 @@ halfmap-qc cohort --help    # flags for one subcommand
 halfmap-qc interactive      # menu explicitly
 ```
 
-**Dependencies:** NumPy, SciPy, mrcfile, Matplotlib, gemmi (mmCIF/PDB for residue-level validation).
+**Dependencies:** NumPy, SciPy, mrcfile, Matplotlib, gemmi, pandas.
 
 ---
 
@@ -48,11 +48,10 @@ Cryo-EM maps are **not** stored in this repository (too large for git). After cl
 ```text
 data/emd_<ID>-<label>/     # deposited map + half-maps (.map or .mrc)
 outputs/emd_<ID>/           # pipeline products (created by scripts)
-pdb/                        # fitted models (mmCIF) — sample models included for the cohort
 cohort/manifest.csv         # EMDB IDs, relative paths, contours, validation labels
 ```
 
-Download deposited and half maps from [EMDB](https://www.ebi.ac.uk/emdb/) and fitted models from [PDBe](https://www.ebi.ac.uk/pdbe/). Use the depositor-recommended contour for each entry (listed in `cohort/manifest.csv`). See [docs/COHORT.md](docs/COHORT.md) for download status and pipeline progress.
+Download deposited and half maps from [EMDB](https://www.ebi.ac.uk/emdb/). Use the depositor-recommended contour for each entry (listed in `cohort/manifest.csv`). See [docs/COHORT.md](docs/COHORT.md) for download status and pipeline progress.
 
 ---
 
@@ -90,7 +89,7 @@ halfmap-qc reliability --emd-id "${EMD}" --contour "${CONTOUR}" \
 **Cohort batch** (all active manifest entries with local data):
 
 ```bash
-halfmap-qc cohort --pending --skip-bfactor
+halfmap-qc cohort --pending
 ```
 
 **ARC / SLURM** (one map per array task; save a local `*.sbatch` — not in git):
@@ -99,7 +98,7 @@ halfmap-qc cohort --pending --skip-bfactor
 # After pip install -e . and rsync data/ + cohort/manifest.csv to $SCRATCH/thesis
 N=$(($(halfmap-qc cohort-ids | wc -l) - 1))
 sbatch --account=wrz135 --array=0-${N} --cpus-per-task=4 --mem=32G --time=00:45:00 \
-  --wrap='halfmap-qc cohort --emd-id $(halfmap-qc cohort-ids | sed -n "$((SLURM_ARRAY_TASK_ID+1))p") --skip-bfactor'
+  --wrap='halfmap-qc cohort --emd-id $(halfmap-qc cohort-ids | sed -n "$((SLURM_ARRAY_TASK_ID+1))p")'
 ```
 
 Or save a multi-line script as e.g. `~/halfmap-qc_array.sbatch` (gitignored) and `sbatch --array=0-${N} ~/halfmap-qc_array.sbatch`.
@@ -198,7 +197,7 @@ zones = classify_build_zones(reliability["reliability_score"])
 - **Windowed half-map correlation** is the fast internal reproducibility target for feature validation; **local FSC resolution (Å)** is the field-standard reference.
 - **Local FSC** is computed in-repo (`cryoem_mrc.local_fsc`); external BlocRes / ResMap / MonoRes maps are not loaded.
 - **H_repro** is the windowed gradient-constraint map *V* (legacy export name; ranked as **reliability_score**); **reliability_score** is an in-mask percentile used for build/caution/omit terciles. Resolvability gating uses windowed half-map CC or local FSC, not a separate disagreement map.
-- **Local variance** is often the strongest single feature predictor of windowed half-map correlation; treat B-factor correlations as exploratory and report partial correlations when comparing scores.
+- **Local variance** is often the strongest single feature predictor of windowed half-map correlation.
 
 **Thesis prose:** full narrative draft in [docs/THESIS_NARRATIVE.md](docs/THESIS_NARRATIVE.md). Writing guide and defense notes in [docs/THESIS_AND_PUBLICATION.md](docs/THESIS_AND_PUBLICATION.md).
 
@@ -214,7 +213,7 @@ python -m unittest discover -s tests -v
 
 ## Citation
 
-**Before the manuscript is published**, cite the software with the Zenodo concept DOI (resolves to the latest release; pin `v0.2.3` or a commit hash for exact reproducibility):
+**Before the manuscript is published**, cite the software with the Zenodo concept DOI (resolves to the latest release; pin `v0.3.1` or a commit hash for exact reproducibility):
 
 ```bibtex
 @software{mohanty2026cryoem_halfmap_qc,
@@ -223,7 +222,7 @@ python -m unittest discover -s tests -v
   year = {2026},
   doi = {10.5281/zenodo.20618526},
   url = {https://doi.org/10.5281/zenodo.20618526},
-  version = {0.2.3}
+  version = {0.3.1}
 }
 ```
 
