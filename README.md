@@ -12,6 +12,8 @@ halfmap-qc          # interactive menu
 halfmap-qc help     # CLI reference
 ```
 
+![halfmap-qc interactive menu](readme-assets/tui-screenshot.png)
+
 ## Pipeline
 
 Three commands, in order. Pass your own map paths and output directories.
@@ -41,7 +43,7 @@ halfmap-qc reliability \
 
 **Outputs:** `reliability_score` and omit / caution / build zones as MRC overlays on your reference grid, plus `.npz` and summary JSON under `--out-dir`.
 
-Flag details: `halfmap-qc analyze --help`, `halfmap-qc reliability --help`.
+Flag details: `halfmap-qc features --help`, `halfmap-qc analyze --help`, `halfmap-qc reliability --help`.
 
 ## HPC (ARC)
 
@@ -53,7 +55,13 @@ module load miniconda/24.4.0
 conda activate halfmap-qc    # after one-time: conda create -n halfmap-qc python=3.12 -y && pip install cryoem-halfmap-qc
 ```
 
-Put `module load` + `conda activate` in every `sbatch` script.
+**Batch job** — copy `scripts/halfmap_qc_cluster.sbatch.example`, set `MAP`, `HALF1`, `HALF2`, `REF`, `CONTOUR`, and submit. Each step aborts if the previous one fails.
+
+```bash
+cp scripts/halfmap_qc_cluster.sbatch.example run_my_map.sbatch
+# edit paths in run_my_map.sbatch
+sbatch run_my_map.sbatch
+```
 
 If install fails with empty `(from versions:)`, check `python --version` (need ≥3.10) and `pip install -U pip`.
 

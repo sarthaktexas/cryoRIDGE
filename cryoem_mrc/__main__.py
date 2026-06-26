@@ -14,7 +14,7 @@ from .reliability import save_build_zone_mrc, save_reliability_mrc
 from .pipeline import run_pipeline, save_feature_maps, save_feature_maps_npy
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Cryo-EM MRC feature pipeline")
     p.add_argument("mrc", type=Path, help="Path to .mrc / .map")
     p.add_argument(
@@ -136,7 +136,7 @@ def main() -> int:
         metavar="PATH",
         help="Write build_zone MRC (omit/caution/build); requires --half1, --half2, and --reference",
     )
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     if args.sigmas is not None and not (3 <= len(args.sigmas) <= 5):
         print("Error: --sigmas must have 3 to 5 values.", file=sys.stderr)

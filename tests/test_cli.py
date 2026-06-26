@@ -46,6 +46,23 @@ class TestHalfmapQcCli(unittest.TestCase):
             rc = main(["cohort"])
         self.assertEqual(rc, 2)
 
+    def test_features_subcommand_forwards_argv(self) -> None:
+        with patch("cryoem_mrc.__main__.main") as features_main:
+            features_main.return_value = 0
+            rc = main(["features", "map.mrc", "--float32", "--out", "features.npz"])
+        self.assertEqual(rc, 0)
+        features_main.assert_called_once_with(
+            ["map.mrc", "--float32", "--out", "features.npz"]
+        )
+
+    def test_features_main_accepts_argv(self) -> None:
+        from cryoem_mrc.__main__ import main as features_main
+
+        with patch("sys.stdout"):
+            with self.assertRaises(SystemExit) as ctx:
+                features_main(["--help"])
+        self.assertEqual(ctx.exception.code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

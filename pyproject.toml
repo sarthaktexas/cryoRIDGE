@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cryoem-halfmap-qc"
-version = "0.5.0"
+version = "0.5.1"
 description = "Half-map QC and local reliability scores for cryo-EM density maps"
 readme = "README.md"
 license = { text = "MIT" }

@@ -1,0 +1,76 @@
+#!/bin/bash
+# Full halfmap-qc pipeline on ARC: features → analyze → reliability.
+#
+# Copy and edit paths, then submit from a login node:
+#   cp scripts/halfmap_qc_cluster.sbatch.example run_my_map.sbatch
+#   # edit run_my_map.sbatch
+#   sbatch run_my_map.sbatch
+#
+# Requires halfmap-qc env on compute nodes (see README HPC section).
+
+#SBATCH --job-name=halfmap-qc
+#SBATCH --partition=compute1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=02:00:00
+#SBATCH --output=halfmap-qc_%j.log
+
+set -euo pipefail
+
+# --- edit these ---
+MAP="${MAP:-/path/to/avg_half.map}"              # map for feature extraction
+HALF1="${HALF1:-/path/to/half1.map}"
+HALF2="${HALF2:-/path/to/half2.map}"
+REF="${REF:-/path/to/reference.map}"
+CONTOUR="${CONTOUR:-0.116}"
+OUT_ROOT="${OUT_ROOT:-$PWD/halfmap_qc_out}"
+# ------------------
+
+module load miniconda/24.4.0
+conda activate halfmap-qc
+
+export PYTHONUNBUFFERED=1
+export MPLBACKEND=Agg
+
+FEATURES="${OUT_ROOT}/features.npz"
+ANALYSIS="${OUT_ROOT}/analysis"
+RELIABILITY="${OUT_ROOT}/reliability"
+
+mkdir -p "${OUT_ROOT}"
+
+run_step() {
+    local label=$1
+    shift
+    echo "==== ${label} ===="
+    if "$@"; then
+        echo "[halfmap-qc] ${label} OK"
+    else
+        local rc=$?
+        echo "[halfmap-qc] ${label} FAILED (exit ${rc})" >&2
+        exit "${rc}"
+    fi
+}
+
+run_step "features" \
+    halfmap-qc features "${MAP}" --float32 --out "${FEATURES}"
+
+run_step "analyze" \
+    halfmap-qc analyze \
+        --features "${FEATURES}" \
+        --half1 "${HALF1}" \
+        --half2 "${HALF2}" \
+        --reference "${REF}" \
+        --contour "${CONTOUR}" \
+        --out-dir "${ANALYSIS}"
+
+run_step "reliability" \
+    halfmap-qc reliability \
+        --reference "${REF}" \
+        --half1 "${HALF1}" \
+        --half2 "${HALF2}" \
+        --features "${FEATURES}" \
+        --halfmap-npz "${ANALYSIS}/halfmap_metrics.npz" \
+        --contour "${CONTOUR}" \
+        --out-dir "${RELIABILITY}"
+
+echo "[halfmap-qc] pipeline complete → ${RELIABILITY}"
