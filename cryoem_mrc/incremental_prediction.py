@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .half_map_repro import LEGACY_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_KEY
+from .halfmap_metrics import LEGACY_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_KEY
 from .metric_comparison import load_all_metrics
 from .repo_paths import COHORT_MANIFEST, emd_output_dir, resolve_halfmap_reliability_dir
 from .structure_validation import _b_iso_is_uniform, load_cohort_manifest_row

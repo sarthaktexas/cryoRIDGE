@@ -1,17 +1,18 @@
-"""Thesis bundle: half-map reliability zones, build zones, figures, and write-up (EMD-49450 defaults).
+"""Export reliability score, build zones, and MRC overlays for one map.
 
-Generates under ``outputs/emd_<ID>/halfmap_reliability/``:
+Writes under ``--out-dir``:
 
 - ``reliability.npz`` — reliability_score, constraint V (legacy key reliability_H_repro), build_zone
-- ``*.mrc`` — volume overlays on deposited reference grid
-- ``figures/model_building_row.png`` — local resolution, reliability score, build zones, locres–reliability disagreement map
-- ``../analysis/figures/analysis_validation_panel.png`` — anchor map only (2×2 validation)
-- ``HALFMAP_RELIABILITY_RESULTS.md`` — per-map results (methods in docs/HALFMAP_RELIABILITY.md)
+- ``{label}_reliability.mrc``, ``{label}_build_zones.mrc`` — overlays on the reference grid
+- ``figures/model_building_row.png`` — reliability + build zones (+ optional local-resolution comparison)
+- ``run_metadata.json`` — Spearman / partial correlations vs windowed half-map CC
 
 Example::
 
-    source .venv/bin/activate
-    PYTHONUNBUFFERED=1 python scripts/run_halfmap_reliability_export.py
+    halfmap-qc reliability \\
+      --reference deposited.map --half1 half1.map --half2 half2.map \\
+      --features features.npz --halfmap-npz analysis/halfmap_metrics.npz \\
+      --contour 0.116 --out-dir reliability_out
 """
 
 from __future__ import annotations
@@ -41,16 +42,16 @@ from cryoem_mrc.analysis import (
     compute_feature_target_correlations,
     plot_analysis_validation_panel,
 )
-from cryoem_mrc.half_map_repro import (
+from cryoem_mrc.halfmap_metrics import (
     WINDOWED_HALFMAP_CORRELATION_KEY,
     WINDOWED_HALFMAP_CORRELATION_LABEL,
     load_windowed_halfmap_correlation,
 )
-from cryoem_mrc.density_source import DensitySource, rho_normalized_for_reliability
+from cryoem_mrc.density_source import rho_normalized_for_reliability
 from cryoem_mrc.figure_cleanup import prune_halfmap_reliability_retired_figures
 from cryoem_mrc.io import load_mrc
 from cryoem_mrc.pipeline import load_feature_maps
-from cryoem_mrc.map_grid import load_full_and_half_maps
+from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid
 from cryoem_mrc.reliability import (
     BUILD_ZONE_LABELS,
     attach_reliability_to_features,
@@ -59,17 +60,7 @@ from cryoem_mrc.reliability import (
     save_reliability_mrc,
 )
 from cryoem_mrc.local_resolution_io import load_local_resolution_map
-from cryoem_mrc.repo_paths import (
-    ANCHOR_EMDB_ID,
-    DATA_ROOT,
-    analysis_dir,
-    avg_features_npz_path,
-    find_features_npz,
-    halfmap_metrics_npz,
-    halfmap_reliability_dir,
-    locres_blocres_mrc,
-    primary_features_npz_path,
-)
+from cryoem_mrc.local_resolution_io import resample_local_resolution_onto_reference
 from cryoem_mrc.mask_bbox import (
     bbox_from_mask,
     crop_array,
@@ -88,16 +79,31 @@ from cryoem_mrc.volume_slices import (
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--data-dir", type=Path, default=DATA_ROOT / "emd_49450-mgtA_e2p+e1")
-    p.add_argument("--emd-id", type=str, default="49450")
-    p.add_argument("--reference", type=Path, default=None)
-    p.add_argument("--half1", type=Path, default=None)
-    p.add_argument("--half2", type=Path, default=None)
-    p.add_argument("--features", type=Path, default=None)
-    p.add_argument("--halfmap-npz", type=Path, default=halfmap_metrics_npz("49450"))
-    p.add_argument("--contour", type=float, default=0.116)
+    p.add_argument("--reference", required=True, type=Path, help="Reference map (grid for MRC exports)")
+    p.add_argument("--half1", required=True, type=Path)
+    p.add_argument("--half2", required=True, type=Path)
+    p.add_argument("--features", required=True, type=Path, help="Feature .npz from halfmap-qc features")
+    p.add_argument("--halfmap-npz", required=True, type=Path, help="Half-map metrics .npz from halfmap-qc analyze")
+    p.add_argument(
+        "--contour",
+        required=True,
+        type=float,
+        help="Density contour for the analysis mask (same value as the analyze step)",
+    )
+    p.add_argument("--out-dir", required=True, type=Path)
+    p.add_argument(
+        "--label",
+        type=str,
+        default=None,
+        help="Short label for output filenames and figures (default: reference map stem)",
+    )
+    p.add_argument(
+        "--local-res",
+        type=Path,
+        default=None,
+        help="Optional Å local-resolution map (BlocRes/ResMap) for the comparison figure",
+    )
     p.add_argument("--window", type=int, default=5)
-    p.add_argument("--out-dir", type=Path, default=halfmap_reliability_dir("49450"))
     p.add_argument("--dpi", type=int, default=200)
     p.add_argument("--zoom-padding", type=int, default=24)
     p.add_argument(
@@ -108,12 +114,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--write-analysis-panel",
         action="store_true",
-        help=f"Write 2×2 validation panel under analysis/figures/ (default for EMD-{ANCHOR_EMDB_ID})",
-    )
-    p.add_argument(
-        "--no-write-analysis-panel",
-        action="store_true",
-        help="Skip anchor validation panel even for the canonical anchor map",
+        help="Write 2×2 validation panel under out-dir/figures/analysis_validation_panel.png",
     )
     p.add_argument(
         "--density-source",
@@ -134,24 +135,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _output_label(args: argparse.Namespace) -> str:
+    if args.label and str(args.label).strip():
+        return str(args.label).strip()
+    return args.reference.stem
+
+
 def _paths(args: argparse.Namespace) -> dict[str, Path]:
-    d = args.data_dir
-    emd = f"emd_{args.emd_id}"
-    source: DensitySource = args.density_source
-    default_features = (
-        avg_features_npz_path(d, args.emd_id, args.contour)
-        if source == "avg_half"
-        else primary_features_npz_path(d, args.emd_id, args.contour)
-    )
     return {
-        "reference": args.reference or d / f"{emd}.map",
-        "half1": args.half1 or d / f"{emd}_half_map_1.map",
-        "half2": args.half2 or d / f"{emd}_half_map_2.map",
-        "features": (
-            args.features
-            or find_features_npz(d, args.emd_id, args.contour, density_source=source)
-            or default_features
-        ),
+        "reference": args.reference,
+        "half1": args.half1,
+        "half2": args.half2,
+        "features": args.features,
     }
 
 
@@ -167,12 +162,17 @@ def _optional_density_normalized(features_path: Path) -> np.ndarray | None:
     return np.asarray(feats["density_normalized"], dtype=np.float32)
 
 
-def _load_local_resolution_array(emd_id: str) -> np.ndarray:
-    """BlocRes local-resolution map on the deposited reference grid."""
-    locres_path = locres_blocres_mrc(emd_id)
-    if not locres_path.is_file():
-        raise FileNotFoundError(f"EMD-{emd_id}: missing {locres_path}")
-    return np.asarray(load_local_resolution_map(locres_path, source="blocres").data, dtype=np.float32)
+def _load_optional_local_resolution(
+    locres_path: Path | None,
+    reference_path: Path,
+) -> np.ndarray | None:
+    """Resample an optional local-resolution map onto the reference grid."""
+    if locres_path is None or not locres_path.is_file():
+        return None
+    ref_grid = load_map_grid(reference_path, dtype=np.float32)
+    loaded = load_local_resolution_map(locres_path)
+    resampled = resample_local_resolution_onto_reference(loaded, ref_grid)
+    return np.asarray(resampled.data, dtype=np.float32)
 
 
 def _normalized_locres_quality(
@@ -258,17 +258,17 @@ def _plot_continuous_panel(
 
 def _write_model_building_row_figure(
     *,
-    emd_id: str,
+    label: str,
     contour: float,
     mask: np.ndarray,
-    local_resolution: np.ndarray,
+    local_resolution: np.ndarray | None,
     reliability_score: np.ndarray,
     zones: np.ndarray,
     fig_dir: Path,
     dpi: int,
     zoom_padding: int,
 ) -> Path:
-    """Write local resolution / reliability / build-zone slices plus disagreement map."""
+    """Write reliability / build-zone slices; include locres comparison when provided."""
     fig_dir.mkdir(parents=True, exist_ok=True)
     z = pick_slice_index(mask, axis=0)
     msl = mask[z]
@@ -279,12 +279,49 @@ def _write_model_building_row_figure(
             return arr
         return arr[crop[0]:crop[1], crop[2]:crop[3]]
 
-    disagreement = _locres_reliability_disagreement(local_resolution, reliability_score, mask)
-    loc_sl = _crop_2d(extract_slice(local_resolution, axis=0, index=z))
     rel_sl = _crop_2d(extract_slice(reliability_score, axis=0, index=z))
     zone_sl = _crop_2d(extract_slice(zones.astype(float), axis=0, index=z))
-    diff_sl = _crop_2d(extract_slice(disagreement, axis=0, index=z))
     m_c = _crop_2d(msl)
+
+    if local_resolution is None:
+        fig = plt.figure(figsize=(8.5, 4.8), facecolor="white")
+        gs = fig.add_gridspec(
+            2,
+            2,
+            height_ratios=[1, 0.07],
+            hspace=0.38,
+            wspace=0.16,
+            left=0.06,
+            right=0.99,
+            top=0.86,
+            bottom=0.10,
+        )
+        ax_rel = fig.add_subplot(gs[0, 0])
+        cax_rel = fig.add_subplot(gs[1, 0])
+        _plot_continuous_panel(
+            ax_rel,
+            rel_sl,
+            m_c,
+            cmap=RELIABILITY_CMAP_SCORE,
+            title=f"reliability score\nZ = {z}",
+            vmin=0.0,
+            vmax=1.0,
+            cax=cax_rel,
+        )
+        label_panel(ax_rel, "a")
+        ax_z = fig.add_subplot(gs[0, 1])
+        cax_z = fig.add_subplot(gs[1, 1])
+        _plot_build_zones(ax_z, zone_sl, m_c, title=f"build zones\nZ = {z}", cax=cax_z)
+        label_panel(ax_z, "b")
+        fig.suptitle(f"{label} model-building guidance (mask ρ≥{contour})", fontsize=12)
+        out = fig_dir / "model_building_row.png"
+        save_nature(fig, out, dpi=dpi)
+        plt.close(fig)
+        return out
+
+    disagreement = _locres_reliability_disagreement(local_resolution, reliability_score, mask)
+    loc_sl = _crop_2d(extract_slice(local_resolution, axis=0, index=z))
+    diff_sl = _crop_2d(extract_slice(disagreement, axis=0, index=z))
     loc_lo, loc_hi = locres_robust_limits(loc_sl, m_c)
 
     fig = plt.figure(figsize=(15.5, 4.8), facecolor="white")
@@ -333,97 +370,17 @@ def _write_model_building_row_figure(
     _plot_build_zones(ax_z, zone_sl, m_c, title=f"build zones\nZ = {z}", cax=cax_z)
     label_panel(ax_z, "c")
 
-    fig.suptitle(f"EMD-{emd_id} model-building guidance (mask ρ≥{contour})", fontsize=12)
+    fig.suptitle(f"{label} model-building guidance (mask ρ≥{contour})", fontsize=12)
     out = fig_dir / "model_building_row.png"
     save_nature(fig, out, dpi=dpi)
     plt.close(fig)
     return out
 
 
-def _write_thesis_md(
-    path: Path,
-    *,
-    emd_id: str,
-    contour: float,
-    n_mask: int,
-    spearman: dict[str, float],
-    partial: dict[str, float],
-    zone_counts: dict[int, int],
-    paths: dict[str, Path],
-) -> None:
-    rel_s = spearman.get("reliability_score", float("nan"))
-    var_s = spearman.get("local_variance", float("nan"))
-    v_s = spearman.get("reliability_H_repro", float("nan"))
-    text = f"""# Half-map reliability zones — EMD-{emd_id}
-
-Per-map results bundle. **Methods:** [docs/HALFMAP_RELIABILITY.md](docs/HALFMAP_RELIABILITY.md).
-
-Mask: deposited reference at ρ ≥ {contour}. In-mask voxels: **{n_mask:,}**.
-
----
-
-## Results (ρ_ref ≥ {contour})
-
-| Feature | Spearman ρ vs windowed half-map correlation |
-|---------|---------------------------|
-| local_variance | {var_s:+.4f} |
-| constraint V (legacy key reliability_H_repro) | {v_s:+.4f} |
-| **reliability_score** | **{rel_s:+.4f}** |
-
-Partial Spearman vs CC controlling for local_variance:
-
-| Feature | Partial ρ |
-|---------|-----------|
-| reliability_score | {partial.get('reliability_score', float('nan')):+.4f} |
-| constraint V | {partial.get('reliability_H_repro', float('nan')):+.4f} |
-
-**Zone counts (in-mask voxels):**
-
-| Zone | Count |
-|------|------:|
-| 0 omit | {zone_counts.get(0, 0):,} |
-| 1 caution | {zone_counts.get(1, 0):,} |
-| 2 build | {zone_counts.get(2, 0):,} |
-
-**Interpretation:** `local_variance` remains the strongest single statistic (ρ ≈ {var_s:.2f}). Constraint **V** (ρ ≈ {v_s:.2f}) ranks placement difficulty; the in-mask percentile **reliability_score** is the default export for model-building guidance.
-
----
-
-## Draft paragraphs (methods)
-
-> We computed voxel-wise **reliability scores** from half-map–derived statistics: local features on ``0.5*(h₁+h₂)`` and constraint **V** on z-scored ``ρ = ½(h₁+h₂)``. The exported **reliability_score** is the in-mask percentile rank of constraint V (higher = more reliable locally). Macromolecular voxels were selected with the EMDB-recommended contour ρ_ref ≥ {contour} on the **deposited primary map**. Reliability and build-zone **MRC overlays** are written on that deposited grid for model-building visualization. **Build zones** (omit / caution / build) were assigned by terciles of reliability_score inside this mask.
-
-## Draft paragraphs (results)
-
-> On EMD-{emd_id} ({n_mask:,} in-mask voxels), reliability_score correlated with windowed half-map cross-correlation at Spearman ρ = {rel_s:.2f}, comparable to constraint V (ρ = {v_s:.2f}) and below local variance (ρ = {var_s:.2f}). Zones labeled **build** ({zone_counts.get(2, 0):,} voxels) mark regions where independent half-maps agree and local statistics support confident model placement; **omit** zones ({zone_counts.get(0, 0):,} voxels) flag areas where the map should not be over-interpreted. We treat these labels as **map-quality guidance**, not biophysical flexibility measurements.
-
-## Draft paragraphs (discussion / limitations)
-
-> Reliability scoring identifies trustworthy regions **inside** the density contour. Flexible segments below the contour or absent from the map are invisible to this analysis. Future work should test build-zone transfer across a multi-map cohort and compare against deposited models residue-by-residue when PDB coordinates are available.
-
----
-
-## Files generated
-
-| File | Description |
-|------|-------------|
-| `reliability.npz` | reliability_score, constraint V, build_zone |
-| `emd_{emd_id}_reliability.mrc` | Reliability overlay (0–1 score) |
-| `emd_{emd_id}_build_zones.mrc` | 0/1/2 zone labels |
-| `figures/model_building_row.png` | Local resolution, reliability score, build zones, locres–reliability disagreement map |
-| `../analysis/figures/analysis_validation_panel.png` | Anchor map: 2×2 variance / reliability validation |
-| `run_metadata.json` | Spearman / partial ρ (cohort heatmap reads this) |
-
-**Inputs:** `{paths['reference'].name}`, `{paths['features'].name}`, half-maps, `{paths.get('halfmap_npz', 'halfmap_metrics.npz')}`.
-
-See also: `docs/HALFMAP_RELIABILITY.md`, `docs/STATISTICS_METHODS.md`.
-"""
-    path.write_text(text)
-
-
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     paths = _paths(args)
+    label = _output_label(args)
     out_dir = args.out_dir
     fig_dir = out_dir / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -450,9 +407,9 @@ def main(argv: list[str] | None = None) -> int:
             zones = np.asarray(rel["build_zone"])
             contour = float(rel["contour"]) if "contour" in rel else args.contour
         mask = build_contour_mask(reference, contour)
-        local_resolution = _load_local_resolution_array(args.emd_id)
+        local_resolution = _load_optional_local_resolution(args.local_res, paths["reference"])
         out = _write_model_building_row_figure(
-            emd_id=args.emd_id,
+            label=label,
             contour=contour,
             mask=mask,
             local_resolution=local_resolution,
@@ -571,17 +528,21 @@ def main(argv: list[str] | None = None) -> int:
         reliability_smoothness=feats["reliability_smoothness"],
         build_zone=zones,
         contour=np.float32(args.contour),
-        emd_id=np.array(args.emd_id),
+        label=np.array(label),
     )
-    save_reliability_mrc(paths["reference"], feats["reliability_score"], out_dir / f"emd_{args.emd_id}_reliability.mrc")
-    save_build_zone_mrc(paths["reference"], zones, out_dir / f"emd_{args.emd_id}_build_zones.mrc")
+    save_reliability_mrc(
+        paths["reference"],
+        feats["reliability_score"],
+        out_dir / f"{label}_reliability.mrc",
+    )
+    save_build_zone_mrc(paths["reference"], zones, out_dir / f"{label}_build_zones.mrc")
     (out_dir / "run_metadata.json").write_text(
         json.dumps({"spearman": spearman, "partial": partial, "zone_counts": zone_counts, "n_mask": n_mask}, indent=2) + "\n"
     )
 
-    local_resolution = _load_local_resolution_array(args.emd_id)
+    local_resolution = _load_optional_local_resolution(args.local_res, paths["reference"])
     out = _write_model_building_row_figure(
-        emd_id=args.emd_id,
+        label=label,
         contour=args.contour,
         mask=mask,
         local_resolution=local_resolution,
@@ -593,20 +554,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"{log} wrote {out}", flush=True)
 
-    write_panel = (
-        args.write_analysis_panel
-        or (str(args.emd_id).strip() == ANCHOR_EMDB_ID and not args.no_write_analysis_panel)
-    )
-    if write_panel:
+    if args.write_analysis_panel:
         feature_maps = load_feature_maps(paths["features"])
-        panel_path = analysis_dir(args.emd_id) / "figures" / "analysis_validation_panel.png"
+        panel_path = fig_dir / "analysis_validation_panel.png"
         plot_analysis_validation_panel(
             feature_maps,
             {WINDOWED_HALFMAP_CORRELATION_KEY: cc},
             mask,
             reliability_score=feats["reliability_score"],
             spearman=spearman,
-            emd_id=str(args.emd_id),
+            emd_id=label,
             contour=args.contour,
             save_path=panel_path,
             dpi=args.dpi,
@@ -617,18 +574,6 @@ def main(argv: list[str] | None = None) -> int:
         removed = prune_halfmap_reliability_retired_figures(fig_dir)
         if removed:
             print(f"{log} pruned {len(removed)} retired figure(s)", flush=True)
-
-    paths_meta = {**paths, "halfmap_npz": args.halfmap_npz}
-    _write_thesis_md(
-        out_dir / "HALFMAP_RELIABILITY_RESULTS.md",
-        emd_id=args.emd_id,
-        contour=args.contour,
-        n_mask=n_mask,
-        spearman=spearman,
-        partial=partial,
-        zone_counts=zone_counts,
-        paths=paths_meta,
-    )
 
     print(f"{log} wrote {out_dir}", flush=True)
     return 0

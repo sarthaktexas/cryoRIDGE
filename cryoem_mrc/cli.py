@@ -7,11 +7,9 @@ import sys
 from textwrap import dedent
 
 from cryoem_mrc import __version__
-from cryoem_mrc.cohort_pipeline import cohort_emdb_ids, main as cohort_main
-from cryoem_mrc.repo_paths import COHORT_MANIFEST
 from cryoem_mrc.tui import HELP_TEXT, print_help, run_interactive
 
-_COMMANDS = frozenset({"features", "analyze", "reliability", "cohort", "cohort-ids", "interactive", "help"})
+_COMMANDS = frozenset({"features", "analyze", "reliability", "interactive", "help"})
 
 _CLI_EPILOG = dedent(
     """
@@ -19,17 +17,18 @@ _CLI_EPILOG = dedent(
       halfmap-qc                              interactive menu (TTY)
       halfmap-qc help                         full command reference
       halfmap-qc features map.mrc --float32 --out features.npz
-      halfmap-qc cohort --emd-id 49450 --skip-bfactor
-      halfmap-qc cohort --pending --skip-bfactor
-      halfmap-qc cohort-ids                   EMDB IDs for SLURM arrays
+      halfmap-qc analyze --features features.npz --half1 h1.map --half2 h2.map \\
+        --reference ref.map --contour 0.116 --out-dir analysis_out
+      halfmap-qc reliability --reference ref.map --half1 h1.map --half2 h2.map \\
+        --features features.npz --halfmap-npz analysis_out/halfmap_metrics.npz \\
+        --contour 0.116 --out-dir reliability_out
 
     install:
       pip install cryoem-halfmap-qc
-      pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.3"
 
     subcommand help:
       halfmap-qc features --help
-      halfmap-qc cohort --help
+      halfmap-qc reliability --help
     """
 ).strip()
 
@@ -50,17 +49,6 @@ def _reliability(argv: list[str]) -> int:
     from cryoem_mrc.reliability_driver import main as reliability_main
 
     return reliability_main(argv)
-
-
-def _cohort_ids(argv: list[str]) -> int:
-    from pathlib import Path
-
-    p = argparse.ArgumentParser(description="Print cohort EMDB IDs (one per line) for SLURM arrays.")
-    p.add_argument("--manifest", type=Path, default=COHORT_MANIFEST)
-    args = p.parse_args(argv)
-    for eid in cohort_emdb_ids(args.manifest):
-        print(eid)
-    return 0
 
 
 def _help(_argv: list[str]) -> int:
@@ -99,16 +87,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "reliability",
         help="Reliability score, build zones, and export MRCs for one map",
     ).set_defaults(_run=_reliability)
-
-    sub.add_parser(
-        "cohort",
-        help="Batch pipeline from cohort/manifest.csv (features → analyze → reliability)",
-    ).set_defaults(_run=cohort_main)
-
-    sub.add_parser(
-        "cohort-ids",
-        help="List EMDB IDs in the active cohort (for parallel cluster jobs)",
-    ).set_defaults(_run=_cohort_ids)
 
     sub.add_parser(
         "interactive",

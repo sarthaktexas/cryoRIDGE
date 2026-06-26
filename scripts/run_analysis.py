@@ -57,7 +57,7 @@ from cryoem_mrc.analysis import (
 )
 from cryoem_mrc.figure_cleanup import prune_analysis_scatter_figures
 from cryoem_mrc.mask_bbox import format_bbox_log, pad_voxels_for_filters
-from cryoem_mrc.half_map_repro import (
+from cryoem_mrc.halfmap_metrics import (
     WINDOWED_HALFMAP_CORRELATION_KEY,
     normalize_halfmap_metric_keys,
     save_half_map_metrics_mrc,

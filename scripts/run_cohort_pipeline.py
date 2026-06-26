@@ -1,4 +1,4 @@
-"""Thin wrapper — prefer ``halfmap-qc cohort`` (installed via cryoem-halfmap-qc)."""
+"""Thesis batch pipeline — run from repo root with ``cohort/manifest.csv``."""
 
 from __future__ import annotations
 

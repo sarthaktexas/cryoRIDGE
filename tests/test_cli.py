@@ -38,8 +38,13 @@ class TestHalfmapQcCli(unittest.TestCase):
     def test_help_text_mentions_install(self) -> None:
         from cryoem_mrc.tui import HELP_TEXT
 
-        self.assertIn("PyPI", HELP_TEXT)
-        self.assertIn("git+", HELP_TEXT)
+        self.assertIn("pip install cryoem-halfmap-qc", HELP_TEXT)
+        self.assertNotIn("git+", HELP_TEXT)
+
+    def test_cohort_removed_from_cli(self) -> None:
+        with patch("sys.stdout"), patch("sys.stderr"):
+            rc = main(["cohort"])
+        self.assertEqual(rc, 2)
 
 
 if __name__ == "__main__":

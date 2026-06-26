@@ -1,13 +1,3 @@
-# Publish cryoem-halfmap-qc to PyPI on GitHub release tags (v*).
-#
-# One-time setup:
-#   1. Create https://pypi.org/manage/account/register/
-#   2. Add trusted publisher on PyPI for this repo (Settings → Publishing)
-#   3. Tag: git tag v0.3.1 && git push origin v0.3.1
-#
-# Until then, install from GitHub:
-#   pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.1"
-
 name: Publish to PyPI
 
 on:

@@ -34,7 +34,7 @@ from cryoem_mrc.local_stats import (
 )
 from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid
 from cryoem_mrc.mechanics import classify_tv_regime, fluctuation_constraint_decomposition
-from cryoem_mrc.half_map_repro import load_windowed_halfmap_correlation
+from cryoem_mrc.halfmap_metrics import load_windowed_halfmap_correlation
 from cryoem_mrc.repo_paths import halfmap_metrics_npz
 from cryoem_mrc.structure_validation import iter_ca_residues, sample_volume_at_ca
 

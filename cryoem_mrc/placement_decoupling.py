@@ -11,7 +11,7 @@ import numpy as np
 from scipy import stats
 
 from .analysis import build_contour_mask
-from .half_map_repro import (
+from .halfmap_metrics import (
     WINDOWED_HALFMAP_CORRELATION_KEY,
     half_map_local_metrics,
     load_windowed_halfmap_correlation,

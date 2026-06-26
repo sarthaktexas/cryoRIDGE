@@ -1,4 +1,4 @@
-"""Local reproducibility metrics between two cryo-EM half-maps on the same grid."""
+"""Sliding-window half-map agreement metrics on a shared grid."""
 
 from __future__ import annotations
 
@@ -7,18 +7,20 @@ from typing import Mapping
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy import ndimage
 
 from style.nature import apply, label_panel, savefig as save_nature
-from scipy import ndimage
 
 from .io import save_volume_like_reference
 
-# Canonical half-map agreement metric (windowed Pearson correlation of half-map patches).
 WINDOWED_HALFMAP_CORRELATION_KEY = "windowed_halfmap_correlation"
 LEGACY_HALFMAP_CORRELATION_KEY = "local_cross_correlation"
 WINDOWED_HALFMAP_CORRELATION_LABEL = "windowed half-map correlation"
-WINDOWED_HALFMAP_CORRELATION_MRC_NAME = "half_repro_windowed_halfmap_correlation.mrc"
-LEGACY_HALFMAP_CORRELATION_MRC_NAME = "half_repro_local_cross_correlation.mrc"
+WINDOWED_HALFMAP_CORRELATION_MRC_NAME = "halfmap_windowed_halfmap_correlation.mrc"
+_LEGACY_MRC_NAMES = (
+    "half_repro_windowed_halfmap_correlation.mrc",
+    "half_repro_local_cross_correlation.mrc",
+)
 
 
 def _uf(x: np.ndarray, size: int) -> np.ndarray:
@@ -38,11 +40,10 @@ def half_map_local_metrics(
     Returns (Z, Y, X) arrays:
 
     - ``windowed_halfmap_correlation``: Pearson correlation between the two halves
-      in a sliding cubic window (internal reproducibility proxy; not field-standard FSC)
+      in a sliding cubic window
     - ``local_mean_squared_difference``: mean of ``(h1 - h2)²``
     - ``local_variance_difference``: variance of ``(h1 - h2)``
     - ``local_reproducibility_snr``: ``0.5 * (|mean(h1)| + |mean(h2)|) / (std(h1-h2) + eps)``
-      where mean/std are local to the same window (dimensionless, not dB).
     """
     if half1.shape != half2.shape:
         raise ValueError(f"Shape mismatch: {half1.shape} vs {half2.shape}")
@@ -92,26 +93,22 @@ def normalize_halfmap_metric_keys(metrics: Mapping[str, np.ndarray]) -> dict[str
 
 
 def load_windowed_halfmap_correlation(npz: Mapping[str, np.ndarray]) -> np.ndarray:
-    """Load windowed half-map correlation from an NPZ dict (supports legacy key)."""
+    """Load windowed half-map correlation from an NPZ dict."""
     if WINDOWED_HALFMAP_CORRELATION_KEY in npz:
         return np.asarray(npz[WINDOWED_HALFMAP_CORRELATION_KEY], dtype=np.float32)
     if LEGACY_HALFMAP_CORRELATION_KEY in npz:
         return np.asarray(npz[LEGACY_HALFMAP_CORRELATION_KEY], dtype=np.float32)
-    raise KeyError(
-        f"NPZ missing {WINDOWED_HALFMAP_CORRELATION_KEY!r} "
-        f"(legacy {LEGACY_HALFMAP_CORRELATION_KEY!r})"
-    )
+    raise KeyError(f"NPZ missing {WINDOWED_HALFMAP_CORRELATION_KEY!r}")
 
 
 def resolve_windowed_halfmap_correlation_mrc(metrics_dir: Path) -> Path | None:
-    """Return exported MRC path (canonical name first, then legacy)."""
+    """Return exported windowed-correlation MRC if present."""
     metrics_dir = Path(metrics_dir)
-    canonical = metrics_dir / WINDOWED_HALFMAP_CORRELATION_MRC_NAME
-    if canonical.is_file():
-        return canonical
-    legacy = metrics_dir / LEGACY_HALFMAP_CORRELATION_MRC_NAME
-    if legacy.is_file():
-        return legacy
+    candidates = (WINDOWED_HALFMAP_CORRELATION_MRC_NAME, *_LEGACY_MRC_NAMES)
+    for name in candidates:
+        path = metrics_dir / name
+        if path.is_file():
+            return path
     return None
 
 
@@ -120,13 +117,9 @@ def save_half_map_metrics_mrc(
     reference_mrc_path: str | Path,
     out_dir: str | Path,
     *,
-    prefix: str = "half_repro_",
+    prefix: str = "halfmap_",
 ) -> dict[str, Path]:
-    """
-    Write each metric volume as MRC on the same grid as ``reference_mrc_path``.
-
-    Returns a map from metric name to output path.
-    """
+    """Write each metric volume as MRC on the same grid as ``reference_mrc_path``."""
     ref = Path(reference_mrc_path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -148,9 +141,7 @@ def plot_half_map_metric_distributions(
     save_path: str | Path | None = None,
     show: bool = True,
 ) -> plt.Figure:
-    """
-    Histogram each metric (uniform random subsample of voxels for large maps).
-    """
+    """Histogram each metric (uniform random subsample of voxels for large maps)."""
     rng = np.random.default_rng(0)
     names = list(metrics.keys())
     n = len(names)

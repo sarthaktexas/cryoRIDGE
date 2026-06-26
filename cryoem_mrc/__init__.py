@@ -5,7 +5,7 @@ try:
 
     __version__ = _pkg_version("cryoem-halfmap-qc")
 except Exception:
-    __version__ = "0.3.3"
+    __version__ = "0.5.0"
 
 from .analysis import (
     BinnedRelationship,
@@ -20,7 +20,7 @@ from .analysis import (
     write_correlation_csv,
     write_summary_text,
 )
-from .half_map_repro import (
+from .halfmap_metrics import (
     half_map_local_metrics,
     plot_half_map_metric_distributions,
     save_half_map_metrics_mrc,

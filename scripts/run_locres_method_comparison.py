@@ -33,7 +33,7 @@ from style.nature import apply, savefig as save_nature
 from style.thesis_palette import PALETTES
 
 from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
-from cryoem_mrc.half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY
+from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY
 from cryoem_mrc.metric_comparison import LocresSource, metric_comparison_dirname
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, emd_output_dir
 

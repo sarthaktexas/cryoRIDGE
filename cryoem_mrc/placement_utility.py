@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY
+from .halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY
 from .cohort_resolution import COHORT_RESOLUTION_BINS, median_rho_by_resolution_bin
 from .incremental_prediction import (
     TARGET_Q,

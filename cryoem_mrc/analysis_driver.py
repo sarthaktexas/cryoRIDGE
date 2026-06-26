@@ -57,7 +57,7 @@ from cryoem_mrc.analysis import (
 )
 from cryoem_mrc.figure_cleanup import prune_analysis_scatter_figures
 from cryoem_mrc.mask_bbox import format_bbox_log, pad_voxels_for_filters
-from cryoem_mrc.half_map_repro import (
+from cryoem_mrc.halfmap_metrics import (
     WINDOWED_HALFMAP_CORRELATION_KEY,
     normalize_halfmap_metric_keys,
     save_half_map_metrics_mrc,
@@ -77,9 +77,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--half2", required=True, type=Path)
     p.add_argument("--reference", required=True, type=Path,
                    help="Reference MRC (used for grid + saving derived MRCs)")
-    p.add_argument("--contour", type=float, default=0.116,
-                   help="Density contour for the analysis mask (default: 0.116, "
-                        "EMDB recommended for EMD-49450)")
+    p.add_argument("--contour", type=float, required=True,
+                   help="Density contour for the analysis mask")
     p.add_argument("--window", type=int, default=5, help="Sliding window for half-map metrics")
     p.add_argument("--chunk-z", type=int, default=64, help="Z-chunk size for memory-bounded compute")
     p.add_argument(

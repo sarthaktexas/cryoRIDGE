@@ -11,7 +11,7 @@ import pandas as pd
 from scipy import stats
 
 from .analysis import build_contour_mask
-from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
+from .halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
 from .local_resolution import (
     RESMAP_UNRESOLVED_SENTINEL_A,
     aggregate_locres_to_ca,

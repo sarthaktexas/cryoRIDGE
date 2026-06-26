@@ -13,7 +13,7 @@ import numpy as np
 from scipy import stats
 
 from .analysis import build_contour_mask
-from .half_map_repro import (
+from .halfmap_metrics import (
     LEGACY_HALFMAP_CORRELATION_KEY,
     WINDOWED_HALFMAP_CORRELATION_KEY,
     WINDOWED_HALFMAP_CORRELATION_LABEL,

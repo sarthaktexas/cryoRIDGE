@@ -1,7 +1,7 @@
 """Batch reliability pipeline: features → half-map analysis → reliability export.
 
-Run from the project root (where ``cohort/manifest.csv``, ``data/``, and ``outputs/`` live).
-Use ``halfmap-qc cohort --pending`` or ``halfmap-qc cohort --emd-id <ID>``.
+Thesis-only batch driver. Run via ``python scripts/run_cohort_pipeline.py`` from the
+project root where ``cohort/manifest.csv`` and local map paths exist.
 """
 
 from __future__ import annotations
@@ -20,10 +20,12 @@ from cryoem_mrc.io import load_mrc, save_volume_like_reference
 from cryoem_mrc.map_grid import load_full_and_half_maps
 from cryoem_mrc.reliability_driver import main as reliability_main
 from cryoem_mrc.repo_paths import (
+    ANCHOR_EMDB_ID,
     COHORT_MANIFEST,
     analysis_dir,
     features_npz_path,
     halfmap_reliability_dir,
+    locres_blocres_mrc,
     resolve_halfmap_reliability_dir,
 )
 
@@ -216,22 +218,31 @@ def _process_row(
         raise subprocess.CalledProcessError(rc, "halfmap-qc analyze")
 
     reliability_cmd = [
-        "--data-dir",
-        str(data_dir),
-        "--emd-id",
-        eid,
-        "--contour",
-        str(contour),
+        "--reference",
+        str(ref),
+        "--half1",
+        row["half1_path"],
+        "--half2",
+        row["half2_path"],
         "--features",
         str(features),
         "--halfmap-npz",
         str(metrics_npz),
+        "--contour",
+        str(contour),
         "--out-dir",
         str(rel_dir),
+        "--label",
+        f"emd_{eid}",
         "--density-source",
         density_source,
         "--prune-retired-figures",
     ]
+    locres_path = locres_blocres_mrc(eid)
+    if locres_path.is_file():
+        reliability_cmd.extend(["--local-res", str(locres_path)])
+    if eid == ANCHOR_EMDB_ID:
+        reliability_cmd.append("--write-analysis-panel")
     print(f"[cohort] EMD-{eid} reliability_export", flush=True)
     rc = reliability_main(reliability_cmd)
     if rc != 0:

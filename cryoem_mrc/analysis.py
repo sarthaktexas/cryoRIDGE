@@ -5,7 +5,7 @@ into comparison tables and figures:
 
 - A masked, per-voxel correlation table (Pearson + Spearman) of every density-derived
   feature against a chosen reliability target — typically
-  ``windowed_halfmap_correlation`` from :func:`cryoem_mrc.half_map_repro.half_map_local_metrics`,
+  ``windowed_halfmap_correlation`` from :func:`cryoem_mrc.halfmap_metrics.half_map_local_metrics`,
   optionally also
   against a local-resolution map in Å when one is available.
 - A tidy CSV for the thesis appendix.
@@ -47,7 +47,7 @@ import json
 import numpy as np
 from scipy import ndimage, stats
 
-from .half_map_repro import (
+from .halfmap_metrics import (
     WINDOWED_HALFMAP_CORRELATION_KEY,
     WINDOWED_HALFMAP_CORRELATION_LABEL,
     half_map_local_metrics,
@@ -67,7 +67,7 @@ def half_map_local_metrics_chunked(
     out_dtype: type[np.float32] | type[np.float64] = np.float32,
 ) -> dict[str, np.ndarray]:
     """
-    Z-chunked wrapper around :func:`cryoem_mrc.half_map_repro.half_map_local_metrics`.
+    Z-chunked wrapper around :func:`cryoem_mrc.halfmap_metrics.half_map_local_metrics`.
 
     Identical math; bounded peak memory. Each Z-slab is padded by ``window // 2``
     voxels on each side so the central output region sees the same uniform-filter

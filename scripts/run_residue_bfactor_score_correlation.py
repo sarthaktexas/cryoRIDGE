@@ -25,7 +25,7 @@ from cryoem_mrc.hessian import density_hessian_scalar_maps
 from cryoem_mrc.io import load_mrc
 from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid
 from cryoem_mrc.mechanics import fluctuation_constraint_decomposition
-from cryoem_mrc.half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
+from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, halfmap_metrics_npz
 from cryoem_mrc.structure_validation import (
     BfactorDistributionSummary,

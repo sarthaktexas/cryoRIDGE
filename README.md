@@ -4,139 +4,58 @@
 [![DOI](https://zenodo.org/badge/1262218538.svg)](https://doi.org/10.5281/zenodo.20618526)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Half-map reproducibility and **local reliability scores** for cryo-EM density maps: density features, windowed half-map correlation, **reliability_score**, and build / caution / omit zones.
-
-**Requires Python 3.10+** (`python --version`).
-
-Install the **`halfmap-qc`** command:
+Local **reliability scores** and **build zones** for cryo-EM maps from half-maps and density features. Python **3.10+**.
 
 ```bash
-python3 -m pip install -U pip
 pip install cryoem-halfmap-qc
-halfmap-qc --version
+halfmap-qc          # interactive menu
+halfmap-qc help     # CLI reference
 ```
 
-From source:
+## Pipeline
+
+Three commands, in order. Pass your own map paths and output directories.
 
 ```bash
-pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.3"
-# or: git clone … && pip install -e .
-```
-
----
-
-## Quick start
-
-Run from a working directory with your maps (and optionally `cohort/manifest.csv` for batch mode).
-
-**Interactive menu** (terminal):
-
-```bash
-halfmap-qc
-halfmap-qc help
-```
-
-**Single map — features:**
-
-```bash
+# 1. Features from a map (.mrc / .map)
 halfmap-qc features map.mrc --out features.npz --float32
-```
 
-**Half-map analysis + reliability export:**
-
-```bash
+# 2. Half-map metrics + correlations
 halfmap-qc analyze \
   --features features.npz \
   --half1 half1.map --half2 half2.map \
-  --reference deposited.map --contour 0.116 \
-  --out-dir outputs/analysis
+  --reference ref.map \
+  --contour CONTOUR \
+  --out-dir analysis_out
 
-halfmap-qc reliability --emd-id 49450 --contour 0.116 \
+# 3. Reliability score + build-zone MRCs
+halfmap-qc reliability \
+  --reference ref.map --half1 half1.map --half2 half2.map \
   --features features.npz \
-  --halfmap-npz outputs/analysis/halfmap_metrics.npz
+  --halfmap-npz analysis_out/halfmap_metrics.npz \
+  --contour CONTOUR \
+  --out-dir reliability_out
 ```
 
-**Cohort batch** (uses `cohort/manifest.csv` + local `data/` paths):
+`--contour` is the density threshold for the analysis mask (same value in steps 2 and 3). Optional: `--local-res path.mrc` on reliability for a local-resolution comparison figure.
+
+**Outputs:** `reliability_score` and omit / caution / build zones as MRC overlays on your reference grid, plus `.npz` and summary JSON under `--out-dir`.
+
+Flag details: `halfmap-qc analyze --help`, `halfmap-qc reliability --help`.
+
+## HPC (ARC)
+
+Default login `python3` is too old (3.6). Conda modules load on **compute nodes only**:
 
 ```bash
-halfmap-qc cohort --pending
-halfmap-qc cohort --emd-id 49450
-halfmap-qc cohort-ids    # EMDB IDs for SLURM array jobs
+srun -p compute1 -n 1 -t 02:00:00 --pty bash
+module load miniconda/24.4.0
+conda activate halfmap-qc    # after one-time: conda create -n halfmap-qc python=3.12 -y && pip install cryoem-halfmap-qc
 ```
 
----
+Put `module load` + `conda activate` in every `sbatch` script.
 
-## CLI
-
-| Command | Purpose |
-| --- | --- |
-| `halfmap-qc` | Interactive menu (TTY) |
-| `halfmap-qc help` | Command reference |
-| `halfmap-qc features` | Local density / multiscale features → `.npz` |
-| `halfmap-qc analyze` | Windowed half-map CC + feature correlations |
-| `halfmap-qc reliability` | Reliability score, build zones, MRC export |
-| `halfmap-qc cohort` | Batch pipeline from manifest |
-| `halfmap-qc cohort-ids` | List cohort EMDB IDs |
-
-Per-command flags: `halfmap-qc cohort --help`, etc.
-
----
-
-## Data layout
-
-Maps are not stored in this repository. Typical layout:
-
-```text
-data/emd_<ID>-<label>/     # deposited map + half-maps
-outputs/emd_<ID>/           # pipeline outputs (created by halfmap-qc)
-cohort/manifest.csv         # optional batch manifest
-```
-
-Download maps from [EMDB](https://www.ebi.ac.uk/emdb/). Use each entry's depositor-recommended contour in the manifest.
-
----
-
-## Python API
-
-```python
-from cryoem_mrc import load_full_and_half_maps, run_pipeline, half_map_local_metrics
-from cryoem_mrc.reliability import compute_reliability_maps, classify_build_zones
-
-bundle = load_full_and_half_maps(
-    "deposited.map", "half1.map", "half2.map",
-    dtype="float32", resample_if_needed=True,
-)
-metrics = half_map_local_metrics(bundle.half1.data, bundle.half2.data, window=5)
-
-features = run_pipeline("avg.map", use_float32=True)
-delta = bundle.half1.data - bundle.half2.data
-rel = compute_reliability_maps(
-    features["density_normalized"], delta, window=5, mask=contour_mask
-)
-zones = classify_build_zones(rel["reliability_score"], contour_mask)
-```
-
-Main modules: `io`, `map_grid`, `local_stats`, `half_map_repro`, `reliability`, `analysis`.
-
----
-
-## What the scores mean
-
-- **Windowed half-map correlation** — local Pearson correlation between half-maps in a sliding window (fast reproducibility proxy).
-- **reliability_score** — in-mask percentile rank of the constraint term *V* (gradient-based smoothness vs half-map disagreement); higher = more reliable for modeling.
-- **Build zones** — tercile labels inside the density contour: omit / caution / build.
-
-External local-resolution maps (BlocRes, ResMap) are optional comparison inputs, not required to run the pipeline.
-
----
-
-## Tests
-
-```bash
-python -m unittest discover -s tests -q
-```
-
----
+If install fails with empty `(from versions:)`, check `python --version` (need ≥3.10) and `pip install -U pip`.
 
 ## Citation
 
@@ -147,101 +66,8 @@ python -m unittest discover -s tests -q
   year = {2026},
   doi = {10.5281/zenodo.20618526},
   url = {https://doi.org/10.5281/zenodo.20618526},
-  version = {0.3.3}
+  version = {0.5.0}
 }
 ```
-
-See also [CITATION.cff](CITATION.cff) for GitHub's **Cite this repository** button.
-
----
-
-## ARC (module load)
-
-Login nodes only have **Python 3.6** — ignore that `python3`. **`miniconda` and `anaconda3` load on job nodes only**. Allocate a compute node before any `module load` or `conda` command.
-
-### Step 1 — get a compute node (from login)
-
-```bash
-srun -p compute1 -n 1 -t 02:00:00 --pty bash
-```
-
-### Step 2 — create the environment (once)
-
-```bash
-module load miniconda/24.4.0
-conda create -n halfmap-qc python=3.12 -y
-conda activate halfmap-qc
-pip install cryoem-halfmap-qc
-halfmap-qc --version
-```
-
-Env persists at `$HOME/.conda/envs/halfmap-qc`.
-
-If `pip install` fails, install from git in the same session:
-
-```bash
-pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.3"
-```
-
-### Step 3 — exit when done
-
-```bash
-exit
-```
-
-### Step 4 — every subsequent interactive session
-
-```bash
-srun -p compute1 -n 1 -t 02:00:00 --pty bash
-module load miniconda/24.4.0
-conda activate halfmap-qc
-```
-
-### Step 5 — every `sbatch` job header
-
-```bash
-module load miniconda/24.4.0
-conda activate halfmap-qc
-```
-
-Add those lines to your local `*.sbatch` script (gitignored). Do not `module load miniconda` on login — it will fail.
-
----
-
-## Troubleshooting install
-
-**`No matching distribution found` / `from versions:` empty**
-
-1. **Check Python version** (most common cause):
-
-   ```bash
-   python3 --version   # must be 3.10 or newer — NOT the cluster default 3.6
-   ```
-
-   On ARC: login has Python 3.6 only; use `srun -p compute1 ...` then `module load miniconda/24.4.0` on a compute node.
-
-2. **Upgrade pip** (old pip hides available versions):
-
-   ```bash
-   python3 -m pip install -U pip
-   ```
-
-3. **HPC / offline index** — point at PyPI explicitly:
-
-   ```bash
-   pip install cryoem-halfmap-qc -i https://pypi.org/simple
-   ```
-
-4. **No PyPI access on compute nodes** — install on a login node, or from git:
-
-   ```bash
-   pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.3"
-   ```
-
-Verify the package exists: https://pypi.org/project/cryoem-halfmap-qc/
-
----
-
-## License
 
 MIT — see [LICENSE](LICENSE).

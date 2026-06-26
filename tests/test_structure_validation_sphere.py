@@ -46,7 +46,7 @@ def test_bfactor_correlation_row_count() -> None:
     ]
     caches = build_ca_sphere_index_caches(res, grid, 1.0)
     vol = np.ones((2, 2, 2), dtype=np.float32)
-    from cryoem_mrc.half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY
+    from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY
 
     scores = {"local_variance": vol, WINDOWED_HALFMAP_CORRELATION_KEY: vol * 2}
     b = np.array([r.b_iso for r in res], dtype=np.float64)
