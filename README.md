@@ -155,32 +155,56 @@ See also [CITATION.cff](CITATION.cff) for GitHub's **Cite this repository** butt
 
 ---
 
-## ARC / Great Lakes (module load)
+## ARC (module load)
 
-Login nodes default to **Python 3.6** — ignore that `python3`. Load Miniconda (Python 3.12) instead:
+Login nodes only have **Python 3.6** — ignore that `python3`. **`miniconda` and `anaconda3` load on job nodes only**. Allocate a compute node before any `module load` or `conda` command.
+
+### Step 1 — get a compute node (from login)
+
+```bash
+srun -p compute1 -n 1 -t 02:00:00 --pty bash
+```
+
+### Step 2 — create the environment (once)
 
 ```bash
 module load miniconda/24.4.0
-# or: module load anaconda3/2024.10-1
-
-python --version          # should be 3.12.x
 conda create -n halfmap-qc python=3.12 -y
 conda activate halfmap-qc
-
-pip install -U pip
-pip install cryoem-halfmap-qc -i https://pypi.org/simple
+pip install cryoem-halfmap-qc
 halfmap-qc --version
 ```
 
-Install on a **login node** (compute nodes may block PyPI). Then run jobs with:
+Env persists at `$HOME/.conda/envs/halfmap-qc`.
+
+If `pip install` fails, install from git in the same session:
+
+```bash
+pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.3"
+```
+
+### Step 3 — exit when done
+
+```bash
+exit
+```
+
+### Step 4 — every subsequent interactive session
+
+```bash
+srun -p compute1 -n 1 -t 02:00:00 --pty bash
+module load miniconda/24.4.0
+conda activate halfmap-qc
+```
+
+### Step 5 — every `sbatch` job header
 
 ```bash
 module load miniconda/24.4.0
 conda activate halfmap-qc
-halfmap-qc cohort --emd-id 49450
 ```
 
-Add `conda activate halfmap-qc` to your local `*.sbatch` script (gitignored).
+Add those lines to your local `*.sbatch` script (gitignored). Do not `module load miniconda` on login — it will fail.
 
 ---
 
@@ -194,7 +218,7 @@ Add `conda activate halfmap-qc` to your local `*.sbatch` script (gitignored).
    python3 --version   # must be 3.10 or newer — NOT the cluster default 3.6
    ```
 
-   On ARC: `module load miniconda/24.4.0` then `python --version`. macOS `/usr/bin/python3` is often **3.9** — use Homebrew `python3.12` or a venv.
+   On ARC: login has Python 3.6 only; use `srun -p compute1 ...` then `module load miniconda/24.4.0` on a compute node.
 
 2. **Upgrade pip** (old pip hides available versions):
 
