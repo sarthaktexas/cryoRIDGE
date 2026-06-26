@@ -19,7 +19,12 @@ import csv
 import sys
 from pathlib import Path
 
-from cryoem_mrc.metric_comparison import compute_cross_metric_correlations, load_all_metrics
+from cryoem_mrc.metric_comparison import (
+    LocresSource,
+    compute_cross_metric_correlations,
+    load_all_metrics,
+    metric_comparison_dirname,
+)
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, emd_output_dir, resolve_halfmap_reliability_dir
 
 
@@ -28,6 +33,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--emd-id", type=str, default=None)
     p.add_argument("--all", action="store_true")
     p.add_argument("--manifest", type=Path, default=COHORT_MANIFEST)
+    p.add_argument(
+        "--locres-source",
+        choices=("blocres", "resmap", "both"),
+        default="blocres",
+        help="Local-resolution map(s) to aggregate at Cα (default: blocres)",
+    )
     return p.parse_args(argv)
 
 
@@ -46,14 +57,14 @@ def _eligible_ids(manifest: Path) -> list[str]:
     return ids
 
 
-def _export_one(emdb_id: str, *, manifest: Path) -> int:
+def _export_one(emdb_id: str, *, manifest: Path, locres_source: LocresSource) -> int:
     try:
-        df = load_all_metrics(emdb_id, manifest=manifest)
+        df = load_all_metrics(emdb_id, manifest=manifest, locres_source=locres_source)
     except (FileNotFoundError, ValueError, KeyError) as exc:
         print(f"[metric_export] FAIL EMD-{emdb_id}: {exc}", file=sys.stderr, flush=True)
         return 1
 
-    out_dir = emd_output_dir(emdb_id) / "metric_comparison"
+    out_dir = emd_output_dir(emdb_id) / metric_comparison_dirname(locres_source)
     out_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = out_dir / "residue_metrics.csv"
     df.to_csv(metrics_path, index=False)
@@ -64,7 +75,7 @@ def _export_one(emdb_id: str, *, manifest: Path) -> int:
 
     n_loc = int(df["local_resolution"].notna().sum()) if "local_resolution" in df.columns else 0
     print(
-        f"[metric_export] EMD-{emdb_id}: {len(df)} residues, "
+        f"[metric_export] EMD-{emdb_id} ({locres_source}): {len(df)} residues, "
         f"local_resolution finite={n_loc} -> {metrics_path}",
         flush=True,
     )
@@ -78,9 +89,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     ids = _eligible_ids(args.manifest) if args.all else [args.emd_id.strip()]
+    sources: tuple[LocresSource, ...]
+    if args.locres_source == "both":
+        sources = ("blocres", "resmap")
+    else:
+        sources = (args.locres_source,)  # type: ignore[assignment]
     rc = 0
     for emdb_id in ids:
-        rc = max(rc, _export_one(emdb_id, manifest=args.manifest))
+        for locres_source in sources:
+            rc = max(rc, _export_one(emdb_id, manifest=args.manifest, locres_source=locres_source))
     return rc
 
 

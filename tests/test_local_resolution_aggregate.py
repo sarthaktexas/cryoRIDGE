@@ -42,6 +42,21 @@ class TestAggregateLocresToCa(unittest.TestCase):
             self.skipTest("no Cα fell inside synthetic locres grid")
         self.assertTrue((finite > 0).all())
 
+    def test_exclude_at_or_above_drops_sentinel(self) -> None:
+        pdb = Path("pdb/7a4m.cif")
+        if not pdb.is_file():
+            self.skipTest("pdb/7a4m.cif not in workspace")
+        with tempfile.TemporaryDirectory() as tmp:
+            locres = Path(tmp) / "locres.mrc"
+            self._write_constant_locres(locres, 100.0, vs=0.5332)
+            df = aggregate_locres_to_ca(
+                locres,
+                pdb,
+                radius_angstrom=2.0,
+                exclude_at_or_above=100.0,
+            )
+        self.assertTrue(df["local_resolution_mean"].isna().all())
+
     def test_aggregate_returns_schema_when_all_ca_off_grid(self) -> None:
         """Regression (EMD-33736): an empty result must still carry the documented
         columns so callers selecting them do not hit a KeyError."""

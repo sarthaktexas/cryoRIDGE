@@ -25,10 +25,39 @@ from .incremental_prediction import (
     load_metrics_dataframe,
     load_qscore_target,
 )
-from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, resolve_halfmap_reliability_dir
+from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, emd_output_dir, resolve_halfmap_reliability_dir
 from .structure_validation import load_cohort_manifest_row
 
 QSCORE_PANEL_EXCLUDE = frozenset({"33736"})
+
+# Maps excluded from ResMap parallel LOMO after auto-mask QC (sentinel / coverage / flat range).
+RESMAP_QC_EXCLUDE = frozenset(
+    {"9156", "24120", "11149", "33736", "52525", "41596", "11638"}
+)
+
+LocresMethodLomoPredictor = Literal[
+    "blocres_locres_inmap_median",
+    "blocres_locres_vs_global",
+    "resmap_locres_inmap_median",
+    "resmap_locres_vs_global",
+    "omit_zone",
+]
+
+LOCRES_METHOD_LOMO_LABELS: dict[LocresMethodLomoPredictor, str] = {
+    "blocres_locres_inmap_median": "BlocRes worse than in-map median (Å)",
+    "blocres_locres_vs_global": "BlocRes worse than deposited global resolution (Å)",
+    "resmap_locres_inmap_median": "ResMap worse than in-map median (Å)",
+    "resmap_locres_vs_global": "ResMap worse than deposited global resolution (Å)",
+    "omit_zone": "Omit build zone (reliability tercile)",
+}
+
+LOCRES_METHOD_LOMO_PREDICTORS: tuple[LocresMethodLomoPredictor, ...] = (
+    "blocres_locres_inmap_median",
+    "blocres_locres_vs_global",
+    "resmap_locres_inmap_median",
+    "resmap_locres_vs_global",
+    "omit_zone",
+)
 
 PredictorId = Literal[
     "omit_zone",
@@ -949,6 +978,28 @@ class LomoPlacementSummary:
 
 
 @dataclass(frozen=True)
+class LocresMethodLomoFoldRow:
+    held_out_emdb_id: str
+    predictor: LocresMethodLomoPredictor
+    global_resolution_a: float
+    n_residues: int
+    n_low_q: int
+    balanced_accuracy: float
+    auc: float
+    spearman_q_vs_score: float
+    frac_low_q_flagged: float
+    flag_threshold_a: float = float("nan")
+
+
+@dataclass(frozen=True)
+class LocresMethodLomoSummary:
+    q_threshold: float
+    exclude_emdb_ids: frozenset[str]
+    fold_rows: tuple[LocresMethodLomoFoldRow, ...]
+    predictor_medians: dict[str, dict[str, float]]
+
+
+@dataclass(frozen=True)
 class RocCurve:
     predictor: PredictorId
     fpr: tuple[float, ...]
@@ -1459,5 +1510,335 @@ def write_lomo_placement_markdown(summary: LomoPlacementSummary, path: Path) -> 
             "",
         ]
     )
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def enrich_with_resmap_locres(df: pd.DataFrame, emdb_id: str) -> pd.DataFrame:
+    """Attach ``local_resolution_resmap`` from the ResMap metric-export table."""
+    out = df.copy()
+    path = emd_output_dir(emdb_id) / "metric_comparison_resmap" / "residue_metrics.csv"
+    if not path.is_file():
+        out["local_resolution_resmap"] = np.nan
+        return out
+    resmap = pd.read_csv(path)
+    if "chain" not in resmap.columns or "seq_num" not in resmap.columns:
+        out["local_resolution_resmap"] = np.nan
+        return out
+    loc = pd.to_numeric(
+        resmap.get("local_resolution", resmap.get("local_resolution_mean", np.nan)),
+        errors="coerce",
+    )
+    merge = resmap[["chain", "seq_num"]].assign(local_resolution_resmap=loc)
+    for frame in (out, merge):
+        frame["chain"] = frame["chain"].astype(str)
+        frame["seq_num"] = pd.to_numeric(frame["seq_num"], errors="coerce")
+    return out.merge(merge, on=["chain", "seq_num"], how="left")
+
+
+def load_map_with_qscore_and_resmap(
+    emdb_id: str,
+    *,
+    manifest: Path = COHORT_MANIFEST,
+    sphere_radius_a: float = 2.0,
+) -> pd.DataFrame | None:
+    """In-mask BlocRes metrics + Q-scores + ResMap locres column."""
+    df = load_map_with_qscore(emdb_id, manifest=manifest, sphere_radius_a=sphere_radius_a)
+    if df is None:
+        return None
+    return enrich_with_resmap_locres(df, emdb_id)
+
+
+def load_per_map_frames_for_locres_lomo(
+    *,
+    manifest: Path = COHORT_MANIFEST,
+    sphere_radius_a: float = 2.0,
+    exclude: frozenset[str] | None = None,
+) -> list[tuple[str, pd.DataFrame, float]]:
+    """Load Q-score frames with both BlocRes and ResMap locres columns."""
+    exclude = exclude or QSCORE_PANEL_EXCLUDE
+    frames: list[tuple[str, pd.DataFrame, float]] = []
+    for emdb_id in iter_qscore_maps(manifest=manifest, exclude=exclude):
+        try:
+            row = load_cohort_manifest_row(manifest, emdb_id)
+        except KeyError:
+            continue
+        df = load_map_with_qscore_and_resmap(
+            emdb_id, manifest=manifest, sphere_radius_a=sphere_radius_a
+        )
+        if df is None or df.empty:
+            continue
+        frames.append((emdb_id, df, _global_resolution(row)))
+    return frames
+
+
+def _inmap_locres_median(loc: np.ndarray) -> float:
+    finite = loc[np.isfinite(loc)]
+    return float(np.median(finite)) if finite.size else float("nan")
+
+
+def _locres_method_fixed_flags(
+    df: pd.DataFrame,
+    predictor: LocresMethodLomoPredictor,
+    *,
+    global_resolution_a: float,
+) -> tuple[np.ndarray, float]:
+    """Fixed operational flag rules; return (flags, threshold used for locres rules)."""
+    if predictor == "omit_zone":
+        zone = pd.to_numeric(df["build_zone"], errors="coerce").to_numpy(dtype=np.int32)
+        return zone == 0, float("nan")
+
+    if predictor in ("blocres_locres_inmap_median", "blocres_locres_vs_global"):
+        loc = pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy(dtype=np.float64)
+    else:
+        loc = pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy(dtype=np.float64)
+
+    if predictor.endswith("_inmap_median"):
+        threshold = _inmap_locres_median(loc)
+    else:
+        threshold = float(global_resolution_a)
+
+    if not np.isfinite(threshold):
+        return np.zeros(len(df), dtype=bool), threshold
+    return loc > threshold, threshold
+
+
+def _locres_method_fixed_scores(
+    df: pd.DataFrame,
+    predictor: LocresMethodLomoPredictor,
+) -> np.ndarray:
+    """Continuous low-Q risk scores (higher ⇒ more likely Q < threshold)."""
+    if predictor == "omit_zone":
+        return _predictor_scores(df)["omit_zone"]
+    if predictor.startswith("blocres_"):
+        return pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy(dtype=np.float64)
+    return pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy(dtype=np.float64)
+
+
+def _locres_method_rank_proxy(
+    df: pd.DataFrame,
+    predictor: LocresMethodLomoPredictor,
+) -> np.ndarray:
+    """Continuous proxy where higher values should track higher Q (for Spearman ρ)."""
+    if predictor == "omit_zone":
+        return _predictor_rank_proxy(df, "omit_zone")
+    if predictor.startswith("blocres_"):
+        loc = pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy(dtype=np.float64)
+        return -loc
+    loc = pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy(dtype=np.float64)
+    return -loc
+
+
+def evaluate_locres_method_lomo_fold(
+    df: pd.DataFrame,
+    predictor: LocresMethodLomoPredictor,
+    *,
+    q_threshold: float,
+    global_resolution_a: float,
+    train_blocres_median: float = float("nan"),
+    train_resmap_median: float = float("nan"),
+    train_v_median: float = float("nan"),
+) -> tuple[float, float, float, float, int, int, float]:
+    """Return BA, AUC, Spearman ρ, frac low-Q flagged, n_residues, n_low_q, flag threshold."""
+    del train_blocres_median, train_resmap_median, train_v_median
+    q = pd.to_numeric(df["q_score"], errors="coerce").to_numpy(dtype=np.float64)
+    m = np.isfinite(q)
+    if int(m.sum()) < 10:
+        nan = float("nan")
+        return nan, nan, nan, nan, int(m.sum()), 0, nan
+
+    low = q < q_threshold
+    flags, threshold = _locres_method_fixed_flags(
+        df, predictor, global_resolution_a=global_resolution_a
+    )
+    scores = _locres_method_fixed_scores(df, predictor)
+    proxy = _locres_method_rank_proxy(df, predictor)
+    n_low = int(low[m].sum())
+    frac_flag = float(flags[m][low[m]].mean()) if n_low else float("nan")
+    return (
+        balanced_accuracy(low[m], flags[m]),
+        rank_auc(low[m], scores[m]),
+        _finite_spearman(q[m], proxy[m]),
+        frac_flag,
+        int(m.sum()),
+        n_low,
+        threshold,
+    )
+
+
+def run_locres_method_lomo_validation(
+    per_map_frames: Sequence[tuple[str, pd.DataFrame, float]],
+    *,
+    q_threshold: float = 0.5,
+    exclude_emdb_ids: frozenset[str] | None = None,
+) -> LocresMethodLomoSummary:
+    """Per-map low-Q utility with fixed operational rules (leave-one-map-out reporting).
+
+    Locres flags: worse than **in-map median Å** or worse than **deposited global
+    resolution** (two hypotheses). Omit-zone flag: ``build_zone == 0`` (~bottom
+    reliability tercile). AUC uses continuous per-residue scores on each map.
+    """
+    exclude_emdb_ids = exclude_emdb_ids or frozenset()
+    frames = [
+        (eid, df, gres)
+        for eid, df, gres in per_map_frames
+        if str(eid) not in exclude_emdb_ids
+    ]
+    if len(frames) < 3:
+        raise ValueError("need at least three maps for leave-one-map-out validation")
+
+    fold_rows: list[LocresMethodLomoFoldRow] = []
+    for held_out_id, test_df, gres in frames:
+        for pid in LOCRES_METHOD_LOMO_PREDICTORS:
+            ba, auc, rho, frac_flag, n_res, n_low, threshold = evaluate_locres_method_lomo_fold(
+                test_df,
+                pid,
+                q_threshold=q_threshold,
+                global_resolution_a=gres,
+            )
+            fold_rows.append(
+                LocresMethodLomoFoldRow(
+                    held_out_emdb_id=str(held_out_id),
+                    predictor=pid,
+                    global_resolution_a=gres,
+                    n_residues=n_res,
+                    n_low_q=n_low,
+                    balanced_accuracy=ba,
+                    auc=auc,
+                    spearman_q_vs_score=rho,
+                    frac_low_q_flagged=frac_flag,
+                    flag_threshold_a=threshold,
+                )
+            )
+
+    predictor_medians: dict[str, dict[str, float]] = {}
+    for pid in LOCRES_METHOD_LOMO_PREDICTORS:
+        sub = [r for r in fold_rows if r.predictor == pid]
+        for attr in ("balanced_accuracy", "auc", "spearman_q_vs_score", "frac_low_q_flagged"):
+            vals = [getattr(r, attr) for r in sub if np.isfinite(getattr(r, attr))]
+            predictor_medians.setdefault(pid, {})[f"median_{attr}"] = (
+                float(np.median(vals)) if vals else float("nan")
+            )
+
+    return LocresMethodLomoSummary(
+        q_threshold=q_threshold,
+        exclude_emdb_ids=exclude_emdb_ids,
+        fold_rows=tuple(fold_rows),
+        predictor_medians=predictor_medians,
+    )
+
+
+def write_locres_method_lomo_csvs(
+    summary: LocresMethodLomoSummary,
+    out_dir: Path,
+    *,
+    file_stem: str = "placement_locres_lomo",
+) -> dict[str, Path]:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths: dict[str, Path] = {}
+
+    p_folds = out_dir / f"{file_stem}_folds.csv"
+    with p_folds.open("w", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=[
+                "held_out_emdb_id",
+                "predictor",
+                "label",
+                "global_resolution_a",
+                "n_residues",
+                "n_low_q",
+                "balanced_accuracy",
+                "auc",
+                "spearman_q_vs_score",
+                "frac_low_q_flagged",
+                "flag_threshold_a",
+            ],
+        )
+        w.writeheader()
+        for r in summary.fold_rows:
+            w.writerow(
+                {
+                    "held_out_emdb_id": r.held_out_emdb_id,
+                    "predictor": r.predictor,
+                    "label": LOCRES_METHOD_LOMO_LABELS[r.predictor],
+                    "global_resolution_a": f"{r.global_resolution_a:.2f}"
+                    if np.isfinite(r.global_resolution_a)
+                    else "",
+                    "n_residues": r.n_residues,
+                    "n_low_q": r.n_low_q,
+                    "balanced_accuracy": f"{r.balanced_accuracy:.4f}",
+                    "auc": f"{r.auc:.4f}",
+                    "spearman_q_vs_score": f"{r.spearman_q_vs_score:.4f}",
+                    "frac_low_q_flagged": f"{r.frac_low_q_flagged:.4f}",
+                    "flag_threshold_a": f"{r.flag_threshold_a:.3f}"
+                    if np.isfinite(r.flag_threshold_a)
+                    else "",
+                }
+            )
+    paths["folds"] = p_folds
+
+    p_med = out_dir / f"{file_stem}_medians.csv"
+    with p_med.open("w", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=[
+                "predictor",
+                "label",
+                "median_balanced_accuracy",
+                "median_auc",
+                "median_spearman_q_vs_score",
+                "median_frac_low_q_flagged",
+            ],
+        )
+        w.writeheader()
+        for pid in LOCRES_METHOD_LOMO_PREDICTORS:
+            meds = summary.predictor_medians.get(pid, {})
+            w.writerow(
+                {
+                    "predictor": pid,
+                    "label": LOCRES_METHOD_LOMO_LABELS[pid],
+                    "median_balanced_accuracy": f"{meds.get('median_balanced_accuracy', float('nan')):.4f}",
+                    "median_auc": f"{meds.get('median_auc', float('nan')):.4f}",
+                    "median_spearman_q_vs_score": f"{meds.get('median_spearman_q_vs_score', float('nan')):.4f}",
+                    "median_frac_low_q_flagged": f"{meds.get('median_frac_low_q_flagged', float('nan')):.4f}",
+                }
+            )
+    paths["medians"] = p_med
+    return paths
+
+
+def write_locres_method_lomo_markdown(summary: LocresMethodLomoSummary, path: Path) -> Path:
+    path = Path(path)
+    n_maps = len({r.held_out_emdb_id for r in summary.fold_rows})
+    excluded = ", ".join(sorted(summary.exclude_emdb_ids)) or "(none)"
+    lines = [
+        "# Parallel per-map placement utility: BlocRes vs ResMap vs omit zone",
+        "",
+        f"Low-Q definition: Q-score < **{summary.q_threshold:.2f}**.",
+        f"Maps: **{n_maps}** per-map evaluations.",
+        f"Excluded EMD IDs: {excluded}.",
+        "",
+        "**Fixed flag rules** (not train-map medians):",
+        "- BlocRes / ResMap: worse than in-map median Å **or** worse than deposited global resolution",
+        "- Omit zone: ``build_zone == 0`` (bottom reliability tercile, ~33% of in-mask Cα)",
+        "",
+        "AUC uses continuous per-residue scores (locres Å; omit-zone risk score).",
+        "",
+        "## Median per-map metrics",
+        "",
+        "| Predictor | Median BA | Median AUC | Median ρ(Q, score) |",
+        "|-----------|-----------|------------|---------------------|",
+    ]
+    for pid in LOCRES_METHOD_LOMO_PREDICTORS:
+        meds = summary.predictor_medians.get(pid, {})
+        lines.append(
+            f"| {LOCRES_METHOD_LOMO_LABELS[pid]} | "
+            f"{meds.get('median_balanced_accuracy', float('nan')):.3f} | "
+            f"{meds.get('median_auc', float('nan')):.3f} | "
+            f"{meds.get('median_spearman_q_vs_score', float('nan')):.3f} |"
+        )
+    lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
     return path

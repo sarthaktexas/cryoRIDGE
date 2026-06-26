@@ -9,8 +9,10 @@ import pandas as pd
 
 from cryoem_mrc.placement_utility import (
     cohort_representative_roc,
+    evaluate_locres_method_lomo_fold,
     evaluate_map_predictor,
     pooled_roc_curve,
+    run_locres_method_lomo_validation,
     run_lomo_placement_validation,
     single_map_roc_curve,
 )
@@ -22,6 +24,8 @@ def _frame(emdb_id: str, seed: int, n: int = 80) -> tuple[str, pd.DataFrame, flo
     q = 0.25 + 0.55 * rel + rng.normal(0, 0.08, size=n)
     cc = 0.15 + 0.65 * rel + rng.normal(0, 0.07, size=n)
     loc = rng.uniform(2.5, 5.0, size=n)
+    loc_res = loc + rng.normal(0, 0.2, size=n)
+    v = 0.2 + 0.6 * rel + rng.normal(0, 0.05, size=n)
     var = rng.uniform(0.5, 4.0, size=n)
     zone = np.digitize(rel, [1 / 3, 2 / 3]) - 1
     df = pd.DataFrame(
@@ -30,6 +34,8 @@ def _frame(emdb_id: str, seed: int, n: int = 80) -> tuple[str, pd.DataFrame, flo
             "q_score": q,
             "windowed_halfmap_correlation": cc,
             "local_resolution": loc,
+            "local_resolution_resmap": loc_res,
+            "v_metric": v,
             "local_variance": var,
             "build_zone": zone,
             "in_contour_mask": True,
@@ -98,6 +104,36 @@ class TestLomoPlacement(unittest.TestCase):
         )
         self.assertTrue(np.isfinite(ba_train))
         self.assertTrue(np.isfinite(ba_inmap))
+
+
+class TestLocresMethodLomo(unittest.TestCase):
+    def test_parallel_lomo_runs_with_three_maps(self) -> None:
+        frames = [_frame("a", 0), _frame("b", 1), _frame("c", 2)]
+        summary = run_locres_method_lomo_validation(frames, q_threshold=0.5)
+        self.assertEqual(len({r.held_out_emdb_id for r in summary.fold_rows}), 3)
+        omit_meds = summary.predictor_medians["omit_zone"]
+        self.assertGreater(omit_meds["median_auc"], 0.25)
+
+    def test_global_threshold_differs_from_inmap_median(self) -> None:
+        frames = [_frame("a", 4), _frame("b", 5), _frame("c", 6)]
+        test_df = frames[0][1]
+        gres = 2.5
+        in_med = float(np.nanmedian(test_df["local_resolution"]))
+        ba_inmap, _, _, _, _, _, _ = evaluate_locres_method_lomo_fold(
+            test_df,
+            "blocres_locres_inmap_median",
+            q_threshold=0.5,
+            global_resolution_a=gres,
+        )
+        ba_global, _, _, _, _, _, _ = evaluate_locres_method_lomo_fold(
+            test_df,
+            "blocres_locres_vs_global",
+            q_threshold=0.5,
+            global_resolution_a=gres,
+        )
+        self.assertTrue(np.isfinite(ba_inmap))
+        self.assertTrue(np.isfinite(ba_global))
+        self.assertNotEqual(in_med, gres)
 
 
 if __name__ == "__main__":

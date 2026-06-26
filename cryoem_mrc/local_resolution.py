@@ -9,7 +9,7 @@ import mrcfile
 import numpy as np
 import pandas as pd
 
-from .map_grid import load_map_grid, verify_same_grid_as_reference
+from .map_grid import MapGrid, load_map_grid, resample_volume_onto_grid, verify_same_grid_as_reference
 from .structure_validation import (
     build_ca_sphere_index_caches,
     iter_ca_residues,
@@ -38,6 +38,7 @@ def aggregate_locres_to_ca(
     mask_path: str | Path | None = None,
     reference_path: str | Path | None = None,
     positive_only: bool = True,
+    exclude_at_or_above: float | None = None,
     value_column: str = "local_resolution_mean",
 ) -> pd.DataFrame:
     """
@@ -50,6 +51,9 @@ def aggregate_locres_to_ca(
     discarding non-positive voxels (Å resolutions are strictly positive). Set it to
     ``False`` for signed maps such as FSC-Q, where values are differences in Å and
     legitimately negative; in that case only non-finite voxels are dropped.
+
+    ``exclude_at_or_above`` drops voxels with value >= the cutoff (ResMap writes 100 Å
+  for unresolved voxels).
     """
     locres_path = Path(locres_mrc_path)
     struct_path = Path(structure_path)
@@ -69,28 +73,7 @@ def aggregate_locres_to_ca(
 
     ref_g = load_map_grid(reference_path, dtype=np.float32) if reference_path is not None else None
     if ref_g is not None:
-        align = verify_same_grid_as_reference(grid, ref_g)
-        if align.shape_match and align.voxel_match and not align.origin_match:
-            logger.info(
-                "Using reference origin for %s (%s)",
-                locres_path.name,
-                ", ".join(align.messages),
-            )
-            grid = type(grid)(
-                data=grid.data,
-                voxel_size_zyx=ref_g.voxel_size_zyx,
-                origin_zyx=ref_g.origin_zyx,
-                shape_zyx=ref_g.shape_zyx,
-                mapc=ref_g.mapc,
-                mapr=ref_g.mapr,
-                maps=ref_g.maps,
-                path=grid.path,
-            )
-        elif not align.ok:
-            raise ValueError(
-                f"{locres_path.name} grid mismatch vs reference: "
-                + "; ".join(align.messages)
-            )
+        grid = _align_locres_grid_to_reference(grid, ref_g, locres_path.name)
 
     mask_vol: np.ndarray | None = None
     if mask_path is not None:
@@ -145,6 +128,8 @@ def aggregate_locres_to_ca(
             keep = np.isfinite(vals)
             if positive_only:
                 keep &= vals > 0
+            if exclude_at_or_above is not None:
+                keep &= vals < float(exclude_at_or_above)
             finite = vals[keep]
             if finite.size < MIN_SPHERE_VOXELS:
                 logger.warning(
@@ -185,8 +170,115 @@ def aggregate_locres_to_ca(
     return out
 
 
+def _align_locres_grid_to_reference(
+    grid: MapGrid,
+    ref_g: MapGrid,
+    label: str,
+    *,
+    resample_cval: float = 0.0,
+) -> MapGrid:
+    """
+    Bring a local-resolution volume onto ``ref_g``'s index grid for Cα sampling.
+
+    Same-origin reheader when shape and voxel size match; otherwise trilinear
+    resample in physical Å coordinates (as for half-map alignment before BlocRes).
+    """
+    align = verify_same_grid_as_reference(grid, ref_g)
+    if align.ok:
+        return grid
+    if align.shape_match and align.voxel_match:
+        logger.info(
+            "Reheadering %s onto reference origin (%s)",
+            label,
+            ", ".join(align.messages),
+        )
+        return MapGrid(
+            data=grid.data,
+            voxel_size_zyx=ref_g.voxel_size_zyx,
+            origin_zyx=ref_g.origin_zyx,
+            shape_zyx=ref_g.shape_zyx,
+            mapc=ref_g.mapc,
+            mapr=ref_g.mapr,
+            maps=ref_g.maps,
+            path=grid.path,
+            normalization=None,
+        )
+    logger.info(
+        "Resampling %s onto reference grid (%s)",
+        label,
+        "; ".join(align.messages),
+    )
+    data = resample_volume_onto_grid(grid, ref_g, order=1, chunk_z=32, cval=resample_cval)
+    return MapGrid(
+        data=data.astype(grid.data.dtype, copy=False),
+        voxel_size_zyx=ref_g.voxel_size_zyx,
+        origin_zyx=ref_g.origin_zyx,
+        shape_zyx=ref_g.shape_zyx,
+        mapc=ref_g.mapc,
+        mapr=ref_g.mapr,
+        maps=ref_g.maps,
+        path=grid.path,
+        normalization=None,
+    )
+
+
+def align_locres_to_reference(
+    reference: str | Path,
+    locres_path: str | Path,
+    out_path: str | Path,
+    *,
+    extra_label: str = "local resolution (aligned to reference)",
+    resample_cval: float = 0.0,
+) -> list[str]:
+    """
+    Write ``locres_path`` onto the deposited reference MRC header.
+
+    When shape/voxel differ (common for ResMap on half-map grids), resamples in Å
+    space first — same convention as half-map resampling before BlocRes.
+    """
+    from .io import save_volume_like_reference
+
+    reference = Path(reference)
+    locres_path = Path(locres_path)
+    out_path = Path(out_path)
+    ref_g = load_map_grid(reference, dtype=np.float32)
+    loc_g = load_map_grid(locres_path, dtype=np.float64)
+    notes: list[str] = []
+    align = verify_same_grid_as_reference(loc_g, ref_g)
+    if align.ok:
+        data = np.asarray(loc_g.data, dtype=np.float32)
+        notes.append("grid already matches reference")
+    elif align.shape_match and align.voxel_match:
+        data = np.asarray(loc_g.data, dtype=np.float32)
+        notes.append("reheadered: " + "; ".join(align.messages))
+    else:
+        aligned = _align_locres_grid_to_reference(
+            loc_g, ref_g, locres_path.name, resample_cval=resample_cval
+        )
+        data = np.asarray(aligned.data, dtype=np.float32)
+        notes.append("resampled: " + "; ".join(align.messages))
+    save_volume_like_reference(reference, data, out_path, extra_label=extra_label)
+    return notes
+
+
 def locres_blocres_path(emdb_id: str | int) -> Path:
     """Standard BlocRes output path for one cohort entry."""
     from .repo_paths import emd_output_dir
 
     return emd_output_dir(emdb_id) / "locres_blocres.mrc"
+
+
+def locres_resmap_raw_path(emdb_id: str | int) -> Path:
+    """ResMap tool output before reference-grid alignment."""
+    from .repo_paths import emd_output_dir
+
+    return emd_output_dir(emdb_id) / "resmap" / "resmap.mrc"
+
+
+def locres_resmap_path(emdb_id: str | int) -> Path:
+    """ResMap local-resolution map used for Cα aggregation."""
+    return locres_resmap_raw_path(emdb_id)
+
+
+# ResMap writes 100 Å for voxels that did not pass the FDR threshold.
+RESMAP_UNRESOLVED_SENTINEL_A = 100.0

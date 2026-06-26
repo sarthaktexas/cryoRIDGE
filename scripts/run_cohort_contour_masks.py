@@ -2,8 +2,10 @@
 
 For every manifest row with a valid ``contour`` and on-disk ``reference_mrc``,
 writes ``contour_mask.mrc`` in the same ``data/emd_*`` folder (0/1 float32 MRC,
-1 = density >= contour). Intended for BlocRes, ResMap, and other local-resolution
-tools that expect a mask on the deposited primary grid.
+1 = density >= contour). Used by BlocRes ``-Mask`` and the V / half-map pipeline.
+**Do not** pass this mask to ResMap ``--maskVol``: the depositor contour is too
+tight for ResMap's interior noise-cube fitting (4³ vs ~58³). ResMap should use its
+auto-mask; Cα comparisons still gate on ``in_contour_mask`` at export time.
 
 Example::
 

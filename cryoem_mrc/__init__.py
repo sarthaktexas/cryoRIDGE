@@ -1,5 +1,12 @@
 """Cryo-EM MRC density map feature extraction pipeline."""
 
+try:
+    from importlib.metadata import version as _pkg_version
+
+    __version__ = _pkg_version("cryoem-halfmap-qc")
+except Exception:
+    __version__ = "0.3.1"
+
 from .analysis import (
     BinnedRelationship,
     FeatureCorrelation,

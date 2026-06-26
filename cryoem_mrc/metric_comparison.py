@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -11,7 +12,12 @@ from scipy import stats
 
 from .analysis import build_contour_mask
 from .half_map_repro import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
-from .local_resolution import aggregate_locres_to_ca, locres_blocres_path
+from .local_resolution import (
+    RESMAP_UNRESOLVED_SENTINEL_A,
+    aggregate_locres_to_ca,
+    locres_blocres_path,
+    locres_resmap_path,
+)
 from .map_grid import load_map_grid
 from .repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_metrics_npz, resolve_halfmap_reliability_dir
 from .structure_validation import (
@@ -35,19 +41,36 @@ METRIC_COLUMNS = (
     "local_resolution",
 )
 
+LocresSource = Literal["blocres", "resmap"]
+
+
+def metric_comparison_dirname(locres_source: LocresSource = "blocres") -> str:
+    """Per-map export folder name under ``outputs/emd_<ID>/``."""
+    if locres_source == "blocres":
+        return "metric_comparison"
+    return f"metric_comparison_{locres_source}"
+
+
+def _locres_path(emdb_id: str, locres_source: LocresSource) -> Path:
+    if locres_source == "resmap":
+        return locres_resmap_path(emdb_id)
+    return locres_blocres_path(emdb_id)
+
 
 def load_all_metrics(
     emdb_id: str,
     *,
     manifest: Path = COHORT_MANIFEST,
     sphere_radius_a: float = 2.0,
+    locres_source: LocresSource = "blocres",
 ) -> pd.DataFrame:
     """
     Per-residue metrics for one EMDB entry.
 
-    ``local_resolution`` is filled from ``outputs/emd_<ID>/locres_blocres.mrc`` when
-    present; otherwise NaN. Other columns come from the existing LH / validation
-    pipeline (``reliability.npz``, half-map metrics, deposited B-factors).
+    ``local_resolution`` is filled from BlocRes (``locres_blocres.mrc``, contour-masked
+    at run time) or ResMap (``resmap/resmap.mrc``, auto-masked at run time). Cα
+    correlations use ``in_contour_mask`` for both so comparisons stay in the depositor
+    contour even when ResMap computed values more broadly.
     """
     emdb_id = str(emdb_id).strip()
     row = load_cohort_manifest_row(manifest, emdb_id)
@@ -131,14 +154,19 @@ def load_all_metrics(
         }
     )
 
-    locres_path = locres_blocres_path(emdb_id)
+    locres_path = _locres_path(emdb_id, locres_source)
     if locres_path.is_file():
         try:
+            agg_kw: dict[str, object] = {
+                "radius_angstrom": sphere_radius_a,
+                "reference_path": ref_path,
+            }
+            if locres_source == "resmap":
+                agg_kw["exclude_at_or_above"] = RESMAP_UNRESOLVED_SENTINEL_A
             loc_df = aggregate_locres_to_ca(
                 locres_path,
                 pdb_path,
-                radius_angstrom=sphere_radius_a,
-                reference_path=ref_path,
+                **agg_kw,
             )
             loc_df = loc_df.rename(columns={"local_resolution_mean": "local_resolution"})
             df = df.drop(columns=["local_resolution"]).merge(
@@ -148,15 +176,18 @@ def load_all_metrics(
             )
         except Exception as exc:
             logger.warning(
-                "EMD-%s: failed to aggregate %s: %s",
+                "EMD-%s: failed to aggregate %s (%s): %s",
                 emdb_id,
                 locres_path,
+                locres_source,
                 exc,
             )
     else:
         logger.warning(
-            "EMD-%s: no BlocRes map at %s; local_resolution left as NaN",
+            "EMD-%s: no %s map at %s; local_resolution left as NaN "
+            "(run scripts/run_resmap_align_to_reference.py for ResMap)",
             emdb_id,
+            locres_source,
             locres_path,
         )
 

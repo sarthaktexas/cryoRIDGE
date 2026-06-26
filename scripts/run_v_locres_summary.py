@@ -33,12 +33,13 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from cryoem_mrc.metric_comparison import load_all_metrics
+from cryoem_mrc.metric_comparison import LocresSource, load_all_metrics
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
 
 logger = logging.getLogger(__name__)
 
-OUTPUT_CSV = OUTPUTS_ROOT / "cohort_summary" / "v_vs_locres_summary.csv"
+OUTPUT_CSV_BLOCRES = OUTPUTS_ROOT / "cohort_summary" / "v_vs_locres_summary.csv"
+OUTPUT_CSV_RESMAP = OUTPUTS_ROOT / "cohort_summary" / "v_vs_locres_summary_resmap.csv"
 MIN_FINITE = 30  # matches figures/v_vs_locres.py panel-eligibility threshold
 MIN_PAIRS = 10  # matches figures/v_vs_locres.py _spearman_in_mask floor
 
@@ -48,7 +49,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument("--manifest", type=Path, default=COHORT_MANIFEST)
-    p.add_argument("--out", type=Path, default=OUTPUT_CSV)
+    p.add_argument("--out", type=Path, default=None)
+    p.add_argument(
+        "--locres-source",
+        choices=("blocres", "resmap"),
+        default="blocres",
+        help="Local-resolution map for V vs locres summary",
+    )
     p.add_argument(
         "--emd-id",
         type=str,
@@ -116,10 +123,10 @@ def _display_names(manifest: Path) -> dict[str, str]:
     return names
 
 
-def _summarize_entry(emdb_id: str, *, manifest: Path) -> dict | None:
+def _summarize_entry(emdb_id: str, *, manifest: Path, locres_source: LocresSource) -> dict | None:
     """One summary row, or ``None`` if the entry never enters the figure panel."""
     try:
-        df = load_all_metrics(emdb_id, manifest=manifest)
+        df = load_all_metrics(emdb_id, manifest=manifest, locres_source=locres_source)
     except (FileNotFoundError, ValueError, KeyError) as exc:
         logger.warning("skip EMD-%s: %s", emdb_id, exc)
         return None
@@ -182,6 +189,8 @@ def _summarize_entry(emdb_id: str, *, manifest: Path) -> dict | None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    if args.out is None:
+        args.out = OUTPUT_CSV_RESMAP if args.locres_source == "resmap" else OUTPUT_CSV_BLOCRES
     _configure_logging(verbose=args.verbose)
 
     names = _display_names(args.manifest)
@@ -203,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.resume and emdb_id in existing:
             print(f"[v_locres] EMD-{emdb_id}: resume skip", flush=True)
             continue
-        summary = _summarize_entry(emdb_id, manifest=args.manifest)
+        summary = _summarize_entry(emdb_id, manifest=args.manifest, locres_source=args.locres_source)
         if summary is None:
             continue
         summary["display_name"] = names.get(emdb_id, "")
@@ -211,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
         rows.append(summary)
         _write_rows(args.out, rows)
         print(
-            f"[v_locres] EMD-{emdb_id}: rho={summary['rho']:+.3f} "
+            f"[v_locres] EMD-{emdb_id} ({args.locres_source}): rho={summary['rho']:+.3f} "
             f"n={summary['n_pairs']} v_var={summary['v_variance']:.3g} "
             f"locres_range={summary['locres_range']:.2f} "
             f"{summary['nan_reason']}",
@@ -226,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     finite = out_df["rho"].dropna()
     median = float(finite.median()) if len(finite) else float("nan")
     print(
-        f"[v_locres] {len(out_df)} eligible structures, {len(finite)} with finite rho, "
+        f"[v_locres] ({args.locres_source}) {len(out_df)} eligible structures, {len(finite)} with finite rho, "
         f"{len(out_df) - len(finite)} NaN -> median rho = {median:+.3f}",
         flush=True,
     )

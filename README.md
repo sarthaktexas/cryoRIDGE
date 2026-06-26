@@ -12,12 +12,29 @@ All volumes use NumPy 3D arrays in `(Z, Y, X)` order (section, row, column), con
 
 ## Install
 
+**PyPI:** not published yet (`pip install cryoem-halfmap-qc` will fail until the first release is uploaded). See [Publishing to PyPI](#publishing-to-pypi) below.
+
+Until then, install from GitHub or a local checkout:
+
 ```bash
-uv pip install -e .
-# or:
+git clone https://github.com/sarthaktexas/cryoem-halfmap-qc.git
+cd cryoem-halfmap-qc
 pip install -e .
-# from GitHub (no PyPI upload yet):
-pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.2.3"
+
+# or without cloning:
+pip install "git+https://github.com/sarthaktexas/cryoem-halfmap-qc.git@v0.3.1"
+```
+
+This installs the **`halfmap-qc`** command on your PATH (PyPI package name will be `cryoem-halfmap-qc` once published).
+
+**Help & interactive mode:**
+
+```bash
+halfmap-qc                  # interactive menu (when run in a terminal)
+halfmap-qc help             # full command reference
+halfmap-qc --help           # argparse summary + examples
+halfmap-qc cohort --help    # flags for one subcommand
+halfmap-qc interactive      # menu explicitly
 ```
 
 **Dependencies:** NumPy, SciPy, mrcfile, Matplotlib, gemmi (mmCIF/PDB for residue-level validation).
@@ -41,10 +58,13 @@ Download deposited and half maps from [EMDB](https://www.ebi.ac.uk/emdb/) and fi
 
 ## Quick start
 
-**Single-map features** (writes a compressed `.npz` bundle):
+Run from the project root (where `data/` and `cohort/manifest.csv` live).
+
+**Single-map features:**
 
 ```bash
-python -m cryoem_mrc path/to/map.mrc --out map_features.npz --float32
+halfmap-qc features path/to/map.mrc --out map_features.npz --float32
+# shorthand (legacy): halfmap-qc path/to/map.mrc --out map_features.npz --float32
 ```
 
 **Typical workflow** (features on avg-of-halves; reliability MRCs on deposited primary grid):
@@ -54,7 +74,7 @@ EMD=49450
 CONTOUR=0.116
 DATA=data/emd_${EMD}-mgtA_e2p+e1
 
-python scripts/run_analysis.py \
+halfmap-qc analyze \
   --features "${DATA}/emd_${EMD}_avg_features_t0116.npz" \
   --half1 "${DATA}/emd_${EMD}_half_map_1.map" \
   --half2 "${DATA}/emd_${EMD}_half_map_2.map" \
@@ -62,38 +82,86 @@ python scripts/run_analysis.py \
   --contour "${CONTOUR}" \
   --out-dir "outputs/emd_${EMD}/analysis"
 
-python scripts/run_local_fsc.py \
-  --half1 "${DATA}/emd_${EMD}_half_map_1.map" \
-  --half2 "${DATA}/emd_${EMD}_half_map_2.map" \
-  --reference "${DATA}/emd_${EMD}.map" \
-  --contour "${CONTOUR}" \
-  --out "outputs/emd_${EMD}/analysis_localres/emd_${EMD}_local_fsc.mrc"
-
-python scripts/run_halfmap_reliability_export.py --emd-id "${EMD}"
-python scripts/run_extended_feature_validation.py --emd-id "${EMD}"
+halfmap-qc reliability --emd-id "${EMD}" --contour "${CONTOUR}" \
+  --features "${DATA}/emd_${EMD}_avg_features_t0116.npz" \
+  --halfmap-npz "outputs/emd_${EMD}/analysis/halfmap_metrics.npz"
 ```
 
-**Cohort batch run** (all active entries in `cohort/manifest.csv` with local data):
+**Cohort batch** (all active manifest entries with local data):
 
 ```bash
-python scripts/run_cohort_pipeline.py
+halfmap-qc cohort --pending --skip-bfactor
 ```
+
+**ARC / SLURM** (one map per array task; save a local `*.sbatch` — not in git):
+
+```bash
+# After pip install -e . and rsync data/ + cohort/manifest.csv to $SCRATCH/thesis
+N=$(($(halfmap-qc cohort-ids | wc -l) - 1))
+sbatch --account=wrz135 --array=0-${N} --cpus-per-task=4 --mem=32G --time=00:45:00 \
+  --wrap='halfmap-qc cohort --emd-id $(halfmap-qc cohort-ids | sed -n "$((SLURM_ARRAY_TASK_ID+1))p") --skip-bfactor'
+```
+
+Or save a multi-line script as e.g. `~/halfmap-qc_array.sbatch` (gitignored) and `sbatch --array=0-${N} ~/halfmap-qc_array.sbatch`.
 
 ---
 
-## Scripts
+## CLI (`halfmap-qc`)
 
+| Command | Purpose |
+| --- | --- |
+| *(no args, TTY)* | Interactive menu |
+| `halfmap-qc help` | Full reference + install notes |
+| `halfmap-qc features` | Local density / multiscale features → `.npz` |
+| `halfmap-qc analyze` | Windowed half-map CC + feature correlations |
+| `halfmap-qc reliability` | Reliability score, build zones, MRC export |
+| `halfmap-qc cohort` | Batch pipeline from `cohort/manifest.csv` |
+| `halfmap-qc cohort-ids` | Print EMDB IDs (for SLURM array jobs) |
+| `halfmap-qc interactive` | Interactive menu (same as bare `halfmap-qc`) |
 
-| Script                                             | Purpose                                                  |
-| -------------------------------------------------- | -------------------------------------------------------- |
-| `scripts/run_analysis.py`                          | Feature vs windowed half-map correlation (+ local FSC) |
-| `scripts/run_local_fsc.py`                         | Windowed local FSC → Å MRC                               |
-| `scripts/run_halfmap_reliability_export.py`         | H_repro, reliability score, build zones, summary figures |
-| `scripts/run_extended_feature_validation.py`       | Extended stats, Hessian, ridge CV vs CC                  |
-| `scripts/run_residue_bfactor_validation.py`        | Cα B_iso vs reliability / build zones                    |
-| `scripts/run_residue_bfactor_score_correlation.py` | B vs multiple map scores (sphere sampling)               |
-| `scripts/run_residue_bfactor_conformation_pair.py` | Cα RMSD vs Δreliability across two EMDB states           |
-| `scripts/run_cohort_pipeline.py`                   | Batch processing from `cohort/manifest.csv`              |
+Legacy: `python -m cryoem_mrc` still works (same as `halfmap-qc features`).
+
+## Publishing to PyPI
+
+One-time setup:
+
+1. Create an account at [pypi.org](https://pypi.org/account/register/) (and optionally [test.pypi.org](https://test.pypi.org/) for a dry run).
+2. On PyPI → **Your projects** → **Add new project** → name it `cryoem-halfmap-qc` (or claim it when uploading).
+3. On PyPI → **Account settings** → **Publishing** → **Add a new pending publisher**:
+   - PyPI project: `cryoem-halfmap-qc`
+   - Owner: `sarthaktexas` (your GitHub user/org)
+   - Repository: `cryoem-halfmap-qc`
+   - Workflow: `publish.yml`
+   - Environment: (leave blank unless you use one)
+
+Release:
+
+```bash
+# bump version in pyproject.toml first, then:
+git add pyproject.toml cryoem_mrc/__init__.py
+git commit -m "Release v0.3.1"
+git tag v0.3.1
+git push origin main --tags
+```
+
+On GitHub → **Releases** → **Draft a new release** → choose tag `v0.3.1` → **Publish release**. The [`.github/workflows/publish.yml`](.github/workflows/publish.yml) workflow builds the wheel and uploads to PyPI.
+
+Test install after publish:
+
+```bash
+pip install cryoem-halfmap-qc
+halfmap-qc --version
+```
+
+Manual upload (without GitHub Actions):
+
+```bash
+pip install build twine
+python -m build
+twine upload dist/*
+```
+
+## Scripts (thesis / optional)
 
 Thesis figure runners (`scripts/rerun_all_figures.py`, `scripts/run_cohort_summary_figures.py`, Figma export scripts, etc.) and `cryoem_mrc/thesis_figures.py` are **local-only** (gitignored) like `figma-plugins/`. Clone the repo on a machine that already has those files, or keep a local copy from before they were untracked.
 
