@@ -16,6 +16,10 @@ import json
 import sys
 from pathlib import Path
 
+_REPO = Path(__file__).resolve().parents[1]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -39,13 +43,13 @@ from cryoem_mrc.conformation_coupling import (
     compute_coupling_layout_scores,
 )
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, conformation_pairs_dir
+from thesis.bfactor_validation import run_emdb_bfactor_validation
 from cryoem_mrc.structure_validation import (
     default_reliability_out_dir,
     iter_ca_residues,
     load_cohort_manifest_row,
     match_residue_rows_by_key,
     read_residue_validation_csv,
-    run_emdb_bfactor_validation,
 )
 
 

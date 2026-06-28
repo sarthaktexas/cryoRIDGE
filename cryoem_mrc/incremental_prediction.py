@@ -17,7 +17,6 @@ import pandas as pd
 from scipy import stats
 
 from .halfmap_metrics import LEGACY_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_KEY
-from .metric_comparison import load_all_metrics
 from .repo_paths import COHORT_MANIFEST, emd_output_dir, resolve_halfmap_reliability_dir
 from .structure_validation import _b_iso_is_uniform, load_cohort_manifest_row
 
@@ -201,6 +200,8 @@ def load_metrics_dataframe(
     if cached.is_file():
         return normalize_metrics_columns(pd.read_csv(cached))
     try:
+        from thesis.metric_comparison import load_all_metrics
+
         return load_all_metrics(emdb_id, manifest=manifest, sphere_radius_a=sphere_radius_a)
     except (FileNotFoundError, ValueError, KeyError):
         return None

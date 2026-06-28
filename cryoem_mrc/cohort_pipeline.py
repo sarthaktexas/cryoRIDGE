@@ -147,9 +147,7 @@ def _process_row(
     row: dict[str, str],
     *,
     force: bool,
-    skip_bfactor: bool,
     density_source: str,
-    bfactor_script: Path | None,
 ) -> int:
     eid = str(row["emdb_id"]).strip()
     contour = float(row["contour"])
@@ -160,10 +158,11 @@ def _process_row(
     ref = Path(row["reference_mrc"])
     data_dir = ref.parent
     rel_dir = halfmap_reliability_dir(eid)
-    reliability_npz = resolve_halfmap_reliability_dir(eid) / "reliability.npz"
+    rel_mrc = rel_dir / f"emd_{eid}_reliability.mrc"
+    zone_mrc = rel_dir / f"emd_{eid}_build_zones.mrc"
 
-    if reliability_npz.is_file() and not force:
-        print(f"[cohort] EMD-{eid}: already done ({reliability_npz})", flush=True)
+    if rel_mrc.is_file() and zone_mrc.is_file() and not force:
+        print(f"[cohort] EMD-{eid}: already done ({rel_mrc.name}, {zone_mrc.name})", flush=True)
         return 0
 
     if density_source == "avg_half":
@@ -226,8 +225,6 @@ def _process_row(
         row["half2_path"],
         "--features",
         str(features),
-        "--halfmap-npz",
-        str(metrics_npz),
         "--contour",
         str(contour),
         "--out-dir",
@@ -236,28 +233,11 @@ def _process_row(
         f"emd_{eid}",
         "--density-source",
         density_source,
-        "--prune-retired-figures",
     ]
-    locres_path = locres_blocres_mrc(eid)
-    if locres_path.is_file():
-        reliability_cmd.extend(["--local-res", str(locres_path)])
-    if eid == ANCHOR_EMDB_ID:
-        reliability_cmd.append("--write-analysis-panel")
     print(f"[cohort] EMD-{eid} reliability_export", flush=True)
     rc = reliability_main(reliability_cmd)
     if rc != 0:
         raise subprocess.CalledProcessError(rc, "halfmap-qc reliability")
-
-    src = row.get("flexibility_source", "").strip()
-    pdb = Path(row.get("flexibility_path_or_pdb", ""))
-    if not skip_bfactor and src == "b_factor" and pdb.is_file() and bfactor_script is not None:
-        bfac_cmd = [sys.executable, str(bfactor_script), "--emd-id", eid]
-        if features.is_file():
-            bfac_cmd.extend(["--features-npz", str(features)])
-        print(f"[cohort] EMD-{eid} bfactor: {' '.join(bfac_cmd)}", flush=True)
-        subprocess.run(bfac_cmd, check=True)
-    elif src == "b_factor" and not skip_bfactor and not pdb.is_file():
-        print(f"[cohort] EMD-{eid}: skip bfactor (no PDB {pdb})", flush=True)
 
     return 0
 
@@ -268,12 +248,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     g.add_argument(
         "--pending",
         action="store_true",
-        help="All manifest rows with local data (skips maps that already have reliability.npz unless --force)",
+        help="All manifest rows with local data (skips maps that already have reliability MRCs unless --force)",
     )
     g.add_argument("--emd-id", type=str, help="Single EMDB ID")
     p.add_argument("--manifest", type=Path, default=COHORT_MANIFEST)
-    p.add_argument("--force", action="store_true", help="Re-run even if reliability.npz exists")
-    p.add_argument("--skip-bfactor", action="store_true", help="Stop after reliability export")
+    p.add_argument("--force", action="store_true", help="Re-run even if reliability/build-zone MRCs exist")
     p.add_argument(
         "--density-source",
         choices=("avg_half", "primary"),
@@ -287,12 +266,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="N",
         help="Skip maps with more than N million voxels (e.g. 100 for ~8 GB RAM)",
     )
-    p.add_argument(
-        "--bfactor-script",
-        type=Path,
-        default=None,
-        help="Optional path to run_residue_bfactor_validation.py (repo script; omit on cluster)",
-    )
     return p.parse_args(argv)
 
 
@@ -303,12 +276,6 @@ def main(argv: list[str] | None = None) -> int:
     if not rows:
         print("[cohort] nothing to run", flush=True)
         return 0
-
-    bfactor_script = args.bfactor_script
-    if bfactor_script is None:
-        candidate = Path("scripts/run_residue_bfactor_validation.py")
-        if candidate.is_file():
-            bfactor_script = candidate
 
     import mrcfile
 
@@ -334,9 +301,7 @@ def main(argv: list[str] | None = None) -> int:
                 _process_row(
                     row,
                     force=args.force,
-                    skip_bfactor=args.skip_bfactor,
                     density_source=args.density_source,
-                    bfactor_script=bfactor_script,
                 ),
             )
         except subprocess.CalledProcessError as e:

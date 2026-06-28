@@ -34,14 +34,13 @@ halfmap-qc analyze \
 halfmap-qc reliability \
   --reference ref.map --half1 half1.map --half2 half2.map \
   --features features.npz \
-  --halfmap-npz analysis_out/halfmap_metrics.npz \
   --contour CONTOUR \
   --out-dir reliability_out
 ```
 
-`--contour` is the density threshold for the analysis mask (same value in steps 2 and 3). Optional: `--local-res path.mrc` on reliability for a local-resolution comparison figure.
+`--contour` is the density threshold for the analysis mask (same value in steps 2 and 3). Step 2 (analyze) is optional if you only need the reliability and build-zone MRCs.
 
-**Outputs:** `reliability_score` and omit / caution / build zones as MRC overlays on your reference grid, plus `.npz` and summary JSON under `--out-dir`.
+**Reliability outputs:** `{label}_reliability.mrc` and `{label}_build_zones.mrc` on your reference grid.
 
 Flag details: `halfmap-qc features --help`, `halfmap-qc analyze --help`, `halfmap-qc reliability --help`.
 
@@ -74,7 +73,7 @@ If install fails with empty `(from versions:)`, check `python --version` (need â
   year = {2026},
   doi = {10.5281/zenodo.20618526},
   url = {https://doi.org/10.5281/zenodo.20618526},
-  version = {0.5.0}
+  version = {0.5.3}
 }
 ```
 

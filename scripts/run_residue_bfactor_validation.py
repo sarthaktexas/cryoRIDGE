@@ -1,6 +1,6 @@
 """Residue-level B-factor vs map reliability (gemmi + cohort manifest).
 
-Reads ``cohort/manifest.csv``, samples ``reliability.npz`` at deposited-model Cα
+Reads ``cohort/manifest.csv``, samples reliability MRCs at deposited-model Cα
 positions, and writes CSV + figures under ``outputs/emd_<ID>/halfmap_reliability/``.
 
 Example::
@@ -22,6 +22,10 @@ import json
 import sys
 from pathlib import Path
 
+_REPO = Path(__file__).resolve().parents[1]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -34,11 +38,11 @@ from style.thesis_palette import PALETTES
 from cryoem_mrc.figure_cleanup import prune_halfmap_reliability_retired_figures
 from cryoem_mrc.reliability import BUILD_ZONE_COLORS, BUILD_ZONE_LABELS
 from cryoem_mrc.repo_paths import BFACTOR_VALIDATION_EMDB_IDS, COHORT_MANIFEST
-from cryoem_mrc.structure_validation import (
+from thesis.bfactor_validation import (
     BfactorValidationStats,
-    load_cohort_manifest_row,
     run_emdb_bfactor_validation,
 )
+from cryoem_mrc.structure_validation import load_cohort_manifest_row
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -56,7 +60,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Delete retired bfactor_vs_reliability / bfactor_by_build_zone exports",
     )
     p.add_argument("--manifest", type=Path, default=COHORT_MANIFEST)
-    p.add_argument("--reliability-npz", type=Path, default=None)
     p.add_argument("--reference", type=Path, default=None, help="Override deposited primary map")
     p.add_argument("--pdb", type=Path, default=None, help="Override mmCIF/PDB path")
     p.add_argument("--contour", type=float, default=None)
@@ -133,7 +136,6 @@ def _run_one(
     emd_id: str,
     *,
     manifest: Path,
-    reliability_npz: Path | None,
     reference: Path | None,
     pdb: Path | None,
     contour: float | None,
@@ -147,7 +149,6 @@ def _run_one(
         code, rows, stats, out_dir = run_emdb_bfactor_validation(
             emd_id,
             manifest=manifest,
-            reliability_npz=reliability_npz,
             reference=reference,
             pdb=pdb,
             contour=contour,
@@ -244,7 +245,6 @@ def main(argv: list[str] | None = None) -> int:
         code = _run_one(
             emd_id,
             manifest=args.manifest,
-            reliability_npz=args.reliability_npz,
             reference=args.reference,
             pdb=args.pdb,
             contour=args.contour,

@@ -1,4 +1,4 @@
-"""Export per-residue cross-metric tables via :func:`cryoem_mrc.metric_comparison.load_all_metrics`.
+"""Export per-residue cross-metric tables via ``thesis.metric_comparison.load_all_metrics``.
 
 Writes under ``outputs/emd_<ID>/metric_comparison/``:
 
@@ -17,15 +17,20 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import sys
 from pathlib import Path
 
-from cryoem_mrc.metric_comparison import (
+_REPO = Path(__file__).resolve().parents[1]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+
+from thesis.metric_comparison import (
     LocresSource,
     compute_cross_metric_correlations,
     load_all_metrics,
     metric_comparison_dirname,
 )
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, emd_output_dir, resolve_halfmap_reliability_dir
+from thesis.reliability_volumes import reliability_mrc_paths
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -50,8 +55,9 @@ def _eligible_ids(manifest: Path) -> list[str]:
             pdb = row.get("flexibility_path_or_pdb", "").strip()
             if not pdb or not Path(pdb).is_file():
                 continue
-            if not (resolve_halfmap_reliability_dir(eid) / "reliability.npz").is_file():
-                print(f"[metric_export] skip EMD-{eid}: no reliability.npz", flush=True)
+            rel_mrc, zone_mrc = reliability_mrc_paths(eid)
+            if not rel_mrc.is_file() or not zone_mrc.is_file():
+                print(f"[metric_export] skip EMD-{eid}: missing reliability MRCs", flush=True)
                 continue
             ids.append(eid)
     return ids

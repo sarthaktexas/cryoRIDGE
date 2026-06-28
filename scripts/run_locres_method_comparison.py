@@ -21,6 +21,10 @@ import csv
 import sys
 from pathlib import Path
 
+_REPO = Path(__file__).resolve().parents[1]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -34,7 +38,7 @@ from style.thesis_palette import PALETTES
 
 from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
 from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY
-from cryoem_mrc.metric_comparison import LocresSource, metric_comparison_dirname
+from thesis.metric_comparison import LocresSource, metric_comparison_dirname
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, emd_output_dir
 
 LOCres_PAIR_KEYS = (

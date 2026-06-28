@@ -38,7 +38,7 @@ HELP_TEXT = dedent(
       halfmap-qc features MAP.mrc [--out features.npz] [--float32]
       halfmap-qc analyze --features … --half1 … --half2 … --reference … --contour … --out-dir …
       halfmap-qc reliability --reference … --half1 … --half2 … --features … \\
-        --halfmap-npz … --contour … --out-dir … [--local-res …]
+        --contour … --out-dir …
 
     Per-command flags: halfmap-qc features --help, halfmap-qc reliability --help, etc.
     """
@@ -255,20 +255,10 @@ def _action_reliability(session: MapSession) -> int:
     half1 = _prompt_path("Half-map 1", default=str(session.half1 or ""))
     half2 = _prompt_path("Half-map 2", default=str(session.half2 or ""))
     reference = _prompt_path("Reference map", default=str(session.reference or ""))
-    metrics_default = ""
-    if session.analysis_dir:
-        candidate = session.analysis_dir / "halfmap_metrics.npz"
-        if candidate.is_file():
-            metrics_default = str(candidate)
-    halfmap_npz = _prompt_path("Half-map metrics .npz", default=metrics_default)
     contour = _prompt_contour(session)
     out_dir = _prompt_dir(
         "Reliability output directory",
         default=str(session.reliability_dir or "reliability_out"),
-    )
-    local_raw = Prompt.ask(
-        "[bold cyan]Local-resolution map[/bold cyan] [dim](optional, Enter to skip)[/dim]",
-        default=str(session.local_res or ""),
     )
 
     session.features_npz = features
@@ -276,21 +266,15 @@ def _action_reliability(session: MapSession) -> int:
     session.half2 = half2
     session.reference = reference
     session.reliability_dir = out_dir
-    if local_raw.strip():
-        session.local_res = Path(local_raw).expanduser()
 
     argv = [
         "--reference", str(reference),
         "--half1", str(half1),
         "--half2", str(half2),
         "--features", str(features),
-        "--halfmap-npz", str(halfmap_npz),
         "--contour", contour,
         "--out-dir", str(out_dir),
-        "--prune-retired-figures",
     ]
-    if local_raw.strip():
-        argv.extend(["--local-res", local_raw.strip()])
 
     def run() -> int:
         return _reliability(argv)
@@ -325,7 +309,7 @@ def _action_custom() -> int:
 
     console.print(
         "[dim]Example:[/dim] reliability --reference ref.map --half1 h1.map --half2 h2.map "
-        "--features f.npz --halfmap-npz m.npz --contour 0.116 --out-dir out"
+        "--features f.npz --contour 0.116 --out-dir out"
     )
     line = Prompt.ask("[bold cyan]subcommand + flags[/bold cyan]")
     if not line.strip():

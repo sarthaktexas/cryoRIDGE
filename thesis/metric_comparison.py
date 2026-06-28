@@ -1,4 +1,4 @@
-"""Cross-metric residue tables and correlations for cohort validation."""
+"""Cross-metric residue tables and correlations (thesis cohort validation)."""
 
 from __future__ import annotations
 
@@ -10,29 +10,26 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .analysis import build_contour_mask
-from .halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
-from .local_resolution import (
+from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
+from cryoem_mrc.local_resolution import (
     RESMAP_UNRESOLVED_SENTINEL_A,
     aggregate_locres_to_ca,
     locres_blocres_path,
     locres_resmap_path,
 )
-from .map_grid import load_map_grid
-from .repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_metrics_npz, resolve_halfmap_reliability_dir
-from .structure_validation import (
+from cryoem_mrc.map_grid import load_map_grid
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_metrics_npz
+from cryoem_mrc.structure_validation import (
     build_residue_validation_table,
     iter_ca_residues,
     load_cohort_manifest_row,
     sample_volume_at_ca,
 )
 
+from .reliability_volumes import load_reliability_mrc_pair, recompute_lh_volumes
+
 logger = logging.getLogger(__name__)
 
-# Cross-metric coupling uses one LH-pipeline column: constraint V (placement axis).
-# reliability_score is the in-mask percentile rank of H_repro (= T + V); H_repro and
-# its rank are Spearman-redundant with each other and overlap the same Hamiltonian
-# family as V — omit them here to avoid duplicate rows on the heatmap.
 METRIC_COLUMNS = (
     "v_metric",
     "b_factor",
@@ -45,7 +42,6 @@ LocresSource = Literal["blocres", "resmap"]
 
 
 def metric_comparison_dirname(locres_source: LocresSource = "blocres") -> str:
-    """Per-map export folder name under ``outputs/emd_<ID>/``."""
     if locres_source == "blocres":
         return "metric_comparison"
     return f"metric_comparison_{locres_source}"
@@ -64,14 +60,7 @@ def load_all_metrics(
     sphere_radius_a: float = 2.0,
     locres_source: LocresSource = "blocres",
 ) -> pd.DataFrame:
-    """
-    Per-residue metrics for one EMDB entry.
-
-    ``local_resolution`` is filled from BlocRes (``locres_blocres.mrc``, contour-masked
-    at run time) or ResMap (``resmap/resmap.mrc``, auto-masked at run time). Cα
-    correlations use ``in_contour_mask`` for both so comparisons stay in the depositor
-    contour even when ResMap computed values more broadly.
-    """
+    """Per-residue metrics for one EMDB entry (reads reliability/build-zone MRCs)."""
     emdb_id = str(emdb_id).strip()
     row = load_cohort_manifest_row(manifest, emdb_id)
     ref_path = Path(row["reference_mrc"])
@@ -79,27 +68,22 @@ def load_all_metrics(
     pdb_path = Path(pdb_raw) if pdb_raw else None
     contour = float(row["contour"])
 
-    out_dir = resolve_halfmap_reliability_dir(emdb_id)
-    npz_path = out_dir / "reliability.npz"
-
     if not ref_path.is_file():
         raise FileNotFoundError(f"EMD-{emdb_id} missing reference: {ref_path}")
     if pdb_path is None or not pdb_path.is_file():
         raise FileNotFoundError(f"EMD-{emdb_id} missing structure: {pdb_path}")
-    if not npz_path.is_file():
-        raise FileNotFoundError(f"EMD-{emdb_id} missing reliability.npz: {npz_path}")
+
+    reliability_score, build_zone = load_reliability_mrc_pair(emdb_id)
+    reliability_H_repro, v_metric_vol = recompute_lh_volumes(
+        emdb_id,
+        reference_path=ref_path,
+        half1_path=Path(row["half1_path"]),
+        half2_path=Path(row["half2_path"]),
+        contour=contour,
+    )
 
     grid = load_map_grid(ref_path, dtype=np.float32)
     reference_density = np.asarray(grid.data, dtype=np.float32)
-
-    with np.load(npz_path, allow_pickle=False) as d:
-        reliability_score = np.asarray(d["reliability_score"], dtype=np.float32)
-        reliability_H_repro = np.asarray(d["reliability_H_repro"], dtype=np.float32)
-        build_zone = np.asarray(d["build_zone"], dtype=np.uint8)
-        v_metric_vol = np.asarray(
-            d.get("reliability_smoothness", d.get("reliability_constraint_V")),
-            dtype=np.float32,
-        )
 
     halfmap_npz = halfmap_metrics_npz(emdb_id)
     cc = None
@@ -163,11 +147,7 @@ def load_all_metrics(
             }
             if locres_source == "resmap":
                 agg_kw["exclude_at_or_above"] = RESMAP_UNRESOLVED_SENTINEL_A
-            loc_df = aggregate_locres_to_ca(
-                locres_path,
-                pdb_path,
-                **agg_kw,
-            )
+            loc_df = aggregate_locres_to_ca(locres_path, pdb_path, **agg_kw)
             loc_df = loc_df.rename(columns={"local_resolution_mean": "local_resolution"})
             df = df.drop(columns=["local_resolution"]).merge(
                 loc_df[["chain", "seq_num", "local_resolution"]],
@@ -184,8 +164,7 @@ def load_all_metrics(
             )
     else:
         logger.warning(
-            "EMD-%s: no %s map at %s; local_resolution left as NaN "
-            "(run scripts/run_resmap_align_to_reference.py for ResMap)",
+            "EMD-%s: no %s map at %s; local_resolution left as NaN",
             emdb_id,
             locres_source,
             locres_path,
@@ -201,9 +180,6 @@ def compute_cross_metric_correlations(
     min_pairs: int = 30,
     mask_column: str = "in_contour_mask",
 ) -> pd.DataFrame:
-    """
-    Pairwise Spearman ρ between numeric metric columns (in-mask residues by default).
-    """
     use = df
     if mask_column in df.columns:
         use = df[df[mask_column].astype(bool)]

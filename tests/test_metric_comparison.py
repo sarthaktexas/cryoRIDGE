@@ -11,7 +11,7 @@ import pandas as pd
 from scipy import stats
 
 from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY
-from cryoem_mrc.metric_comparison import METRIC_COLUMNS, compute_cross_metric_correlations, load_all_metrics
+from thesis.metric_comparison import METRIC_COLUMNS, compute_cross_metric_correlations, load_all_metrics
 from cryoem_mrc.repo_paths import COHORT_MANIFEST
 
 

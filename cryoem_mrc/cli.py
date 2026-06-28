@@ -20,8 +20,7 @@ _CLI_EPILOG = dedent(
       halfmap-qc analyze --features features.npz --half1 h1.map --half2 h2.map \\
         --reference ref.map --contour 0.116 --out-dir analysis_out
       halfmap-qc reliability --reference ref.map --half1 h1.map --half2 h2.map \\
-        --features features.npz --halfmap-npz analysis_out/halfmap_metrics.npz \\
-        --contour 0.116 --out-dir reliability_out
+        --features features.npz --contour 0.116 --out-dir reliability_out
 
     install:
       pip install cryoem-halfmap-qc

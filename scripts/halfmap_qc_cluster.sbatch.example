@@ -69,7 +69,6 @@ run_step "reliability" \
         --half1 "${HALF1}" \
         --half2 "${HALF2}" \
         --features "${FEATURES}" \
-        --halfmap-npz "${ANALYSIS}/halfmap_metrics.npz" \
         --contour "${CONTOUR}" \
         --out-dir "${RELIABILITY}"
 

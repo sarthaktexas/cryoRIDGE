@@ -36,6 +36,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+_REPO = Path(__file__).resolve().parents[1]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+
 import mrcfile
 import numpy as np
 import pandas as pd
@@ -44,7 +48,7 @@ from scipy import stats
 from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.io import load_mrc, save_volume_like_reference
 from cryoem_mrc.local_resolution import aggregate_locres_to_ca
-from cryoem_mrc.metric_comparison import load_all_metrics
+from thesis.metric_comparison import load_all_metrics
 from cryoem_mrc.model_map import generate_gaussian_model_map
 from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
 from cryoem_mrc.repo_paths import (

@@ -1,4 +1,4 @@
-"""Driver: features + half-maps -> correlation CSV, summary, figures.
+"""Driver: features + half-maps -> correlation CSV and half-map metric volumes.
 
 Usage
 -----
@@ -21,16 +21,12 @@ What it produces under ``--out-dir``:
 - ``halfmap_metrics.npz`` — same arrays, single-file load for downstream notebooks.
 - ``correlations.csv`` — tidy per-feature Pearson + Spearman against the chosen
   target signal (default ``windowed_halfmap_correlation``).
-- ``summary.txt`` — top-N features, mask coverage, scientific caveats.
-- ``figures/halfmap_metric_histograms.png`` — CC + repro-SNR inside vs outside mask.
-- ``figures/analysis_validation_panel.png`` — written by ``run_halfmap_reliability_export.py``
-  for the anchor map (EMD-49450): 2×2 variance / reliability validation panel.
 
 Per-map ``{feature}_vs_{target}.png`` scatters are retired (use ``--top-k-figures`` only
 for ad-hoc debugging). Run ``scripts/prune_retired_figures.py`` to delete stale exports.
 
 ``--local-res`` supplies the home-rolled FSC map. Use ``--reliability-target`` to
-choose whether figures/CSV use windowed half-map correlation (default), Å local
+choose whether CSV uses windowed half-map correlation (default), Å local
 resolution, or both.
 """
 
@@ -44,16 +40,13 @@ from pathlib import Path
 import numpy as np
 
 from cryoem_mrc.analysis import (
-    HALFMAP_HISTOGRAM_QC_KEYS,
     binned_feature_by_target,
     build_contour_mask,
     compute_feature_target_correlations,
     half_map_local_metrics_chunked,
     half_map_local_metrics_chunked_bbox,
     plot_feature_vs_target_scatter,
-    plot_halfmap_metric_histogram,
     write_correlation_csv,
-    write_summary_text,
 )
 from cryoem_mrc.figure_cleanup import prune_analysis_scatter_figures
 from cryoem_mrc.mask_bbox import format_bbox_log, pad_voxels_for_filters
@@ -137,7 +130,6 @@ def _run_correlation_pass(
     max_samples: int | None,
     top_k_figures: int,
     csv_name: str,
-    summary_name: str,
     extra_metadata: dict,
 ) -> "MaskedAnalysisResult":
     from cryoem_mrc.analysis import MaskedAnalysisResult  # noqa: F401 — for type hint
@@ -152,8 +144,7 @@ def _run_correlation_pass(
     result.contour = float(contour)
     result.extra_metadata = extra_metadata
     write_correlation_csv(result, out_dir / csv_name)
-    write_summary_text(result, out_dir / summary_name)
-    print(f"[run_analysis] wrote {out_dir / csv_name} and {out_dir / summary_name}")
+    print(f"[run_analysis] wrote {out_dir / csv_name}")
 
     spearman_rows = [c for c in result.correlations if c.method == "spearman"]
     spearman_rows.sort(
@@ -306,14 +297,6 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 2
 
-    print("[run_analysis] writing figures")
-    plot_halfmap_metric_histogram(
-        metrics,
-        mask,
-        save_path=fig_dir / "halfmap_metric_histograms.png",
-        title=f"half-map metrics inside vs outside contour {args.contour}",
-        metric_keys=HALFMAP_HISTOGRAM_QC_KEYS,
-    )
     if args.prune_scatter_figures:
         removed = prune_analysis_scatter_figures(fig_dir)
         if removed:
@@ -334,11 +317,6 @@ def main(argv: list[str] | None = None) -> int:
                 if args.reliability_target == WINDOWED_HALFMAP_CORRELATION_KEY
                 else "correlations_windowed_halfmap_correlation.csv"
             ),
-            summary_name=(
-                "summary.txt"
-                if args.reliability_target == WINDOWED_HALFMAP_CORRELATION_KEY
-                else "summary_windowed_halfmap_correlation.txt"
-            ),
             extra_metadata=meta,
         )
 
@@ -353,7 +331,6 @@ def main(argv: list[str] | None = None) -> int:
             max_samples=args.max_samples,
             top_k_figures=args.top_k_figures,
             csv_name="correlations.csv" if args.reliability_target == "local_resolution" else "correlations_localres.csv",
-            summary_name="summary.txt" if args.reliability_target == "local_resolution" else "summary_localres.txt",
             extra_metadata=meta,
         )
 
