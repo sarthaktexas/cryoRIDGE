@@ -1,17 +1,22 @@
 """Run BlocRes local-resolution maps for cohort entries with deposited half-maps.
 
 Writes ``outputs/emd_<ID>/locres_blocres.mrc`` per entry, limited to the depositor
-contour mask (``contour_mask.mrc`` + blocres ``-Mask``). After BlocRes finishes,
-the map is reheadered onto the deposited reference grid (same origin as half-maps)
-via :func:`cryoem_mrc.io.save_volume_like_reference`. Does not modify existing
-pipeline outputs (``halfmap_reliability/``, ``local_fsc``, etc.).
+contour mask (``contour_mask.mrc`` + blocres ``-Mask``). Use ``--no-mask`` to omit
+``-Mask`` (Bsoft default: all-but-zero voxels) and write
+``locres_blocres_nomask.mrc`` instead, leaving the masked map untouched.
 
-Progress is tracked in ``outputs/emd_<ID>/blocres_status.json``.
+After BlocRes finishes, the map is reheadered onto the deposited reference grid
+(same origin as half-maps) via :func:`cryoem_mrc.io.save_volume_like_reference`.
+Does not modify existing pipeline outputs (``halfmap_reliability/``, ``local_fsc``, etc.).
+
+Progress is tracked in ``outputs/emd_<ID>/blocres_status.json`` (or
+``blocres_nomask_status.json`` when ``--no-mask``).
 
 Example::
 
     source .venv/bin/activate
     python scripts/run_blocres_local_resolution.py --emd-id 49450
+    python scripts/run_blocres_local_resolution.py --emd-id 49450 --no-mask --force
     python scripts/run_blocres_local_resolution.py --all
     python scripts/run_blocres_local_resolution.py --status --emd-id 49450
     python scripts/run_blocres_local_resolution.py --status --all
@@ -38,18 +43,23 @@ from cryoem_mrc.repo_paths import COHORT_MANIFEST, emd_output_dir
 
 BLOCRES_BIN = Path("/usr/local/bsoft/bin/blocres")
 STATUS_NAME = "blocres_status.json"
+STATUS_NAME_NOMASK = "blocres_nomask_status.json"
+LOCRES_MASKED = "locres_blocres.mrc"
+LOCRES_NOMASK = "locres_blocres_nomask.mrc"
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _status_path(emdb_id: str) -> Path:
-    return emd_output_dir(emdb_id) / STATUS_NAME
+def _status_path(emdb_id: str, *, no_mask: bool = False) -> Path:
+    name = STATUS_NAME_NOMASK if no_mask else STATUS_NAME
+    return emd_output_dir(emdb_id) / name
 
 
-def _locres_path(emdb_id: str) -> Path:
-    return emd_output_dir(emdb_id) / "locres_blocres.mrc"
+def _locres_path(emdb_id: str, *, no_mask: bool = False) -> Path:
+    name = LOCRES_NOMASK if no_mask else LOCRES_MASKED
+    return emd_output_dir(emdb_id) / name
 
 
 def _mask_path(emdb_id: str) -> Path:
@@ -94,16 +104,16 @@ def _pid_alive(pid: int | None) -> bool:
     return True
 
 
-def _write_status(emdb_id: str, payload: dict) -> Path:
-    path = _status_path(emdb_id)
+def _write_status(emdb_id: str, payload: dict, *, no_mask: bool = False) -> Path:
+    path = _status_path(emdb_id, no_mask=no_mask)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"emdb_id": str(emdb_id).strip(), "updated_at": _utc_now(), **payload}
     path.write_text(json.dumps(payload, indent=2) + "\n")
     return path
 
 
-def _load_status(emdb_id: str) -> dict | None:
-    path = _status_path(emdb_id)
+def _load_status(emdb_id: str, *, no_mask: bool = False) -> dict | None:
+    path = _status_path(emdb_id, no_mask=no_mask)
     if not path.is_file():
         return None
     return json.loads(path.read_text())
@@ -137,10 +147,10 @@ def _find_blocres_pid_for_output(out_mrc: Path) -> int | None:
     return None
 
 
-def _reconcile_status(emdb_id: str) -> dict:
+def _reconcile_status(emdb_id: str, *, no_mask: bool = False) -> dict:
     """Refresh on-disk status from output file and live blocres PID."""
-    out_mrc = _locres_path(emdb_id)
-    status = _load_status(emdb_id) or {
+    out_mrc = _locres_path(emdb_id, no_mask=no_mask)
+    status = _load_status(emdb_id, no_mask=no_mask) or {
         "emdb_id": str(emdb_id).strip(),
         "status": "unknown",
         "output_path": str(out_mrc),
@@ -169,7 +179,7 @@ def _reconcile_status(emdb_id: str) -> dict:
             status["process_alive"] = False
 
     status["updated_at"] = _utc_now()
-    _write_status(emdb_id, status)
+    _write_status(emdb_id, status, no_mask=no_mask)
     return status
 
 
@@ -195,8 +205,8 @@ def _format_status_line(status: dict) -> str:
     return "  ".join(parts)
 
 
-def _print_status(emdb_id: str) -> int:
-    status = _reconcile_status(emdb_id)
+def _print_status(emdb_id: str, *, no_mask: bool = False) -> int:
+    status = _reconcile_status(emdb_id, no_mask=no_mask)
     print(_format_status_line(status), flush=True)
     if status.get("status") == "running" and status.get("process_alive"):
         return 0
@@ -207,18 +217,18 @@ def _print_status(emdb_id: str) -> int:
     return 0
 
 
-def _print_status_all(manifest: Path) -> int:
+def _print_status_all(manifest: Path, *, no_mask: bool = False) -> int:
     rows = _manifest_rows_with_halves(manifest)
     rc = 0
     any_line = False
     for row in rows:
         emdb_id = str(row["emdb_id"]).strip()
-        status_path = _status_path(emdb_id)
-        out_mrc = _locres_path(emdb_id)
+        status_path = _status_path(emdb_id, no_mask=no_mask)
+        out_mrc = _locres_path(emdb_id, no_mask=no_mask)
         if not status_path.is_file() and not out_mrc.is_file():
             continue
         any_line = True
-        code = _print_status(emdb_id)
+        code = _print_status(emdb_id, no_mask=no_mask)
         rc = max(rc, code)
     if not any_line:
         print("[blocres] no status files or completed outputs found", flush=True)
@@ -231,6 +241,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--all", action="store_true", help="Process all manifest rows with half-map paths")
     p.add_argument("--manifest", type=Path, default=COHORT_MANIFEST)
     p.add_argument("--force", action="store_true", help="Re-run even if locres_blocres.mrc exists")
+    p.add_argument(
+        "--no-mask",
+        action="store_true",
+        help=(
+            "Omit BlocRes -Mask (default: all-but-zero voxels). "
+            f"Writes {LOCRES_NOMASK} and does not overwrite {LOCRES_MASKED}."
+        ),
+    )
     p.add_argument(
         "--contour",
         type=float,
@@ -401,19 +419,45 @@ def _manifest_rows_with_halves(manifest: Path) -> list[dict[str, str]]:
     return rows
 
 
+def _build_blocres_command(
+    blocres_bin: Path,
+    *,
+    blocres_h1: Path,
+    blocres_h2: Path,
+    out_mrc: Path,
+    voxel_a: float,
+    mask_mrc: Path | None = None,
+) -> list[str]:
+    """Assemble a BlocRes CLI; omit ``-Mask`` when ``mask_mrc`` is None."""
+    cmd = [
+        str(blocres_bin),
+        "-sampling",
+        f"{voxel_a:g},{voxel_a:g},{voxel_a:g}",
+        "-box",
+        "15",
+        "-cutoff",
+        "0.143",
+    ]
+    if mask_mrc is not None:
+        cmd.extend(["-Mask", f"{mask_mrc},0.5"])
+    cmd.extend([str(blocres_h1), str(blocres_h2), str(out_mrc)])
+    return cmd
+
+
 def _run_one(
     row: dict[str, str],
     *,
     blocres_bin: Path,
     force: bool,
     contour_override: float | None = None,
+    no_mask: bool = False,
 ) -> int:
     emdb_id = str(row["emdb_id"]).strip()
     half1 = Path(row["half1_path"])
     half2 = Path(row["half2_path"])
     reference = Path(row["reference_mrc"])
     out_dir = emd_output_dir(emdb_id)
-    out_mrc = out_dir / "locres_blocres.mrc"
+    out_mrc = _locres_path(emdb_id, no_mask=no_mask)
 
     if not half1.is_file() or not half2.is_file():
         print(
@@ -427,11 +471,13 @@ def _run_one(
         print(f"[blocres] skip EMD-{emdb_id}: missing reference {reference}", flush=True)
         return 0
 
-    try:
-        contour = _parse_contour(row, override=contour_override)
-    except ValueError as exc:
-        print(f"[blocres] skip EMD-{emdb_id}: {exc}", flush=True)
-        return 0
+    contour: float | None = None
+    if not no_mask:
+        try:
+            contour = _parse_contour(row, override=contour_override)
+        except ValueError as exc:
+            print(f"[blocres] skip EMD-{emdb_id}: {exc}", flush=True)
+            return 0
 
     if out_mrc.is_file() and not force:
         print(f"[blocres] skip EMD-{emdb_id}: exists {out_mrc}", flush=True)
@@ -447,6 +493,7 @@ def _run_one(
                 "process_alive": False,
                 "note": "skipped; output already present",
             },
+            no_mask=no_mask,
         )
         return 0
 
@@ -468,74 +515,76 @@ def _run_one(
                 "process_alive": False,
                 "error": str(exc),
             },
+            no_mask=no_mask,
         )
         return 1
     for note in grid_notes:
         print(f"[blocres] EMD-{emdb_id}: {note}", flush=True)
-    mask_mrc = _mask_path(emdb_id)
-    try:
-        n_mask = _write_contour_mask(reference, contour, mask_mrc)
-    except ValueError as exc:
-        print(f"[blocres] FAIL EMD-{emdb_id}: mask — {exc}", file=sys.stderr, flush=True)
-        _write_status(
-            emdb_id,
-            {
-                "status": "failed",
-                "started_at": _utc_now(),
-                "finished_at": _utc_now(),
-                "output_path": str(out_mrc),
-                "blocres_pid": None,
-                "process_alive": False,
-                "error": str(exc),
-            },
-        )
-        return 1
 
-    sampling = f"{voxel_a:g},{voxel_a:g},{voxel_a:g}"
-    cmd = [
-        str(blocres_bin),
-        "-sampling",
-        sampling,
-        "-box",
-        "15",
-        "-cutoff",
-        "0.143",
-        "-Mask",
-        f"{mask_mrc},0.5",
-        str(blocres_h1),
-        str(blocres_h2),
-        str(out_mrc),
-    ]
-    started = _utc_now()
-    print(
-        f"[blocres] EMD-{emdb_id}: mask={n_mask:,} voxels at contour={contour:g}",
-        flush=True,
+    mask_mrc: Path | None = None
+    n_mask = 0
+    if not no_mask:
+        mask_mrc = _mask_path(emdb_id)
+        try:
+            n_mask = _write_contour_mask(reference, contour, mask_mrc)
+        except ValueError as exc:
+            print(f"[blocres] FAIL EMD-{emdb_id}: mask — {exc}", file=sys.stderr, flush=True)
+            _write_status(
+                emdb_id,
+                {
+                    "status": "failed",
+                    "started_at": _utc_now(),
+                    "finished_at": _utc_now(),
+                    "output_path": str(out_mrc),
+                    "blocres_pid": None,
+                    "process_alive": False,
+                    "error": str(exc),
+                },
+                no_mask=no_mask,
+            )
+            return 1
+
+    cmd = _build_blocres_command(
+        blocres_bin,
+        blocres_h1=blocres_h1,
+        blocres_h2=blocres_h2,
+        out_mrc=out_mrc,
+        voxel_a=voxel_a,
+        mask_mrc=mask_mrc,
     )
+    started = _utc_now()
+    if no_mask:
+        print(f"[blocres] EMD-{emdb_id}: no -Mask (Bsoft default: all-but-zero)", flush=True)
+    else:
+        print(
+            f"[blocres] EMD-{emdb_id}: mask={n_mask:,} voxels at contour={contour:g}",
+            flush=True,
+        )
     print(f"[blocres] EMD-{emdb_id}: {' '.join(cmd)}", flush=True)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    _write_status(
-        emdb_id,
-        {
-            "status": "running",
-            "started_at": started,
-            "finished_at": None,
-            "output_path": str(out_mrc),
-            "blocres_pid": proc.pid,
-            "process_alive": True,
-            "command": cmd,
-            "reference_mrc": str(reference),
-            "half1": str(blocres_h1),
-            "half2": str(blocres_h2),
-            "half1_source": str(half1),
-            "half2_source": str(half2),
-            "voxel_size_A": voxel_a,
-            "contour": contour,
-            "mask_path": str(mask_mrc),
-            "n_mask_voxels": n_mask,
-            "grid_notes": grid_notes,
-        },
-    )
-    print(f"[blocres] status -> {_status_path(emdb_id)}", flush=True)
+    status_payload: dict = {
+        "status": "running",
+        "started_at": started,
+        "finished_at": None,
+        "output_path": str(out_mrc),
+        "blocres_pid": proc.pid,
+        "process_alive": True,
+        "command": cmd,
+        "reference_mrc": str(reference),
+        "half1": str(blocres_h1),
+        "half2": str(blocres_h2),
+        "half1_source": str(half1),
+        "half2_source": str(half2),
+        "voxel_size_A": voxel_a,
+        "grid_notes": grid_notes,
+        "no_mask": no_mask,
+    }
+    if not no_mask:
+        status_payload["contour"] = contour
+        status_payload["mask_path"] = str(mask_mrc)
+        status_payload["n_mask_voxels"] = n_mask
+    _write_status(emdb_id, status_payload, no_mask=no_mask)
+    print(f"[blocres] status -> {_status_path(emdb_id, no_mask=no_mask)}", flush=True)
     stdout, stderr = proc.communicate()
     finished = _utc_now()
     if proc.returncode != 0:
@@ -554,6 +603,7 @@ def _run_one(
                 "error": stderr.strip() or f"exit code {proc.returncode}",
                 "returncode": proc.returncode,
             },
+            no_mask=no_mask,
         )
         return 1
 
@@ -571,6 +621,7 @@ def _run_one(
                 "error": "blocres exited 0 but output MRC missing",
                 "returncode": proc.returncode,
             },
+            no_mask=no_mask,
         )
         return 1
 
@@ -589,6 +640,7 @@ def _run_one(
             "process_alive": False,
             "returncode": 0,
         },
+        no_mask=no_mask,
     )
     print(f"[blocres] ok EMD-{emdb_id} -> {out_mrc} (aligned to {reference.name})", flush=True)
     return 0
@@ -598,9 +650,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.status:
         if args.emd_id:
-            return _print_status(args.emd_id.strip())
+            return _print_status(args.emd_id.strip(), no_mask=args.no_mask)
         if args.all:
-            return _print_status_all(args.manifest)
+            return _print_status_all(args.manifest, no_mask=args.no_mask)
         print("Specify --status with --emd-id or --all", file=sys.stderr)
         return 2
 
@@ -635,6 +687,7 @@ def main(argv: list[str] | None = None) -> int:
             blocres_bin=blocres_bin,
             force=args.force,
             contour_override=args.contour,
+            no_mask=args.no_mask,
         ))
     return rc
 

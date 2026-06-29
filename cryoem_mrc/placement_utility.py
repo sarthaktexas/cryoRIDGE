@@ -28,7 +28,7 @@ from .incremental_prediction import (
 from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, emd_output_dir, resolve_halfmap_reliability_dir
 from .structure_validation import load_cohort_manifest_row
 
-QSCORE_PANEL_EXCLUDE = frozenset({"33736"})
+from .qscore_cohort import QSCORE_PANEL_EXCLUDE, filter_emdb_ids, qscore_exclude_ids
 
 # Maps excluded from ResMap parallel LOMO after auto-mask QC (sentinel / coverage / flat range).
 RESMAP_QC_EXCLUDE = frozenset(
@@ -40,6 +40,8 @@ LocresMethodLomoPredictor = Literal[
     "blocres_locres_vs_global",
     "resmap_locres_inmap_median",
     "resmap_locres_vs_global",
+    "monores_locres_inmap_median",
+    "monores_locres_vs_global",
     "omit_zone",
 ]
 
@@ -48,6 +50,8 @@ LOCRES_METHOD_LOMO_LABELS: dict[LocresMethodLomoPredictor, str] = {
     "blocres_locres_vs_global": "BlocRes worse than deposited global resolution (Å)",
     "resmap_locres_inmap_median": "ResMap worse than in-map median (Å)",
     "resmap_locres_vs_global": "ResMap worse than deposited global resolution (Å)",
+    "monores_locres_inmap_median": "MonoRes worse than in-map median (Å)",
+    "monores_locres_vs_global": "MonoRes worse than deposited global resolution (Å)",
     "omit_zone": "Omit build zone (reliability tercile)",
 }
 
@@ -56,6 +60,8 @@ LOCRES_METHOD_LOMO_PREDICTORS: tuple[LocresMethodLomoPredictor, ...] = (
     "blocres_locres_vs_global",
     "resmap_locres_inmap_median",
     "resmap_locres_vs_global",
+    "monores_locres_inmap_median",
+    "monores_locres_vs_global",
     "omit_zone",
 )
 
@@ -232,9 +238,11 @@ def iter_qscore_maps(
     *,
     manifest: Path = COHORT_MANIFEST,
     exclude: frozenset[str] | None = None,
+    core: bool = False,
 ) -> list[str]:
-    exclude = exclude or QSCORE_PANEL_EXCLUDE
-    return iter_eligible_emdb_ids(TARGET_Q, manifest=manifest, qscore_exclude=exclude)
+    exclude_set = exclude if exclude is not None else qscore_exclude_ids(core=core)
+    ids = iter_eligible_emdb_ids(TARGET_Q, manifest=manifest, qscore_exclude=frozenset())
+    return filter_emdb_ids(ids, core=core) if core else [i for i in ids if i not in exclude_set]
 
 
 def _finite_spearman(x: np.ndarray, y: np.ndarray) -> float:
@@ -1536,17 +1544,40 @@ def enrich_with_resmap_locres(df: pd.DataFrame, emdb_id: str) -> pd.DataFrame:
     return out.merge(merge, on=["chain", "seq_num"], how="left")
 
 
+def enrich_with_monores_locres(df: pd.DataFrame, emdb_id: str) -> pd.DataFrame:
+    """Attach ``local_resolution_monores`` from the MonoRes metric-export table."""
+    out = df.copy()
+    path = emd_output_dir(emdb_id) / "metric_comparison_monores" / "residue_metrics.csv"
+    if not path.is_file():
+        out["local_resolution_monores"] = np.nan
+        return out
+    mono = pd.read_csv(path)
+    if "chain" not in mono.columns or "seq_num" not in mono.columns:
+        out["local_resolution_monores"] = np.nan
+        return out
+    loc = pd.to_numeric(
+        mono.get("local_resolution", mono.get("local_resolution_mean", np.nan)),
+        errors="coerce",
+    )
+    merge = mono[["chain", "seq_num"]].assign(local_resolution_monores=loc)
+    for frame in (out, merge):
+        frame["chain"] = frame["chain"].astype(str)
+        frame["seq_num"] = pd.to_numeric(frame["seq_num"], errors="coerce")
+    return out.merge(merge, on=["chain", "seq_num"], how="left")
+
+
 def load_map_with_qscore_and_resmap(
     emdb_id: str,
     *,
     manifest: Path = COHORT_MANIFEST,
     sphere_radius_a: float = 2.0,
 ) -> pd.DataFrame | None:
-    """In-mask BlocRes metrics + Q-scores + ResMap locres column."""
+    """In-mask BlocRes metrics + Q-scores + ResMap + MonoRes locres columns."""
     df = load_map_with_qscore(emdb_id, manifest=manifest, sphere_radius_a=sphere_radius_a)
     if df is None:
         return None
-    return enrich_with_resmap_locres(df, emdb_id)
+    df = enrich_with_resmap_locres(df, emdb_id)
+    return enrich_with_monores_locres(df, emdb_id)
 
 
 def load_per_map_frames_for_locres_lomo(
@@ -1555,7 +1586,7 @@ def load_per_map_frames_for_locres_lomo(
     sphere_radius_a: float = 2.0,
     exclude: frozenset[str] | None = None,
 ) -> list[tuple[str, pd.DataFrame, float]]:
-    """Load Q-score frames with both BlocRes and ResMap locres columns."""
+    """Load Q-score frames with BlocRes, ResMap, and MonoRes locres columns."""
     exclude = exclude or QSCORE_PANEL_EXCLUDE
     frames: list[tuple[str, pd.DataFrame, float]] = []
     for emdb_id in iter_qscore_maps(manifest=manifest, exclude=exclude):
@@ -1590,6 +1621,8 @@ def _locres_method_fixed_flags(
 
     if predictor in ("blocres_locres_inmap_median", "blocres_locres_vs_global"):
         loc = pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy(dtype=np.float64)
+    elif predictor in ("monores_locres_inmap_median", "monores_locres_vs_global"):
+        loc = pd.to_numeric(df["local_resolution_monores"], errors="coerce").to_numpy(dtype=np.float64)
     else:
         loc = pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy(dtype=np.float64)
 
@@ -1612,6 +1645,8 @@ def _locres_method_fixed_scores(
         return _predictor_scores(df)["omit_zone"]
     if predictor.startswith("blocres_"):
         return pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy(dtype=np.float64)
+    if predictor.startswith("monores_"):
+        return pd.to_numeric(df["local_resolution_monores"], errors="coerce").to_numpy(dtype=np.float64)
     return pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy(dtype=np.float64)
 
 
@@ -1624,6 +1659,9 @@ def _locres_method_rank_proxy(
         return _predictor_rank_proxy(df, "omit_zone")
     if predictor.startswith("blocres_"):
         loc = pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy(dtype=np.float64)
+        return -loc
+    if predictor.startswith("monores_"):
+        loc = pd.to_numeric(df["local_resolution_monores"], errors="coerce").to_numpy(dtype=np.float64)
         return -loc
     loc = pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy(dtype=np.float64)
     return -loc

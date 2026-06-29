@@ -1,18 +1,26 @@
 """Download cohort expansion maps and PDB models from EMDB / RCSB.
 
-Manifests (FTP-verified 2026-06-07):
-  - ``cohort/expansion_downloads.json`` — 7 conformation pairs (14 maps)
-  - ``cohort/publication_downloads.json`` — 12 single-map benchmark entries
+Two analysis cohorts (do not merge):
+  - Core: ``cohort/manifest.csv``
+  - Expansion: ``cohort/expansion_manifest.{json,csv}`` (~30 maps)
+
+Legacy download manifests (used to build the original core cohort):
+  - ``cohort/expansion_downloads.json`` — conformation pairs
+  - ``cohort/publication_downloads.json`` — single-map entries
 
 Example::
 
     source .venv/bin/activate
     cd /Users/sarthakmohanty/Developer/thesis
 
-    python scripts/download_cohort_expansion.py --verify-only --everything
-    python scripts/download_cohort_expansion.py --everything
+    # Expansion cohort (cohort 2)
+    python scripts/download_cohort_expansion.py --expansion-cohort --verify-only --all
+    python scripts/download_cohort_expansion.py --expansion-cohort --all
+    python scripts/download_cohort_expansion.py --expansion-cohort --emdb-id 71331
+
+    # Legacy core-cohort download sources
+    python scripts/download_cohort_expansion.py --expansion --all
     python scripts/download_cohort_expansion.py --publication --all
-    python scripts/download_cohort_expansion.py --pair ribosome_ecoli_pre_post
 """
 
 from __future__ import annotations
@@ -33,8 +41,10 @@ from cryoem_mrc.repo_paths import DATA_ROOT, PDB_ROOT
 REPO = Path(__file__).resolve().parents[1]
 EXPANSION_MANIFEST = REPO / "cohort" / "expansion_downloads.json"
 PUBLICATION_MANIFEST = REPO / "cohort" / "publication_downloads.json"
+EXPANSION_COHORT_MANIFEST = REPO / "cohort" / "expansion_manifest.json"
 EXPANSION_REPORT = REPO / "cohort" / "expansion_download_report.json"
 PUBLICATION_REPORT = REPO / "cohort" / "publication_download_report.json"
+EXPANSION_COHORT_REPORT = REPO / "cohort" / "expansion_cohort_download_report.json"
 
 EMDB_MIRRORS = (
     "https://files.wwpdb.org/pub/emdb/structures",
@@ -331,6 +341,89 @@ def _run_expansion(args: argparse.Namespace) -> tuple[dict, int, int, int]:
     return report, n_ok, n_skip, n_fail
 
 
+def _run_combined_entries_manifest(
+    args: argparse.Namespace,
+    *,
+    manifest_path: Path,
+    report_path: Path,
+    label: str,
+) -> tuple[dict, int, int, int]:
+    data = _load_manifest(manifest_path)
+    report: dict = {"manifest": str(manifest_path), "pairs": [], "entries": [], "summary": {}}
+    n_ok = n_fail = n_skip = 0
+    dry_run = args.dry_run or args.verify_only
+    skip_existing = not args.no_skip_existing
+    gunzip = not args.no_gunzip
+
+    print(f"{label} manifest: {manifest_path}", flush=True)
+
+    pairs = data.get("pairs", [])
+    if args.pair:
+        pairs = [p for p in pairs if p.get("id") == args.pair]
+        if not pairs:
+            raise SystemExit(f"Unknown pair id: {args.pair!r}")
+    elif not (args.all or args.everything) and not args.emdb_id:
+        pairs = []
+
+    for pair in pairs:
+        pid = pair["id"]
+        print(f"\n=== Pair: {pid} — {pair.get('description', '')}", flush=True)
+        pair_report = {"id": pid, "entries": []}
+        for state in pair["states"]:
+            if args.emdb_id and str(state["emdb_id"]) != args.emdb_id.strip():
+                continue
+            emdb_id = state["emdb_id"]
+            print(f"EMD-{emdb_id} -> data/{state['folder']}/", flush=True)
+            entry = (
+                verify_entry(state)
+                if args.verify_only
+                else download_entry(state, gunzip=gunzip, skip_existing=skip_existing, dry_run=dry_run)
+            )
+            pair_report["entries"].append(_serialize_result(entry))
+            o, s, f = _tally(entry)
+            n_ok += o
+            n_skip += s
+            n_fail += f
+        report["pairs"].append(pair_report)
+
+    entries = data.get("entries", [])
+    if args.emdb_id:
+        entries = [e for e in entries if str(e["emdb_id"]) == args.emdb_id.strip()]
+    elif not (args.all or args.everything) and not args.pair:
+        entries = []
+
+    print(f"Single entries selected: {len(entries)}", flush=True)
+    for state in entries:
+        emdb_id = state["emdb_id"]
+        tag = state.get("scaffold_class") or state.get("assembly_class") or ""
+        title = state.get("display_name") or state.get("label") or ""
+        print(f"\n=== EMD-{emdb_id} [{tag}] — {title}", flush=True)
+        print(f"data/{state['folder']}/", flush=True)
+        entry = (
+            verify_entry(state)
+            if args.verify_only
+            else download_entry(state, gunzip=gunzip, skip_existing=skip_existing, dry_run=dry_run)
+        )
+        report["entries"].append({**state, "download": _serialize_result(entry)})
+        o, s, f = _tally(entry)
+        n_ok += o
+        n_skip += s
+        n_fail += f
+
+    report["summary"] = {"ok_or_available": n_ok, "skipped": n_skip, "failed_or_missing": n_fail}
+    return report, n_ok, n_skip, n_fail, report_path
+
+
+def _run_expansion_cohort(args: argparse.Namespace) -> tuple[dict, int, int, int]:
+    report, n_ok, n_skip, n_fail, _report_path = _run_combined_entries_manifest(
+        args,
+        manifest_path=args.expansion_cohort_manifest or EXPANSION_COHORT_MANIFEST,
+        report_path=EXPANSION_COHORT_REPORT,
+        label="Expansion cohort",
+    )
+    return report, n_ok, n_skip, n_fail
+
+
 def _run_publication(args: argparse.Namespace) -> tuple[dict, int, int, int]:
     path = args.publication_manifest or PUBLICATION_MANIFEST
     data = _load_manifest(path)
@@ -372,29 +465,62 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Download cohort expansion / publication maps and PDB models.")
     p.add_argument("--manifest", type=Path, default=None, help="Conformation-pair manifest (default: expansion_downloads.json)")
     p.add_argument("--publication-manifest", type=Path, default=None)
-    p.add_argument("--expansion", action="store_true", help="Conformation-pair expansion (default if neither flag set with --all)")
-    p.add_argument("--publication", action="store_true", help="Single-map publication cohort")
-    p.add_argument("--everything", action="store_true", help="Both expansion pairs and publication singles")
+    p.add_argument(
+        "--expansion-cohort-manifest",
+        type=Path,
+        default=None,
+        help="Expansion cohort manifest (default: expansion_manifest.json)",
+    )
+    p.add_argument("--expansion", action="store_true", help="Legacy conformation-pair downloads (expansion_downloads.json)")
+    p.add_argument("--publication", action="store_true", help="Legacy publication singles (publication_downloads.json)")
+    p.add_argument(
+        "--expansion-cohort",
+        action="store_true",
+        help="Expansion cohort downloads (expansion_manifest.json; cohort 2)",
+    )
+    p.add_argument("--everything", action="store_true", help="Legacy expansion pairs + publication singles")
     p.add_argument("--all", action="store_true", help="All items in the selected manifest(s)")
-    p.add_argument("--pair", type=str, help="Expansion: one pair id")
-    p.add_argument("--emdb-id", type=str, help="Publication: one EMDB id")
+    p.add_argument("--pair", type=str, help="One pair id from the selected manifest")
+    p.add_argument("--emdb-id", type=str, help="One EMDB id from the selected manifest")
     p.add_argument("--verify-only", action="store_true")
     p.add_argument("--no-skip-existing", action="store_true")
     p.add_argument("--no-gunzip", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
 
-    if not args.expansion and not args.publication and not args.everything:
+    if not args.expansion and not args.publication and not args.expansion_cohort and not args.everything:
+        if args.pair and args.emdb_id:
+            raise SystemExit("Use --pair or --emdb-id, not both.")
+        ec = args.expansion_cohort_manifest or EXPANSION_COHORT_MANIFEST
         if args.pair:
-            args.expansion = True
+            if ec.is_file() and args.pair in {p["id"] for p in _load_manifest(ec).get("pairs", [])}:
+                args.expansion_cohort = True
+            else:
+                args.expansion = True
         elif args.emdb_id:
-            args.publication = True
+            eid = args.emdb_id.strip()
+            if ec.is_file():
+                ec_data = _load_manifest(ec)
+                if any(str(x["emdb_id"]) == eid for x in ec_data.get("entries", [])) or any(
+                    str(s["emdb_id"]) == eid for p in ec_data.get("pairs", []) for s in p.get("states", [])
+                ):
+                    args.expansion_cohort = True
+            if not args.expansion_cohort:
+                args.publication = True
         elif args.all:
-            args.expansion = True
+            raise SystemExit("Use --expansion-cohort, --expansion, or --publication with --all.")
         else:
-            raise SystemExit("Specify --expansion, --publication, or --everything (with --all or filters).")
+            raise SystemExit("Specify --expansion-cohort, --expansion, --publication, or --everything.")
 
     total_fail = 0
+    if args.expansion_cohort:
+        report, ok, skip, fail = _run_expansion_cohort(args)
+        total_fail += fail
+        if not args.verify_only and not args.dry_run:
+            EXPANSION_COHORT_REPORT.write_text(json.dumps(report, indent=2) + "\n")
+            print(f"\nExpansion cohort report: {EXPANSION_COHORT_REPORT}", flush=True)
+        print(f"Expansion cohort: {ok} ok/available, {skip} skipped, {fail} failed/missing", flush=True)
+
     if args.expansion or args.everything:
         report, ok, skip, fail = _run_expansion(args)
         total_fail += fail

@@ -10,6 +10,7 @@ from unittest import mock
 
 from scripts.run_blocres_local_resolution import (
     STATUS_NAME,
+    _build_blocres_command,
     _format_status_line,
     _parse_contour,
     _reconcile_status,
@@ -64,6 +65,34 @@ class TestBlocresStatus(unittest.TestCase):
             n = _write_contour_mask(ref, 0.116, out)
             self.assertGreater(n, 10_000)
             self.assertTrue(out.is_file())
+
+    def test_build_blocres_command_with_and_without_mask(self) -> None:
+        bin_path = Path("/usr/local/bsoft/bin/blocres")
+        h1 = Path("half1.mrc")
+        h2 = Path("half2.mrc")
+        out = Path("out.mrc")
+        mask = Path("mask.mrc")
+        masked = _build_blocres_command(
+            bin_path,
+            blocres_h1=h1,
+            blocres_h2=h2,
+            out_mrc=out,
+            voxel_a=1.05,
+            mask_mrc=mask,
+        )
+        self.assertIn("-Mask", masked)
+        self.assertEqual(masked[-3:], [str(h1), str(h2), str(out)])
+
+        bare = _build_blocres_command(
+            bin_path,
+            blocres_h1=h1,
+            blocres_h2=h2,
+            out_mrc=out,
+            voxel_a=1.05,
+            mask_mrc=None,
+        )
+        self.assertNotIn("-Mask", bare)
+        self.assertEqual(bare[-3:], [str(h1), str(h2), str(out)])
 
 
 if __name__ == "__main__":

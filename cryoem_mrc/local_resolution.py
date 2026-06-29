@@ -268,6 +268,13 @@ def locres_blocres_path(emdb_id: str | int) -> Path:
     return emd_output_dir(emdb_id) / "locres_blocres.mrc"
 
 
+def locres_blocres_nomask_path(emdb_id: str | int) -> Path:
+    """BlocRes output without ``-Mask`` (Bsoft default: all-but-zero voxels)."""
+    from .repo_paths import emd_output_dir
+
+    return emd_output_dir(emdb_id) / "locres_blocres_nomask.mrc"
+
+
 def locres_resmap_raw_path(emdb_id: str | int) -> Path:
     """ResMap tool output before reference-grid alignment."""
     from .repo_paths import emd_output_dir
@@ -278,6 +285,62 @@ def locres_resmap_raw_path(emdb_id: str | int) -> Path:
 def locres_resmap_path(emdb_id: str | int) -> Path:
     """ResMap local-resolution map used for Cα aggregation."""
     return locres_resmap_raw_path(emdb_id)
+
+
+def locres_monores_path(emdb_id: str | int) -> Path:
+    """MonoRes map aligned to the deposited reference grid (Chimera export)."""
+    from .repo_paths import emd_output_dir
+
+    return emd_output_dir(emdb_id) / "locres_monores.mrc"
+
+
+def find_monores_chimera_mrc(emdb_id: str | int, *, data_root: Path | None = None) -> Path | None:
+    """Return ``data/emd_<ID>*/monores/monoresResolutionChimera.mrc`` when present."""
+    from .repo_paths import DATA_ROOT
+
+    root = data_root or DATA_ROOT
+    eid = str(emdb_id).strip()
+    for folder in sorted(root.glob(f"emd_{eid}*")):
+        candidate = folder / "monores" / "monoresResolutionChimera.mrc"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def find_monores_refined_mask(emdb_id: str | int, *, data_root: Path | None = None) -> Path | None:
+    """Return MonoRes ``refinedMask.mrc`` co-located with the Chimera export."""
+    from .repo_paths import DATA_ROOT
+
+    root = data_root or DATA_ROOT
+    eid = str(emdb_id).strip()
+    for folder in sorted(root.glob(f"emd_{eid}*")):
+        candidate = folder / "monores" / "refinedMask.mrc"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def ensure_locres_monores_aligned(
+    emdb_id: str | int,
+    *,
+    reference: str | Path,
+    force: bool = False,
+) -> Path | None:
+    """
+    Align MonoRes Chimera export onto ``reference`` when raw data exist.
+
+    Returns the aligned ``outputs/emd_<ID>/locres_monores.mrc``, or ``None`` if no
+    MonoRes folder is on disk.
+    """
+    out = locres_monores_path(emdb_id)
+    if out.is_file() and not force:
+        return out
+    raw = find_monores_chimera_mrc(emdb_id)
+    if raw is None:
+        return None
+    out.parent.mkdir(parents=True, exist_ok=True)
+    align_locres_to_reference(reference, raw, out)
+    return out
 
 
 # ResMap writes 100 Å for voxels that did not pass the FDR threshold.

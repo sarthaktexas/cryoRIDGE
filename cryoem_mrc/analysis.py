@@ -189,6 +189,30 @@ def build_contour_mask(
     return mask
 
 
+def suggest_contour(
+    density: np.ndarray,
+    *,
+    min_mask_frac: float = 0.002,
+    max_mask_frac: float = 0.40,
+) -> float:
+    """
+    Heuristic contour on an averaged half-map when no depositor value is available.
+
+    Scans low percentiles of positive voxels until the resulting mask covers a
+    reasonable fraction of the box (typical macromolecule occupancy in cryo-EM grids).
+    """
+    d = np.asarray(density, dtype=np.float64)
+    pos = d[np.isfinite(d) & (d > 0)]
+    if pos.size == 0:
+        raise ValueError("Cannot suggest contour: map has no positive voxels")
+    for pct in (5.0, 8.0, 10.0, 12.0, 15.0, 3.0, 2.0, 18.0, 20.0):
+        contour = float(np.percentile(pos, pct))
+        frac = float((d >= contour).mean())
+        if min_mask_frac <= frac <= max_mask_frac:
+            return contour
+    return float(np.percentile(pos, 10.0))
+
+
 
 
 CorrelationMethod = Literal["pearson", "spearman"]

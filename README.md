@@ -8,13 +8,15 @@ Local **reliability scores** and **build zones** for cryo-EM maps from half-maps
 
 ```bash
 pip install cryoem-halfmap-qc
-halfmap-qc          # interactive menu
+halfmap-qc          # interactive: two half-map paths → two MRC outputs
 halfmap-qc help     # CLI reference
 ```
 
+Interactive mode asks for **half-map 1** and **half-map 2**, then writes `{stem}_reliability.mrc` and `{stem}_build_zones.mrc` under `halfmap_qc_out/` next to half-map 1 (contour is chosen automatically from the averaged map).
+
 ![halfmap-qc interactive menu](readme-assets/tui-screenshot.png)
 
-## Pipeline
+## Pipeline (non-interactive / advanced)
 
 Three commands, in order. Pass your own map paths and output directories.
 

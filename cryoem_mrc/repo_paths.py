@@ -66,6 +66,9 @@ def sync_thesis_narrative_cohort_figures(
 PDB_ROOT = Path("pdb")
 COHORT_MANIFEST = Path("cohort/manifest.csv")
 
+# Flat per-PDB EMRinger exports: ``{pdb_code}_emringer.csv`` (e.g. ``9nhz_emringer.csv``).
+EMRINGER_FLAT_DIR = OUTPUTS_ROOT / "emringer_flat"
+
 # Canonical anchor map for thesis validation panels.
 ANCHOR_EMDB_ID = "49450"
 

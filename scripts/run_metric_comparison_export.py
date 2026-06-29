@@ -17,13 +17,14 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
-import sys
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, emd_output_dir
+from cryoem_mrc.manifest_policy import row_ca_metrics_eligible, row_resmap_ca_headline_eligible
 from thesis.metric_comparison import (
     LocresSource,
     compute_cross_metric_correlations,
@@ -40,20 +41,25 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--manifest", type=Path, default=COHORT_MANIFEST)
     p.add_argument(
         "--locres-source",
-        choices=("blocres", "resmap", "both"),
+        choices=("blocres", "resmap", "monores", "all"),
         default="blocres",
         help="Local-resolution map(s) to aggregate at Cα (default: blocres)",
     )
     return p.parse_args(argv)
 
 
-def _eligible_ids(manifest: Path) -> list[str]:
+def _eligible_ids(manifest: Path, *, locres_source: LocresSource) -> list[str]:
     ids: list[str] = []
     with manifest.open(newline="") as f:
         for row in csv.DictReader(f):
             eid = str(row["emdb_id"]).strip()
-            pdb = row.get("flexibility_path_or_pdb", "").strip()
-            if not pdb or not Path(pdb).is_file():
+            if locres_source == "resmap":
+                if not row_resmap_ca_headline_eligible(row):
+                    reason = "resmap expected failure" if row.get("resmap_expected_failure") else "map-only / no PDB"
+                    print(f"[metric_export] skip EMD-{eid} ResMap Cα: {reason}", flush=True)
+                    continue
+            elif not row_ca_metrics_eligible(row):
+                print(f"[metric_export] skip EMD-{eid}: map-only / no deposited PDB", flush=True)
                 continue
             rel_mrc, zone_mrc = reliability_mrc_paths(eid)
             if not rel_mrc.is_file() or not zone_mrc.is_file():
@@ -94,15 +100,26 @@ def main(argv: list[str] | None = None) -> int:
         print("Specify --emd-id or --all", file=sys.stderr)
         return 2
 
-    ids = _eligible_ids(args.manifest) if args.all else [args.emd_id.strip()]
-    sources: tuple[LocresSource, ...]
-    if args.locres_source == "both":
+    if args.locres_source == "all":
+        sources: tuple[LocresSource, ...] = ("blocres", "resmap", "monores")
+    elif args.locres_source == "both":
         sources = ("blocres", "resmap")
     else:
         sources = (args.locres_source,)  # type: ignore[assignment]
-    rc = 0
-    for emdb_id in ids:
+
+    if args.all:
+        union: set[str] = set()
         for locres_source in sources:
+            union.update(_eligible_ids(args.manifest, locres_source=locres_source))
+        target_ids = sorted(union)
+    else:
+        target_ids = [args.emd_id.strip()]
+
+    rc = 0
+    for emdb_id in target_ids:
+        for locres_source in sources:
+            if emdb_id not in _eligible_ids(args.manifest, locres_source=locres_source):
+                continue
             rc = max(rc, _export_one(emdb_id, manifest=args.manifest, locres_source=locres_source))
     return rc
 

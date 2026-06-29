@@ -14,7 +14,7 @@ _COMMANDS = frozenset({"features", "analyze", "reliability", "interactive", "hel
 _CLI_EPILOG = dedent(
     """
     examples:
-      halfmap-qc                              interactive menu (TTY)
+      halfmap-qc                              two half-maps → MRC outputs (TTY)
       halfmap-qc help                         full command reference
       halfmap-qc features map.mrc --float32 --out features.npz
       halfmap-qc analyze --features features.npz --half1 h1.map --half2 h2.map \\
@@ -63,8 +63,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="halfmap-qc",
         description=(
-            "Half-map QC: density features, windowed half-map correlation, "
-            "and reproducibility-based reliability scores for cryo-EM maps."
+            "Half-map QC: local reliability scores and build zones from cryo-EM half-maps."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_CLI_EPILOG,
@@ -89,7 +88,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser(
         "interactive",
-        help="Interactive menu (same as running halfmap-qc with no arguments on a TTY)",
+        help="Prompt for two half-maps (same as running halfmap-qc with no arguments on a TTY)",
     ).set_defaults(_run=_interactive)
 
     sub.add_parser(

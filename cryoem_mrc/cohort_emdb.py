@@ -128,3 +128,62 @@ def fetch_emdb_global_resolution_a(
         retry_delay_s=retry_delay_s,
     )
     return parse_emdb_global_resolution_a(data)
+
+
+def _contour_level_from_list(contours: list[dict[str, Any]] | None) -> float | None:
+    """Pick the author primary contour level from an EMDB ``contour_list``."""
+    if not contours:
+        return None
+    for item in contours:
+        if item.get("primary") and item.get("level") is not None:
+            try:
+                return float(item["level"])
+            except (TypeError, ValueError):
+                continue
+    for item in contours:
+        if item.get("level") is not None:
+            try:
+                return float(item["level"])
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def parse_emdb_recommended_contour(entry_json: dict[str, Any]) -> float | None:
+    """
+    Extract the depositor-recommended primary map contour from an EMDB entry JSON blob.
+
+    Uses ``map.contour_list`` (sharpened primary map). Falls back to the first half-map
+    primary contour when the primary map level is absent.
+    """
+    try:
+        level = _contour_level_from_list(entry_json["map"]["contour_list"].get("contour"))
+        if level is not None:
+            return level
+    except (KeyError, TypeError, AttributeError):
+        pass
+    try:
+        for half_map in entry_json["interpretation"]["half_map_list"]["half_map"]:
+            level = _contour_level_from_list(half_map.get("contour_list", {}).get("contour"))
+            if level is not None:
+                return level
+    except (KeyError, TypeError, AttributeError):
+        pass
+    return None
+
+
+def fetch_emdb_recommended_contour(
+    emdb_id: str | int,
+    *,
+    timeout_s: float = 30.0,
+    retries: int = 2,
+    retry_delay_s: float = 0.5,
+) -> float | None:
+    """Query EMDB for the depositor-recommended primary map contour level."""
+    data = fetch_emdb_entry_json(
+        emdb_id,
+        timeout_s=timeout_s,
+        retries=retries,
+        retry_delay_s=retry_delay_s,
+    )
+    return parse_emdb_recommended_contour(data)

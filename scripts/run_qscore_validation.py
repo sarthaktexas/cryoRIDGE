@@ -43,9 +43,8 @@ from cryoem_mrc.repo_paths import (
     sync_thesis_doc_figure,
 )
 
-# Omit from cohort ρ figure / headline stats (degenerate V or no Cα anchor).
-# RNA-only EMD-33736: zero protein Cα; see docs/THESIS_AND_PUBLICATION.md §3.4.
-QSCORE_PANEL_EXCLUDE = frozenset({"33736"})
+from cryoem_mrc.qscore_cohort import QSCORE_PANEL_EXCLUDE, filter_emdb_ids, qscore_exclude_ids
+from cryoem_mrc.manifest_policy import row_qscore_eligible
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -126,12 +125,10 @@ def _emd_ids_for_all(manifest: Path) -> list[str]:
     ids: list[str] = []
     with manifest.open(newline="") as f:
         for row in csv.DictReader(f):
-            src = row.get("flexibility_source", "").strip()
-            if src in ("excluded", "skip", ""):
-                continue
-            pdb = Path(row.get("flexibility_path_or_pdb", ""))
-            if not pdb.is_file():
-                print(f"[qscore_validation] skip EMD-{row['emdb_id']}: no PDB {pdb}", flush=True)
+            if not row_qscore_eligible(row):
+                eid = str(row.get("emdb_id", "")).strip()
+                if eid:
+                    print(f"[qscore_validation] skip EMD-{eid}: not Q-score eligible", flush=True)
                 continue
             ids.append(str(row["emdb_id"]).strip())
     return ids

@@ -34,6 +34,7 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from thesis.metric_comparison import LocresSource, load_all_metrics
+from cryoem_mrc.manifest_policy import row_ca_metrics_eligible, row_resmap_ca_headline_eligible
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
 
 import numpy as np
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_CSV_BLOCRES = OUTPUTS_ROOT / "cohort_summary" / "v_vs_locres_summary.csv"
 OUTPUT_CSV_RESMAP = OUTPUTS_ROOT / "cohort_summary" / "v_vs_locres_summary_resmap.csv"
+OUTPUT_CSV_MONORES = OUTPUTS_ROOT / "cohort_summary" / "v_vs_locres_summary_monores.csv"
 MIN_FINITE = 30  # matches figures/v_vs_locres.py panel-eligibility threshold
 MIN_PAIRS = 10  # matches figures/v_vs_locres.py _spearman_in_mask floor
 
@@ -56,7 +58,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--out", type=Path, default=None)
     p.add_argument(
         "--locres-source",
-        choices=("blocres", "resmap"),
+        choices=("blocres", "resmap", "monores"),
         default="blocres",
         help="Local-resolution map for V vs locres summary",
     )
@@ -127,10 +129,21 @@ def _display_names(manifest: Path) -> dict[str, str]:
     return names
 
 
-def _summarize_entry(emdb_id: str, *, manifest: Path, locres_source: LocresSource) -> dict | None:
+def _summarize_entry(
+    emdb_id: str,
+    *,
+    manifest: Path,
+    locres_source: LocresSource,
+    locres_path_override: Path | None = None,
+) -> dict | None:
     """One summary row, or ``None`` if the entry never enters the figure panel."""
     try:
-        df = load_all_metrics(emdb_id, manifest=manifest, locres_source=locres_source)
+        df = load_all_metrics(
+            emdb_id,
+            manifest=manifest,
+            locres_source=locres_source,
+            locres_path_override=locres_path_override,
+        )
     except (FileNotFoundError, ValueError, KeyError) as exc:
         logger.warning("skip EMD-%s: %s", emdb_id, exc)
         return None
@@ -194,7 +207,12 @@ def _summarize_entry(emdb_id: str, *, manifest: Path, locres_source: LocresSourc
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.out is None:
-        args.out = OUTPUT_CSV_RESMAP if args.locres_source == "resmap" else OUTPUT_CSV_BLOCRES
+        if args.locres_source == "resmap":
+            args.out = OUTPUT_CSV_RESMAP
+        elif args.locres_source == "monores":
+            args.out = OUTPUT_CSV_MONORES
+        else:
+            args.out = OUTPUT_CSV_BLOCRES
     _configure_logging(verbose=args.verbose)
 
     names = _display_names(args.manifest)
@@ -205,11 +223,15 @@ def main(argv: list[str] | None = None) -> int:
     with args.manifest.open(newline="") as f:
         for row in csv.DictReader(f):
             emdb_id = str(row.get("emdb_id", "")).strip()
-            pdb = row.get("flexibility_path_or_pdb", "").strip()
-            if not emdb_id or not pdb or not Path(pdb).is_file():
+            if args.locres_source == "resmap":
+                eligible = row_resmap_ca_headline_eligible(row)
+            else:
+                eligible = row_ca_metrics_eligible(row)
+            if not emdb_id or not eligible:
                 continue
             if args.emd_id and emdb_id != args.emd_id.strip():
                 continue
+            pdb = row.get("flexibility_path_or_pdb", "").strip()
             manifest_rows.append((emdb_id, pdb))
 
     for emdb_id, _pdb in manifest_rows:

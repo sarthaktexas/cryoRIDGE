@@ -14,11 +14,14 @@ from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY, load_wi
 from cryoem_mrc.local_resolution import (
     RESMAP_UNRESOLVED_SENTINEL_A,
     aggregate_locres_to_ca,
+    ensure_locres_monores_aligned,
+    find_monores_refined_mask,
     locres_blocres_path,
+    locres_monores_path,
     locres_resmap_path,
 )
 from cryoem_mrc.map_grid import load_map_grid
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, find_features_npz, halfmap_metrics_npz
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, emd_output_dir, find_features_npz, halfmap_metrics_npz
 from cryoem_mrc.structure_validation import (
     build_residue_validation_table,
     iter_ca_residues,
@@ -38,7 +41,7 @@ METRIC_COLUMNS = (
     "local_resolution",
 )
 
-LocresSource = Literal["blocres", "resmap"]
+LocresSource = Literal["blocres", "resmap", "monores"]
 
 
 def metric_comparison_dirname(locres_source: LocresSource = "blocres") -> str:
@@ -47,10 +50,54 @@ def metric_comparison_dirname(locres_source: LocresSource = "blocres") -> str:
     return f"metric_comparison_{locres_source}"
 
 
-def _locres_path(emdb_id: str, locres_source: LocresSource) -> Path:
+def _locres_path(
+    emdb_id: str,
+    locres_source: LocresSource,
+    *,
+    reference_path: Path | None = None,
+    locres_path_override: Path | None = None,
+) -> Path | None:
+    if locres_path_override is not None:
+        return locres_path_override
     if locres_source == "resmap":
         return locres_resmap_path(emdb_id)
+    if locres_source == "monores":
+        if reference_path is not None:
+            ensure_locres_monores_aligned(emdb_id, reference=reference_path)
+        path = locres_monores_path(emdb_id)
+        return path if path.is_file() else None
     return locres_blocres_path(emdb_id)
+
+
+def _attach_monores_locres(
+    base_df: pd.DataFrame,
+    emdb_id: str,
+    *,
+    manifest: Path,
+    sphere_radius_a: float,
+) -> pd.DataFrame:
+    """Reuse cached per-residue metrics; aggregate MonoRes only (memory-light)."""
+    row = load_cohort_manifest_row(manifest, emdb_id)
+    ref_path = Path(row["reference_mrc"])
+    pdb_path = Path(row["flexibility_path_or_pdb"])
+    locres_path = _locres_path(emdb_id, "monores", reference_path=ref_path)
+    df = base_df.copy()
+    df["local_resolution"] = np.nan
+    if locres_path is None or not locres_path.is_file():
+        logger.warning("EMD-%s: no aligned MonoRes map", emdb_id)
+        return df
+    agg_kw: dict[str, object] = {
+        "radius_angstrom": sphere_radius_a,
+        "reference_path": ref_path,
+    }
+    mask = find_monores_refined_mask(emdb_id)
+    if mask is not None:
+        agg_kw["mask_path"] = mask
+    loc_df = aggregate_locres_to_ca(locres_path, pdb_path, **agg_kw)
+    loc_df = loc_df.rename(columns={"local_resolution_mean": "local_resolution"})
+    if "local_resolution" in df.columns:
+        df = df.drop(columns=["local_resolution"])
+    return df.merge(loc_df[["chain", "seq_num", "local_resolution"]], on=["chain", "seq_num"], how="left")
 
 
 def load_all_metrics(
@@ -59,6 +106,7 @@ def load_all_metrics(
     manifest: Path = COHORT_MANIFEST,
     sphere_radius_a: float = 2.0,
     locres_source: LocresSource = "blocres",
+    locres_path_override: Path | None = None,
 ) -> pd.DataFrame:
     """Per-residue metrics for one EMDB entry (reads reliability/build-zone MRCs)."""
     emdb_id = str(emdb_id).strip()
@@ -72,6 +120,16 @@ def load_all_metrics(
         raise FileNotFoundError(f"EMD-{emdb_id} missing reference: {ref_path}")
     if pdb_path is None or not pdb_path.is_file():
         raise FileNotFoundError(f"EMD-{emdb_id} missing structure: {pdb_path}")
+
+    if locres_source == "monores":
+        cached = emd_output_dir(emdb_id) / "metric_comparison" / "residue_metrics.csv"
+        if cached.is_file():
+            return _attach_monores_locres(
+                pd.read_csv(cached),
+                emdb_id,
+                manifest=manifest,
+                sphere_radius_a=sphere_radius_a,
+            )
 
     reliability_score, build_zone = load_reliability_mrc_pair(emdb_id)
     reliability_H_repro, v_metric_vol = recompute_lh_volumes(
@@ -138,8 +196,13 @@ def load_all_metrics(
         }
     )
 
-    locres_path = _locres_path(emdb_id, locres_source)
-    if locres_path.is_file():
+    locres_path = _locres_path(
+        emdb_id,
+        locres_source,
+        reference_path=ref_path,
+        locres_path_override=locres_path_override,
+    )
+    if locres_path is not None and locres_path.is_file():
         try:
             agg_kw: dict[str, object] = {
                 "radius_angstrom": sphere_radius_a,
@@ -147,6 +210,10 @@ def load_all_metrics(
             }
             if locres_source == "resmap":
                 agg_kw["exclude_at_or_above"] = RESMAP_UNRESOLVED_SENTINEL_A
+            if locres_source == "monores":
+                mask = find_monores_refined_mask(emdb_id)
+                if mask is not None:
+                    agg_kw["mask_path"] = mask
             loc_df = aggregate_locres_to_ca(locres_path, pdb_path, **agg_kw)
             loc_df = loc_df.rename(columns={"local_resolution_mean": "local_resolution"})
             df = df.drop(columns=["local_resolution"]).merge(
