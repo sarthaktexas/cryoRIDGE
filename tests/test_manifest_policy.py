@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from cryoem_mrc.manifest_policy import (
     cohort_tag_for_manifest,
@@ -48,15 +49,29 @@ class TestManifestPolicy(unittest.TestCase):
         self.assertFalse(row_qscore_eligible(row))
 
     def test_borderline_qscore(self) -> None:
-        row = _row(emdb_id="50267", qscore_eligible="borderline")
-        self.assertTrue(row_qscore_eligible(row, include_borderline=True))
-        self.assertFalse(row_qscore_eligible(row, include_borderline=False))
+        with TemporaryDirectory() as tmp:
+            pdb = Path(tmp) / "9nhz.cif"
+            pdb.write_text("data\n", encoding="utf-8")
+            row = _row(
+                emdb_id="50267",
+                qscore_eligible="borderline",
+                flexibility_path_or_pdb=str(pdb),
+            )
+            self.assertTrue(row_qscore_eligible(row, include_borderline=True))
+            self.assertFalse(row_qscore_eligible(row, include_borderline=False))
 
     def test_resmap_expected_failure_excludes_headline(self) -> None:
-        row = _row(emdb_id="29262", resmap_expected_failure="document")
-        self.assertTrue(row_resmap_expected_failure(row))
-        self.assertFalse(row_resmap_ca_headline_eligible(row))
-        self.assertTrue(row_ca_metrics_eligible(row))
+        with TemporaryDirectory() as tmp:
+            pdb = Path(tmp) / "9nhz.cif"
+            pdb.write_text("data\n", encoding="utf-8")
+            row = _row(
+                emdb_id="29262",
+                resmap_expected_failure="document",
+                flexibility_path_or_pdb=str(pdb),
+            )
+            self.assertTrue(row_resmap_expected_failure(row))
+            self.assertFalse(row_resmap_ca_headline_eligible(row))
+            self.assertTrue(row_ca_metrics_eligible(row))
 
     def test_cohort_tag_for_manifest(self) -> None:
         self.assertEqual(cohort_tag_for_manifest(Path("cohort/manifest.csv")), "core")
