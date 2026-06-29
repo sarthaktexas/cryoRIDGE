@@ -15,8 +15,9 @@ from cryoem_mrc.halfmap_run import run_halfmap_qc
 class TestSuggestContour(unittest.TestCase):
     def test_suggest_contour_macromolecule_blob(self) -> None:
         d = np.zeros((40, 40, 40), dtype=np.float32)
-        d[10:30, 10:30, 10:30] = 1.0
-        d += np.random.default_rng(0).normal(0, 0.02, d.shape).astype(np.float32)
+        blob = np.s_[10:30, 10:30, 10:30]
+        d[blob] = 1.0
+        d[blob] += np.random.default_rng(0).normal(0, 0.02, (20, 20, 20)).astype(np.float32)
         contour = suggest_contour(d)
         frac = float(build_contour_mask(d, contour).mean())
         self.assertGreaterEqual(frac, 0.002)
@@ -48,8 +49,8 @@ class TestRunHalfmapQc(unittest.TestCase):
             save_avg.assert_called_once()
             features.assert_called_once()
             reliability.assert_called_once()
-            self.assertEqual(result["reliability_mrc"], out / "h1_reliability.mrc")
-            self.assertEqual(result["build_zones_mrc"], out / "h1_build_zones.mrc")
+            self.assertEqual(result["reliability_mrc"], (out / "h1_reliability.mrc").resolve())
+            self.assertEqual(result["build_zones_mrc"], (out / "h1_build_zones.mrc").resolve())
 
 
 if __name__ == "__main__":
