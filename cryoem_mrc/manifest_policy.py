@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 # RNA-only model; NPC STA far below Q-score resolution band.
@@ -67,3 +68,26 @@ def row_resmap_ca_headline_eligible(row: dict[str, str]) -> bool:
     if row_resmap_expected_failure(row):
         return False
     return row_ca_metrics_eligible(row)
+
+
+def load_manifest_policy_by_emdb(manifest: Path) -> dict[str, dict[str, str]]:
+    """``emdb_id`` → manifest policy columns used for cohort stratification."""
+    out: dict[str, dict[str, str]] = {}
+    if not manifest.is_file():
+        return out
+    with manifest.open(newline="") as f:
+        for row in csv.DictReader(f):
+            eid = str(row.get("emdb_id", "")).strip()
+            if not eid:
+                continue
+            out[eid] = dict(row)
+    return out
+
+
+def cohort_tag_for_manifest(manifest: Path) -> str:
+    """``core`` vs ``expansion`` label from manifest path or filename."""
+    resolved = manifest.resolve()
+    name = resolved.name.lower()
+    if "expansion" in name:
+        return "expansion"
+    return "core"
