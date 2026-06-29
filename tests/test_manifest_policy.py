@@ -1,8 +1,16 @@
 """Tests for cohort manifest eligibility rules."""
 
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
 from cryoem_mrc.manifest_policy import (
+    cohort_tag_for_manifest,
     row_ca_metrics_eligible,
     row_qscore_eligible,
+    row_resmap_ca_headline_eligible,
+    row_resmap_expected_failure,
     row_uses_maps_only_metrics,
 )
 
@@ -19,34 +27,44 @@ def _row(**kwargs: str) -> dict[str, str]:
     return base
 
 
-def test_maps_only_by_source() -> None:
-    row = _row(flexibility_source="windowed_halfmap_correlation_only", flexibility_path_or_pdb="")
-    assert row_uses_maps_only_metrics(row)
-    assert not row_qscore_eligible(row)
-    assert not row_ca_metrics_eligible(row)
+class TestManifestPolicy(unittest.TestCase):
+    def test_maps_only_by_source(self) -> None:
+        row = _row(
+            flexibility_source="windowed_halfmap_correlation_only",
+            flexibility_path_or_pdb="",
+        )
+        self.assertTrue(row_uses_maps_only_metrics(row))
+        self.assertFalse(row_qscore_eligible(row))
+        self.assertFalse(row_ca_metrics_eligible(row))
+
+    def test_npc_sta_excluded_from_qscore(self) -> None:
+        row = _row(
+            emdb_id="52153",
+            flexibility_source="windowed_halfmap_correlation_only",
+            flexibility_path_or_pdb="",
+            model_metrics="maps_only",
+            qscore_eligible="no",
+        )
+        self.assertFalse(row_qscore_eligible(row))
+
+    def test_borderline_qscore(self) -> None:
+        row = _row(emdb_id="50267", qscore_eligible="borderline")
+        self.assertTrue(row_qscore_eligible(row, include_borderline=True))
+        self.assertFalse(row_qscore_eligible(row, include_borderline=False))
+
+    def test_resmap_expected_failure_excludes_headline(self) -> None:
+        row = _row(emdb_id="29262", resmap_expected_failure="document")
+        self.assertTrue(row_resmap_expected_failure(row))
+        self.assertFalse(row_resmap_ca_headline_eligible(row))
+        self.assertTrue(row_ca_metrics_eligible(row))
+
+    def test_cohort_tag_for_manifest(self) -> None:
+        self.assertEqual(cohort_tag_for_manifest(Path("cohort/manifest.csv")), "core")
+        self.assertEqual(
+            cohort_tag_for_manifest(Path("cohort/expansion_manifest.csv")),
+            "expansion",
+        )
 
 
-def test_npc_sta_excluded_from_qscore() -> None:
-    row = _row(
-        emdb_id="52153",
-        flexibility_source="windowed_halfmap_correlation_only",
-        flexibility_path_or_pdb="",
-        model_metrics="maps_only",
-        qscore_eligible="no",
-    )
-    assert not row_qscore_eligible(row)
-
-
-def test_borderline_qscore() -> None:
-    row = _row(emdb_id="50267", qscore_eligible="borderline")
-    assert row_qscore_eligible(row, include_borderline=True)
-    assert not row_qscore_eligible(row, include_borderline=False)
-
-
-def test_resmap_expected_failure_excludes_headline() -> None:
-    from cryoem_mrc.manifest_policy import row_resmap_ca_headline_eligible, row_resmap_expected_failure
-
-    row = _row(emdb_id="29262", resmap_expected_failure="document")
-    assert row_resmap_expected_failure(row)
-    assert not row_resmap_ca_headline_eligible(row)
-    assert row_ca_metrics_eligible(row)
+if __name__ == "__main__":
+    unittest.main()

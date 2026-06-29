@@ -1608,6 +1608,12 @@ def _inmap_locres_median(loc: np.ndarray) -> float:
     return float(np.median(finite)) if finite.size else float("nan")
 
 
+def _numeric_series(df: pd.DataFrame, column: str) -> np.ndarray:
+    if column not in df.columns:
+        return np.full(len(df), np.nan, dtype=np.float64)
+    return pd.to_numeric(df[column], errors="coerce").to_numpy(dtype=np.float64)
+
+
 def _locres_method_fixed_flags(
     df: pd.DataFrame,
     predictor: LocresMethodLomoPredictor,
@@ -1620,11 +1626,11 @@ def _locres_method_fixed_flags(
         return zone == 0, float("nan")
 
     if predictor in ("blocres_locres_inmap_median", "blocres_locres_vs_global"):
-        loc = pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy(dtype=np.float64)
+        loc = _numeric_series(df, "local_resolution")
     elif predictor in ("monores_locres_inmap_median", "monores_locres_vs_global"):
-        loc = pd.to_numeric(df["local_resolution_monores"], errors="coerce").to_numpy(dtype=np.float64)
+        loc = _numeric_series(df, "local_resolution_monores")
     else:
-        loc = pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy(dtype=np.float64)
+        loc = _numeric_series(df, "local_resolution_resmap")
 
     if predictor.endswith("_inmap_median"):
         threshold = _inmap_locres_median(loc)
@@ -1644,10 +1650,10 @@ def _locres_method_fixed_scores(
     if predictor == "omit_zone":
         return _predictor_scores(df)["omit_zone"]
     if predictor.startswith("blocres_"):
-        return pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy(dtype=np.float64)
+        return _numeric_series(df, "local_resolution")
     if predictor.startswith("monores_"):
-        return pd.to_numeric(df["local_resolution_monores"], errors="coerce").to_numpy(dtype=np.float64)
-    return pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy(dtype=np.float64)
+        return _numeric_series(df, "local_resolution_monores")
+    return _numeric_series(df, "local_resolution_resmap")
 
 
 def _locres_method_rank_proxy(
@@ -1658,12 +1664,12 @@ def _locres_method_rank_proxy(
     if predictor == "omit_zone":
         return _predictor_rank_proxy(df, "omit_zone")
     if predictor.startswith("blocres_"):
-        loc = pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy(dtype=np.float64)
+        loc = _numeric_series(df, "local_resolution")
         return -loc
     if predictor.startswith("monores_"):
-        loc = pd.to_numeric(df["local_resolution_monores"], errors="coerce").to_numpy(dtype=np.float64)
+        loc = _numeric_series(df, "local_resolution_monores")
         return -loc
-    loc = pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy(dtype=np.float64)
+    loc = _numeric_series(df, "local_resolution_resmap")
     return -loc
 
 

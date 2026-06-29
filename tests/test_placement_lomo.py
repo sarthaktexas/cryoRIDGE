@@ -25,6 +25,7 @@ def _frame(emdb_id: str, seed: int, n: int = 80) -> tuple[str, pd.DataFrame, flo
     cc = 0.15 + 0.65 * rel + rng.normal(0, 0.07, size=n)
     loc = rng.uniform(2.5, 5.0, size=n)
     loc_res = loc + rng.normal(0, 0.2, size=n)
+    loc_mono = loc + rng.normal(0, 0.15, size=n)
     v = 0.2 + 0.6 * rel + rng.normal(0, 0.05, size=n)
     var = rng.uniform(0.5, 4.0, size=n)
     zone = np.digitize(rel, [1 / 3, 2 / 3]) - 1
@@ -35,6 +36,7 @@ def _frame(emdb_id: str, seed: int, n: int = 80) -> tuple[str, pd.DataFrame, flo
             "windowed_halfmap_correlation": cc,
             "local_resolution": loc,
             "local_resolution_resmap": loc_res,
+            "local_resolution_monores": loc_mono,
             "v_metric": v,
             "local_variance": var,
             "build_zone": zone,
