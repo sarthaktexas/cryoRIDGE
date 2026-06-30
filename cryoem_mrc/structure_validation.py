@@ -21,6 +21,26 @@ from .halfmap_metrics import (
 )
 from .map_grid import MapGrid, load_map_grid
 
+RELIABILITY_SMOOTHNESS_KEY = "reliability_smoothness"
+LEGACY_RELIABILITY_SMOOTHNESS_KEYS: tuple[str, ...] = (
+    RELIABILITY_SMOOTHNESS_KEY,
+    "reliability_H_repro",
+    "reliability_constraint_V",
+    "gradient_energy",
+)
+
+
+def _read_reliability_smoothness(row: Mapping[str, str]) -> float:
+    """Read smoothness from CSV rows written under current or legacy column names."""
+    for key in LEGACY_RELIABILITY_SMOOTHNESS_KEYS:
+        raw = row.get(key, "")
+        if raw:
+            return float(raw)
+    raise KeyError(
+        "residue_validation.csv missing smoothness column "
+        f"(expected one of {', '.join(LEGACY_RELIABILITY_SMOOTHNESS_KEYS)})"
+    )
+
 
 @dataclass(frozen=True)
 class CaResidue:
@@ -56,13 +76,12 @@ class ResidueValidationRow:
     z: float
     b_iso: float
     reliability_score: float
-    reliability_H_repro: float
+    reliability_smoothness: float
     build_zone: int
     in_contour_mask: bool
     windowed_halfmap_correlation: float = float("nan")
     local_variance: float = float("nan")
     q_score: float = float("nan")
-    reliability_constraint_V: float = float("nan")
     auth_chain: str = ""
     auth_seq_num: int = 0
 
@@ -341,7 +360,7 @@ def build_residue_validation_table(
     reference_density: np.ndarray,
     contour: float,
     reliability_score: np.ndarray,
-    reliability_H_repro: np.ndarray,
+    reliability_smoothness: np.ndarray,
     build_zone: np.ndarray,
     windowed_halfmap_correlation: np.ndarray | None = None,
     local_variance: np.ndarray | None = None,
@@ -356,7 +375,7 @@ def build_residue_validation_table(
         reliability_score, grid, residues, window_radius=window_radius
     )
     h_s = sample_volume_at_ca(
-        reliability_H_repro, grid, residues, window_radius=window_radius
+        reliability_smoothness, grid, residues, window_radius=window_radius
     )
     zone_s = sample_volume_at_ca(
         build_zone.astype(np.float64), grid, residues, window_radius=window_radius
@@ -388,7 +407,7 @@ def build_residue_validation_table(
                 z=res.z,
                 b_iso=res.b_iso,
                 reliability_score=float(score_s[i]),
-                reliability_H_repro=float(h_s[i]),
+                reliability_smoothness=float(h_s[i]),
                 build_zone=int(round(zone_s[i])),
                 in_contour_mask=bool(in_mask_s[i] >= 0.5),
                 windowed_halfmap_correlation=float(cc_s[i]) if cc_s is not None else float("nan"),
@@ -803,7 +822,7 @@ def write_bfactor_score_correlation_csv(
 
 
 def write_residue_validation_csv(path: str | Path, rows: Sequence[ResidueValidationRow]) -> Path:
-    """Write ``residue_validation.csv`` for thesis / plotting."""
+    """Write ``residue_validation.csv`` for plotting and external validation."""
     path = Path(path)
     fieldnames = [
         "chain",
@@ -817,7 +836,7 @@ def write_residue_validation_csv(path: str | Path, rows: Sequence[ResidueValidat
         "z",
         "b_iso",
         "reliability_score",
-        "reliability_H_repro",
+        "reliability_smoothness",
         "build_zone",
         "in_contour_mask",
         WINDOWED_HALFMAP_CORRELATION_KEY,
@@ -840,7 +859,7 @@ def write_residue_validation_csv(path: str | Path, rows: Sequence[ResidueValidat
                     "z": f"{r.z:.3f}",
                     "b_iso": f"{r.b_iso:.2f}",
                     "reliability_score": f"{r.reliability_score:.6f}",
-                    "reliability_H_repro": f"{r.reliability_H_repro:.6f}",
+                    "reliability_smoothness": f"{r.reliability_smoothness:.6f}",
                     "build_zone": r.build_zone,
                     "in_contour_mask": int(r.in_contour_mask),
                     WINDOWED_HALFMAP_CORRELATION_KEY: (
@@ -891,7 +910,7 @@ def attach_qscores_to_residue_rows(
     rows: Sequence[ResidueValidationRow],
     qscore_csv: str | Path,
 ) -> list[ResidueValidationRow]:
-    """Merge per-residue Q-scores and LH constraint V from ``qscore_validation.csv``."""
+    """Merge per-residue Q-scores and smoothness from ``qscore_validation.csv``."""
     from .qscore_validation import read_qscore_validation_lookups
 
     q_lookup, v_lookup = read_qscore_validation_lookups(qscore_csv)
@@ -902,7 +921,7 @@ def attach_qscores_to_residue_rows(
             replace(
                 r,
                 q_score=q_lookup.get(key, float("nan")),
-                reliability_constraint_V=v_lookup.get(key, float("nan")),
+                reliability_smoothness=v_lookup.get(key, r.reliability_smoothness),
             )
         )
     return out
@@ -925,7 +944,7 @@ def read_residue_validation_csv(path: str | Path) -> list[ResidueValidationRow]:
                     z=float(row["z"]),
                     b_iso=float(row["b_iso"]),
                     reliability_score=float(row["reliability_score"]),
-                    reliability_H_repro=float(row["reliability_H_repro"]),
+                    reliability_smoothness=_read_reliability_smoothness(row),
                     build_zone=int(row["build_zone"]),
                     in_contour_mask=bool(int(row["in_contour_mask"])),
                     windowed_halfmap_correlation=float(

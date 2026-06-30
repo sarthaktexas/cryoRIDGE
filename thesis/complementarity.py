@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY
-from .incremental_prediction import (
+from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY
+from thesis.incremental_prediction import (
     MapPredictionFrame,
     ols_fit,
     ols_predict,
@@ -26,7 +26,7 @@ BASELINE_RANK_COLUMNS: tuple[str, ...] = (
 )
 
 GRADIENT_FAMILY_COLUMNS: tuple[str, ...] = (
-    "constraint_V",
+    "smoothness",
     "T_vonweizsacker",
     "V_curvature",
 )

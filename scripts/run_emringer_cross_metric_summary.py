@@ -51,7 +51,7 @@ from cryoem_mrc.emringer_cohort import (
     emringer_panel_reason,
     load_manifest_global_resolution_a,
 )
-from cryoem_mrc.incremental_prediction import load_qscore_target, normalize_metrics_columns
+from thesis.incremental_prediction import load_qscore_target, normalize_metrics_columns
 from cryoem_mrc.local_resolution import RESMAP_UNRESOLVED_SENTINEL_A
 from cryoem_mrc.manifest_policy import (
     cohort_tag_for_manifest,

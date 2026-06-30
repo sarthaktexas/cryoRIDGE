@@ -24,10 +24,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import apply, savefig as save_nature
-from style.thesis_palette import PALETTES
+from style.figures import apply, savefig as save_nature
+from style.palette import PALETTES
 
-from cryoem_mrc.placement_utility import (
+from thesis.placement_utility import (
     LOCRES_METHOD_LOMO_LABELS,
     LOCRES_METHOD_LOMO_PREDICTORS,
     QSCORE_PANEL_EXCLUDE,

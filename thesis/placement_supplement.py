@@ -8,11 +8,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
-from style.nature import apply, label_panel, savefig as save_nature
+from style.figures import apply, label_panel, savefig as save_nature
 
-from .reliability import BUILD_ZONE_COLORS
-from .halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_LABEL
-from .structure_validation import ResidueValidationRow
+from cryoem_mrc.reliability import BUILD_ZONE_COLORS
+from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_LABEL
+from cryoem_mrc.structure_validation import ResidueValidationRow
 
 ZONE_LABELS = {0: "omit", 1: "caution", 2: "build"}
 

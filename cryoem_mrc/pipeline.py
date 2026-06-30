@@ -72,7 +72,7 @@ def run_pipeline(
     - local_mean, local_variance, gradient_magnitude (on normalized density)
     - multiscale_sigmas (1D, length k)
     - gauss_s{i}, gauss_s{i}_local_variance, gauss_s{i}_gradient_magnitude
-    - reliability_score, reliability_H_repro, build_zone (when half-maps supplied)
+    - reliability_score, reliability_smoothness, build_zone (when half-maps supplied)
     - rigidity (optional legacy heuristic; off by default; enable with
       ``compute_rigidity=True``)
 

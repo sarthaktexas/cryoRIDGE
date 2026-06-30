@@ -8,7 +8,7 @@ into comparison tables and figures:
   ``windowed_halfmap_correlation`` from :func:`cryoem_mrc.halfmap_metrics.half_map_local_metrics`,
   optionally also
   against a local-resolution map in Å when one is available.
-- A tidy CSV for the thesis appendix.
+- A tidy CSV for the methods appendix.
 - A plain-text ``summary.txt`` listing the strongest correlated features with the
   scientific caveats that they are map-derived rigidity proxies, not biophysical
   flexibility measurements.
@@ -18,7 +18,7 @@ into comparison tables and figures:
 Scientific framing
 ------------------
 
-The thesis question is whether voxel-wise local statistics computed on a cryo-EM
+Core question: whether voxel-wise local statistics computed on a cryo-EM
 density map identify regions of high vs. low map reliability.
 ``windowed_halfmap_correlation`` (half-map agreement in a sliding cubic window) is the
 primary fast reproducibility target; local FSC resolution (Å) is the field-standard reference.
@@ -526,7 +526,7 @@ def plot_feature_vs_target_on_ax(
     """Hexbin + optional binned-mean curve on an existing axes (for multi-panel figures)."""
     import matplotlib.pyplot as plt
 
-    from style.nature import apply
+    from style.figures import apply
 
     f = _flatten_under_mask(feature, mask)
     t = _flatten_under_mask(target, mask)
@@ -571,7 +571,7 @@ def plot_cc_mask_histogram_on_ax(
     bins: int = 80,
 ) -> None:
     """Single-metric inside vs outside mask histogram (panel inset for validation figure)."""
-    from style.nature import apply
+    from style.figures import apply
 
     apply(ax)
     mask_b = np.asarray(mask).astype(bool)
@@ -605,7 +605,7 @@ def plot_reliability_vs_cc_binned_on_ax(
     n_bins: int = 10,
 ) -> None:
     """Binned mean reliability_score vs windowed half-map correlation."""
-    from style.nature import apply
+    from style.figures import apply
 
     binned = binned_feature_by_target(
         reliability_score,
@@ -656,7 +656,7 @@ def plot_analysis_validation_panel(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from style.nature import label_panel, savefig as save_nature
+    from style.figures import label_panel, savefig as save_nature
 
     target_name = WINDOWED_HALFMAP_CORRELATION_KEY
     cc = np.asarray(metrics[target_name])
@@ -726,7 +726,7 @@ def plot_halfmap_metric_histogram(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from style.nature import apply, label_panel, savefig as save_nature
+    from style.figures import apply, label_panel, savefig as save_nature
 
     keys = list(metric_keys) if metric_keys is not None else list(metrics.keys())
     n = len(keys)
@@ -797,7 +797,7 @@ def plot_feature_vs_target_scatter(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from style.nature import savefig as save_nature
+    from style.figures import savefig as save_nature
 
     fig, ax = plt.subplots(figsize=(6.0, 5.0))
     plot_feature_vs_target_on_ax(

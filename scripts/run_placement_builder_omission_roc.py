@@ -30,17 +30,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from style.nature import apply, savefig as save_nature
-from style.thesis_palette import PALETTES
+from style.figures import apply, savefig as save_nature
+from style.palette import PALETTES
 
-from cryoem_mrc.builder_omission import (
+from thesis.builder_omission import (
     BUILDER_OMISSION_MAX_GAP_DEFAULT,
     BuilderOmissionMapStats,
     iter_builder_omission_maps,
     load_per_map_frames_for_builder_omission_roc,
     summarize_builder_omission_roc_per_map,
 )
-from cryoem_mrc.placement_utility import (
+from thesis.placement_utility import (
     PLACEMENT_Q_ROC_PREDICTORS,
     PREDICTOR_LABELS,
     cohort_representative_roc,

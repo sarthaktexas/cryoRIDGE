@@ -24,7 +24,7 @@ def _row(chain: str, seq: int, zone: int) -> ResidueValidationRow:
         z=0.0,
         b_iso=20.0,
         reliability_score=0.5,
-        reliability_H_repro=0.5,
+        reliability_smoothness=0.5,
         build_zone=zone,
         in_contour_mask=True,
         auth_chain=chain,

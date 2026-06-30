@@ -25,9 +25,9 @@ def test_percentile_rank_in_mask_monotone() -> None:
 
 def test_build_zone_colors_match_labels() -> None:
     assert BUILD_ZONE_LABELS == {0: "omit", 1: "caution", 2: "build"}
-    assert BUILD_ZONE_COLORS[0] == "#E8303A"  # omit = red
-    assert BUILD_ZONE_COLORS[1] == "#F5C518"  # caution = yellow
-    assert BUILD_ZONE_COLORS[2] == "#3BBF6A"  # build = green
+    assert BUILD_ZONE_COLORS[0] == "#E8303A"
+    assert BUILD_ZONE_COLORS[1] == "#F5C518"
+    assert BUILD_ZONE_COLORS[2] == "#3BBF6A"
     cmap = build_zone_colormap()
     assert tuple(cmap.colors) == tuple(BUILD_ZONE_COLORS[z] for z in (0, 1, 2))
 
@@ -41,8 +41,8 @@ def test_build_zones_three_labels() -> None:
 
 def test_reliability_maps_keys() -> None:
     rho = np.random.default_rng(0).standard_normal((16, 16, 16)).astype(np.float32)
-    dr = 0.01 * np.random.default_rng(1).standard_normal((16, 16, 16)).astype(np.float32)
     mask = np.ones(rho.shape, dtype=bool)
-    out = compute_reliability_maps(rho, dr, mask=mask)
+    out = compute_reliability_maps(rho, mask=mask)
     assert "reliability_score" in out
+    assert "reliability_smoothness" in out
     assert out["reliability_score"][mask].min() > 0

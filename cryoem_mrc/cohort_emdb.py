@@ -1,4 +1,4 @@
-"""EMDB metadata helpers for the thesis cohort."""
+"""EMDB metadata helpers for cohort manifests."""
 
 from __future__ import annotations
 

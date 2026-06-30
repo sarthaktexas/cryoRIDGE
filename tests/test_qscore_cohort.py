@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from cryoem_mrc.qscore_cohort import (
+from thesis.qscore_cohort import (
     QSCORE_CORE_EXCLUDE,
     QSCORE_PANEL_EXCLUDE,
     filter_emdb_ids,

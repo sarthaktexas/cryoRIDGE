@@ -3,7 +3,7 @@
 The density ρ is treated as a scalar potential; at each voxel we form the 3×3
 Hessian of second partial derivatives and summarize its eigenvalues.
 
-See docs/THESIS_AND_PUBLICATION.md (gradient-constraint decomposition).
+See docs/HALFMAP_RELIABILITY.md (smoothness reliability).
 """
 
 from __future__ import annotations

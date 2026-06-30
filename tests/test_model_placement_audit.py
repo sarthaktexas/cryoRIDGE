@@ -26,7 +26,7 @@ def _row(
         z=0.0,
         b_iso=50.0,
         reliability_score=reliability,
-        reliability_H_repro=reliability,
+        reliability_smoothness=reliability,
         build_zone=zone,
         in_contour_mask=in_mask,
         windowed_halfmap_correlation=cc,

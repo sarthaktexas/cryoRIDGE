@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cryoem_mrc.conformation_pair import (
+from thesis.conformation_pair import (
     collect_conformation_pair_rows,
     write_conformation_pairs_summary,
 )

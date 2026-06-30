@@ -9,8 +9,8 @@ DATA_ROOT = Path("data")
 OUTPUTS_ROOT = Path("outputs")
 DOCS_FIGURES_ROOT = Path("docs/figures")
 
-# ``outputs/cohort_summary/<src>`` → ``docs/figures/<dest>`` for THESIS_NARRATIVE.md.
-THESIS_NARRATIVE_COHORT_FIGURES: dict[str, str] = {
+# ``outputs/cohort_summary/<src>`` → ``docs/figures/<dest>`` for narrative docs.
+NARRATIVE_COHORT_FIGURES: dict[str, str] = {
     "cohort_metrics_heatmap.png": "fig_3_2_cohort_metrics_heatmap.png",
     "cohort_variance_vs_reliability_cc.png": "fig_3_2_cohort_variance_vs_reliability_cc.png",
     "bfactor_horse_race.png": "fig_3_3_bfactor_horse_race.png",
@@ -27,15 +27,15 @@ THESIS_NARRATIVE_COHORT_FIGURES: dict[str, str] = {
     "guinier_sharpen_benchmark.png": "fig_3_8_guinier_sharpen_benchmark.png",
 }
 
-THESIS_APPENDIX_B_FIGURES: dict[str, str] = {
+APPENDIX_B_FIGURES: dict[str, str] = {
     "fig_b1_local_fsc_production_slice.png": "fig_b1_local_fsc_production_slice.png",
     "fig_b2_local_fsc_sensitivity_bar.png": "fig_b2_local_fsc_sensitivity_bar.png",
     "fig_b3_contour_sensitivity.png": "fig_b3_contour_sensitivity.png",
 }
 
 
-def sync_thesis_doc_figure(src: Path, dest_name: str) -> Path:
-    """Copy a generated figure into ``docs/figures/`` for thesis markdown embedding."""
+def sync_doc_figure(src: Path, dest_name: str) -> Path:
+    """Copy a generated figure into ``docs/figures/`` for markdown embedding."""
     dest = DOCS_FIGURES_ROOT / dest_name
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
@@ -45,21 +45,21 @@ def sync_thesis_doc_figure(src: Path, dest_name: str) -> Path:
     return dest
 
 
-def sync_thesis_appendix_b_figure(source: Path, thesis_name: str) -> Path:
+def sync_appendix_b_figure(source: Path, figure_name: str) -> Path:
     """Copy a generated sensitivity PNG into ``docs/figures/`` (appendix B)."""
-    return sync_thesis_doc_figure(source, THESIS_APPENDIX_B_FIGURES[thesis_name])
+    return sync_doc_figure(source, APPENDIX_B_FIGURES[figure_name])
 
 
-def sync_thesis_narrative_cohort_figures(
+def sync_narrative_cohort_figures(
     cohort_dir: Path | None = None,
 ) -> list[Path]:
-    """Mirror cohort-summary PNGs into ``docs/figures/`` for self-contained thesis prose."""
+    """Mirror cohort-summary PNGs into ``docs/figures/`` for self-contained docs."""
     cohort_dir = cohort_dir or (OUTPUTS_ROOT / "cohort_summary")
     synced: list[Path] = []
-    for src_name, dest_name in THESIS_NARRATIVE_COHORT_FIGURES.items():
+    for src_name, dest_name in NARRATIVE_COHORT_FIGURES.items():
         src = cohort_dir / src_name
         if src.is_file():
-            synced.append(sync_thesis_doc_figure(src, dest_name))
+            synced.append(sync_doc_figure(src, dest_name))
     return synced
 
 
@@ -70,10 +70,10 @@ EXPANSION_COHORT_MANIFEST = Path("cohort/expansion_manifest.csv")
 # Flat per-PDB EMRinger exports: ``{pdb_code}_emringer.csv`` (e.g. ``9nhz_emringer.csv``).
 EMRINGER_FLAT_DIR = OUTPUTS_ROOT / "emringer_flat"
 
-# Canonical anchor map for thesis validation panels.
+# Canonical anchor map for validation panels.
 ANCHOR_EMDB_ID = "49450"
 
-# Subset of b_factor manifest rows worth B-factor validation figures in the thesis.
+# Subset of b_factor manifest rows used for B-factor validation figures.
 BFACTOR_VALIDATION_EMDB_IDS: tuple[str, ...] = ("49450", "44471", "28498")
 
 
@@ -137,18 +137,18 @@ def lh_map_reliability_dir(emdb_id: str | int) -> Path:
     return resolve_halfmap_reliability_dir(emdb_id)
 
 
-def thesis_overview_dir(emdb_id: str | int = "49450") -> Path:
-    return emd_output_dir(emdb_id) / "thesis_overview"
+def map_overview_dir(emdb_id: str | int = "49450") -> Path:
+    return emd_output_dir(emdb_id) / "map_overview"
 
 
-def sync_thesis_appendix_b1_from_anchor(
+def sync_appendix_b1_from_anchor(
     emdb_id: str | int = ANCHOR_EMDB_ID,
 ) -> Path | None:
     """Sync anchor local-FSC slice for appendix B.1."""
-    src = thesis_overview_dir(emdb_id) / "local_resolution_slice.png"
+    src = map_overview_dir(emdb_id) / "local_resolution_slice.png"
     if not src.is_file():
         return None
-    return sync_thesis_doc_figure(src, "fig_b1_local_fsc_production_slice.png")
+    return sync_doc_figure(src, "fig_b1_local_fsc_production_slice.png")
 
 
 def locres_blocres_mrc(emdb_id: str | int) -> Path:

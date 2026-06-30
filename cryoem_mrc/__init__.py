@@ -5,7 +5,7 @@ try:
 
     __version__ = _pkg_version("cryoem-halfmap-qc")
 except Exception:
-    __version__ = "0.6.0"
+    __version__ = "0.7.0"
 
 from .analysis import (
     BinnedRelationship,
@@ -55,17 +55,13 @@ from .pipeline import (
     save_feature_maps,
     save_feature_maps_npy,
 )
-from .mechanics import (
-    compute_mechanics_headlines,
-    compute_mechanics_maps,
-    fluctuation_constraint_decomposition,
-)
 from .reliability import (
     attach_reliability_to_features,
     classify_build_zones,
     compute_reliability_maps,
     save_build_zone_mrc,
     save_reliability_mrc,
+    windowed_smoothness,
 )
 from .rigidity import compute_rigidity_map
 from .visualize import (
@@ -85,14 +81,12 @@ __all__ = [
     "save_feature_maps_npy",
     "load_feature_maps",
     "group_multiscale_features",
-    "compute_mechanics_headlines",
-    "compute_mechanics_maps",
-    "fluctuation_constraint_decomposition",
     "attach_reliability_to_features",
     "classify_build_zones",
     "compute_reliability_maps",
     "save_build_zone_mrc",
     "save_reliability_mrc",
+    "windowed_smoothness",
     "compute_rigidity_map",
     "plot_feature_slices",
     "plot_rigidity_inspection",

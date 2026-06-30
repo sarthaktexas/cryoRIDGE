@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import csv
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+import matplotlib.pyplot as plt
 import numpy as np
+from scipy import stats
 from scipy.spatial.transform import Rotation
 
-from .structure_validation import ResidueValidationRow
+from cryoem_mrc.cohort_labels import cohort_figure_label
+from cryoem_mrc.repo_paths import COHORT_MANIFEST
+from cryoem_mrc.structure_validation import ResidueValidationRow
+from style.figures import apply, savefig as save_nature
+from thesis.cohort_plot_utils import cohort_class_colors, infer_protein_class
 
 COVERAGE_FLAG_THRESHOLD_PCT = 20.0
 _COHORT_DIR = Path(__file__).resolve().parent.parent / "cohort"
@@ -167,8 +176,6 @@ def compute_conformation_pair_stats(
     emdb_b: str,
     in_mask_both: bool = True,
 ) -> ConformationPairStats:
-    from scipy import stats
-
     use, rmsd = compute_per_residue_ca_rmsd(pairs, in_mask_both=in_mask_both)
     n_match = len(pairs)
     n_use = len(use)
@@ -275,7 +282,7 @@ def write_conformation_pair_md(
 ) -> None:
     cov_block = ""
     if coverage is not None:
-        flag = " **YES — discuss in thesis**" if coverage.coverage_flag else " no"
+        flag = " **YES — discuss in write-up**" if coverage.coverage_flag else " no"
         cov_block = f"""
 ## Coverage vs deposited model
 
@@ -560,8 +567,6 @@ _SUMMARY_CSV_FIELDS: tuple[str, ...] = (
 
 
 def _manifest_index(manifest: Path) -> dict[str, dict[str, str]]:
-    import csv
-
     index: dict[str, dict[str, str]] = {}
     if not manifest.is_file():
         return index
@@ -600,9 +605,6 @@ def collect_conformation_pair_rows(
     manifest: Path | None = None,
 ) -> list[dict[str, object]]:
     """Load per-pair ``conformation_pair_stats.json`` files under ``root``."""
-    from .cohort_labels import cohort_figure_label
-    from .repo_paths import COHORT_MANIFEST
-
     manifest = manifest or COHORT_MANIFEST
     manifest_index = _manifest_index(manifest)
     rows: list[dict[str, object]] = []
@@ -657,6 +659,126 @@ def collect_conformation_pair_rows(
     return rows
 
 
+def plot_conformation_pairs_spearman_size_resolution_3d(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    save_path: str | Path | None = None,
+    dpi: int = 200,
+) -> plt.Figure | None:
+    """
+    3D cohort scatter: each conformation pair is one point.
+
+    Axes: Spearman ρ(RMSD, Δreliability), mean deposited Cα count (log10), and mean
+    global resolution (Å) averaged across the two states.
+    """
+    usable: list[Mapping[str, object]] = []
+    for row in rows:
+        try:
+            rho = float(row.get("spearman_rmsd_vs_delta_reliability", float("nan")))
+            size = float(row.get("mean_ca_count", float("nan")))
+            res_a = float(row.get("mean_global_resolution_a", float("nan")))
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(rho) and np.isfinite(size) and size > 0 and np.isfinite(res_a):
+            usable.append(row)
+    if not usable:
+        return None
+
+    rhos = np.array(
+        [float(r["spearman_rmsd_vs_delta_reliability"]) for r in usable],
+        dtype=np.float64,
+    )
+    sizes = np.array([float(r["mean_ca_count"]) for r in usable], dtype=np.float64)
+    resolutions = np.array(
+        [float(r["mean_global_resolution_a"]) for r in usable],
+        dtype=np.float64,
+    )
+    log_sizes = np.log10(sizes)
+
+    classes = sorted(
+        {
+            infer_protein_class(
+                str(r.get("display_name_a", "")),
+                flexibility_source="conformational_pair",
+            )
+            for r in usable
+        }
+    )
+    class_colors = cohort_class_colors(classes)
+
+    fig = plt.figure(figsize=(7.0, 6.0), facecolor="white")
+    ax = fig.add_subplot(111, projection="3d")
+    apply(ax)
+
+    for cls in classes:
+        idx = [
+            i
+            for i, r in enumerate(usable)
+            if infer_protein_class(
+                str(r.get("display_name_a", "")),
+                flexibility_source="conformational_pair",
+            )
+            == cls
+        ]
+        if not idx:
+            continue
+        ax.scatter(
+            rhos[idx],
+            log_sizes[idx],
+            resolutions[idx],
+            s=42,
+            c=class_colors[cls],
+            alpha=0.9,
+            edgecolors="white",
+            linewidths=0.4,
+            depthshade=True,
+            label=cls,
+        )
+
+    for i, row in enumerate(usable):
+        label = f"{row.get('emdb_a', '')} vs {row.get('emdb_b', '')}"
+        ax.text(
+            rhos[i],
+            log_sizes[i],
+            resolutions[i],
+            f"  {label}",
+            fontsize=5,
+            color="0.35",
+        )
+
+    ax.set_xlabel("Spearman ρ(RMSD, Δreliability)", fontsize=7, labelpad=8)
+    ax.set_ylabel("Protein size (log10 Cα count)", fontsize=7, labelpad=8)
+    ax.set_zlabel("Global resolution (Å)", fontsize=7, labelpad=8)
+    ax.set_title("Conformation pairs: motion–reliability coupling vs size and resolution", fontsize=8)
+    ax.view_init(elev=22, azim=-58)
+    ax.grid(True, linewidth=0.3, alpha=0.35)
+
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(
+            handles,
+            labels,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            frameon=False,
+            fontsize=6,
+        )
+
+    fig.text(
+        0.5,
+        0.02,
+        f"n = {len(usable)} pairs · size and resolution are means of states A and B",
+        ha="center",
+        fontsize=6,
+        color="#555555",
+    )
+    fig.subplots_adjust(left=0.02, right=0.82, top=0.94, bottom=0.08)
+
+    if save_path:
+        save_nature(fig, save_path, dpi=dpi)
+    return fig
+
+
 def write_conformation_pairs_summary(
     root: Path,
     *,
@@ -667,9 +789,6 @@ def write_conformation_pairs_summary(
 
     Creates ``conformation_pairs_summary.csv`` and ``CONFORMATION_PAIRS.md`` in ``root``.
     """
-    import csv
-    from datetime import datetime, timezone
-
     rows = collect_conformation_pair_rows(root, manifest=manifest)
     if not rows:
         return None, None
@@ -740,8 +859,6 @@ Individual outputs live in ``emd_<A>_vs_<B>/``.
 | `emd_<A>_vs_<B>/conformation_pair_summary.png` | Main figure |
 """
     )
-    from .thesis_figures import plot_conformation_pairs_spearman_size_resolution_3d
-
     plot_conformation_pairs_spearman_size_resolution_3d(
         rows,
         save_path=root / "conformation_pairs_spearman_size_resolution_3d.png",
@@ -776,5 +893,6 @@ __all__ = [
     "reload_domain_colors",
     "write_conformation_pair_md",
     "collect_conformation_pair_rows",
+    "plot_conformation_pairs_spearman_size_resolution_3d",
     "write_conformation_pairs_summary",
 ]

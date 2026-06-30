@@ -1,6 +1,6 @@
 """Batch reliability pipeline: features → half-map analysis → reliability export.
 
-Thesis-only batch driver. Run via ``python scripts/run_cohort_pipeline.py`` from the
+Batch driver for cohort manifests. Run via ``python scripts/run_cohort_pipeline.py`` from the
 project root where ``cohort/manifest.csv`` and local map paths exist.
 """
 

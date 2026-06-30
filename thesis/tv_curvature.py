@@ -3,8 +3,8 @@
 Motivation (docs/ALTERNATIVE_APPROACHES.md)
 -------------------------------------------
 
-The deployed reliability pipeline forms a fluctuation term *T* from half-map
-disagreement and a constraint term *V* from density gradients. A reviewer-facing
+The deployed reliability pipeline uses windowed gradient energy from
+globally z-scored half-map average density. A reviewer-facing
 worry is that any second-derivative *T* (the Laplacian, ``tr(H)``) and a
 curvature-based *V* (built from the Hessian) are *two contractions of the same
 Hessian* and therefore not information-independent. The proposed fix is to define
@@ -46,11 +46,11 @@ import numpy as np
 import pandas as pd
 from scipy import ndimage, stats
 
-from .analysis import build_contour_mask
-from .local_resolution import aggregate_locres_to_ca, locres_blocres_path
-from .map_grid import load_map_grid
-from .repo_paths import COHORT_MANIFEST
-from .structure_validation import (
+from cryoem_mrc.analysis import build_contour_mask
+from cryoem_mrc.local_resolution import aggregate_locres_to_ca, locres_blocres_path
+from cryoem_mrc.map_grid import load_map_grid
+from cryoem_mrc.repo_paths import COHORT_MANIFEST
+from cryoem_mrc.structure_validation import (
     iter_ca_residues,
     load_cohort_manifest_row,
     physical_xyz_to_voxel_indices,

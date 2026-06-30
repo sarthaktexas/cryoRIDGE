@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 
-from cryoem_mrc.incremental_prediction import (
+from thesis.incremental_prediction import (
     MapPredictionFrame,
     build_map_frame_from_metrics,
     normalize_metrics_columns,

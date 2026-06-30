@@ -1,4 +1,4 @@
-"""Human-readable cohort structure labels for thesis figures."""
+"""Human-readable cohort structure labels for figures."""
 
 from __future__ import annotations
 

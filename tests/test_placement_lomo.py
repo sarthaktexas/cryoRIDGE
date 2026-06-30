@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from cryoem_mrc.placement_utility import (
+from thesis.placement_utility import (
     cohort_representative_roc,
     evaluate_locres_method_lomo_fold,
     evaluate_map_predictor,
@@ -90,7 +90,7 @@ class TestLomoPlacement(unittest.TestCase):
         frames = [_frame("a", 4), _frame("b", 5), _frame("c", 6)]
         test_df = frames[0][1]
         train_dfs = [frames[1][1], frames[2][1]]
-        from cryoem_mrc.placement_utility import _train_medians
+        from thesis.placement_utility import _train_medians
 
         loc_med, _ = _train_medians(train_dfs)
         ba_train, _, _, _, _, _ = evaluate_map_predictor(

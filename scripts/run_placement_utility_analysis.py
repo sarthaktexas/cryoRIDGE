@@ -25,10 +25,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import apply, savefig as save_nature
-from style.thesis_palette import PALETTES
+from style.figures import apply, savefig as save_nature
+from style.palette import PALETTES
 
-from cryoem_mrc.placement_utility import (
+from thesis.placement_utility import (
     PREDICTOR_LABELS,
     RANK_RECOVERY_PROXY_KEYS,
     RANK_RECOVERY_PROXY_LABELS,

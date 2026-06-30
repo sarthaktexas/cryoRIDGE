@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 from scipy import stats
 
-from .analysis import build_contour_mask
-from .guinier_sharpening import (
+from cryoem_mrc.analysis import build_contour_mask
+from cryoem_mrc.guinier_sharpening import (
     R_MIN_A_DEFAULT,
     apply_global_bfactor_sharpen,
     apply_local_bfactor_sharpen,
@@ -20,11 +20,11 @@ from .guinier_sharpening import (
     masked_map_ccc,
     summarize_b_map,
 )
-from .local_resolution_io import load_local_resolution_map, resample_local_resolution_onto_reference
-from .map_grid import load_full_and_half_maps, load_map_grid, resample_volume_onto_grid
-from .cohort_labels import cohort_figure_label, load_display_name_map
-from .repo_paths import COHORT_MANIFEST, locres_blocres_mrc
-from .structure_validation import (
+from cryoem_mrc.local_resolution_io import load_local_resolution_map, resample_local_resolution_onto_reference
+from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid, resample_volume_onto_grid
+from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, locres_blocres_mrc
+from cryoem_mrc.structure_validation import (
     iter_ca_residues,
     load_cohort_manifest_row,
     physical_xyz_to_voxel_indices,
@@ -292,7 +292,7 @@ def plot_guinier_benchmark_summary(
     import matplotlib.pyplot as plt
     import pandas as pd
 
-    from style.nature import apply, label_panel, savefig as save_nature
+    from style.figures import apply, label_panel, savefig as save_nature
 
     dicts = [result_to_dict(r) for r in rows]
     df = pd.DataFrame(dicts).sort_values("global_resolution_a")

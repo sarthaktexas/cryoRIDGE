@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import ndimage
 
-from style.nature import apply, label_panel, savefig as save_nature
+from style.figures import apply, label_panel, savefig as save_nature
 
 from .io import save_volume_like_reference
 

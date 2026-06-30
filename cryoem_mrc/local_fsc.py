@@ -14,7 +14,7 @@ Caveats (methods section)
 - Resolution is clipped to ``[2 * voxel_size_a, patch_size * voxel_size_a]``.
   Voxels at the upper clip mean "no measurable resolution at this patch size."
 - ``patch_size`` trades localization vs. FSC stability; sensitivity at 13, 17, 25
-  belongs in the thesis.
+  belongs in the publication supplement.
 """
 
 from __future__ import annotations

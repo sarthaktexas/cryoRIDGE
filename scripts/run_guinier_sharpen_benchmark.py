@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from cryoem_mrc.guinier_benchmark import (
+from thesis.guinier_benchmark import (
     GuinierBenchmarkResult,
     plot_guinier_benchmark_summary,
     result_to_dict,

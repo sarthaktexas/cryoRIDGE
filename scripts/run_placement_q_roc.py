@@ -32,10 +32,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from style.nature import apply, savefig as save_nature
-from style.thesis_palette import PALETTES
+from style.figures import apply, savefig as save_nature
+from style.palette import PALETTES
 
-from cryoem_mrc.placement_utility import (
+from thesis.placement_utility import (
     PLACEMENT_Q_ROC_PREDICTORS,
     PLACEMENT_Q_ROC_ROBUSTNESS_PREDICTORS,
     PLACEMENT_ROC_GROUND_TRUTH_LABELS,

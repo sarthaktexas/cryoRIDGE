@@ -39,7 +39,7 @@ class TestMetricComparison(unittest.TestCase):
         self.assertEqual(len(corr.index), len(METRIC_COLUMNS))
         self.assertIn("v_metric", corr.index)
         self.assertNotIn("reliability_score", corr.index)
-        self.assertNotIn("reliability_H_repro", corr.index)
+        self.assertNotIn("reliability_smoothness", corr.index)
         self.assertIn("local_resolution", corr.columns)
         v_loc = corr.loc["v_metric", "local_resolution"]
         if df["local_resolution"].notna().sum() >= 30:
@@ -55,7 +55,7 @@ class TestMetricComparison(unittest.TestCase):
         df = pd.DataFrame(
             {
                 "reliability_score": score,
-                "reliability_H_repro": h,
+                "reliability_smoothness": h,
                 "v_metric": rng.normal(size=200),
                 "b_factor": rng.normal(size=200),
                 WINDOWED_HALFMAP_CORRELATION_KEY: rng.normal(size=200),
@@ -64,12 +64,12 @@ class TestMetricComparison(unittest.TestCase):
                 "in_contour_mask": True,
             }
         )
-        rho, _ = stats.spearmanr(df["reliability_score"], df["reliability_H_repro"])
+        rho, _ = stats.spearmanr(df["reliability_score"], df["reliability_smoothness"])
         self.assertAlmostEqual(float(rho), 1.0, places=10)
         corr = compute_cross_metric_correlations(df)
         self.assertIn("v_metric", corr.index)
         self.assertNotIn("reliability_score", corr.index)
-        self.assertNotIn("reliability_H_repro", corr.index)
+        self.assertNotIn("reliability_smoothness", corr.index)
 
 
 if __name__ == "__main__":

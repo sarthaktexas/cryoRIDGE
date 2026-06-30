@@ -20,7 +20,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from cryoem_mrc.placement_utility import aligned_rank_recovery_rho  # noqa: E402
+from thesis.placement_utility import aligned_rank_recovery_rho  # noqa: E402
 from cryoem_mrc.repo_paths import OUTPUTS_ROOT  # noqa: E402
 
 RR_CSV = OUTPUTS_ROOT / "cohort_summary" / "placement_rank_recovery.csv"

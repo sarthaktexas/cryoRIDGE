@@ -1,8 +1,7 @@
 """Map reliability scores for model-building guidance (build / caution / omit zones).
 
-Half-map constraint *V* and reliability ranking from averaged map ρ and half difference.
-Primary ranked export: constraint V → reliability_score; fluctuation T exported for archive only.
-See docs/HALFMAP_RELIABILITY.md and docs/THESIS_AND_PUBLICATION.md.
+Windowed squared-gradient smoothness from globally z-scored half-map average rho_tilde.
+Primary ranked export: reliability_score (in-mask percentile rank of smoothness).
 """
 
 from __future__ import annotations
@@ -11,21 +10,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy import ndimage
 
-from style.thesis_palette import THESIS_GREEN, THESIS_RED, THESIS_YELLOW
+from style.palette import BUILD_ZONE_COLORS
 
 from .io import save_volume_like_reference
+from .local_stats import gradient_magnitude
 
 if TYPE_CHECKING:
     from matplotlib.colors import ListedColormap
 
-# Canonical zone colors for all thesis figures: omit=red, caution=yellow, build=green.
 BUILD_ZONE_LABELS: dict[int, str] = {0: "omit", 1: "caution", 2: "build"}
-BUILD_ZONE_COLORS: dict[int, str] = {
-    0: THESIS_RED,
-    1: THESIS_YELLOW,
-    2: THESIS_GREEN,
-}
 
 
 def build_zone_colormap() -> ListedColormap:
@@ -33,8 +28,29 @@ def build_zone_colormap() -> ListedColormap:
     from matplotlib.colors import ListedColormap
 
     return ListedColormap([BUILD_ZONE_COLORS[z] for z in (0, 1, 2)])
-from .mechanics import compute_mechanics_headlines
-from .mechanics import halfmap_hamiltonian
+
+
+def windowed_smoothness(
+    rho: np.ndarray,
+    *,
+    window: int = 5,
+    kappa: float = 1.0,
+) -> np.ndarray:
+    """
+    Windowed smoothness map: (kappa/2) * mean_W(||grad rho||^2).
+
+    ``rho`` must be globally z-scored half-map average (``density_normalized``).
+    Higher values indicate sharper local density structure (used for reliability ranking).
+    """
+    v = np.asarray(rho)
+    grad_sq = gradient_magnitude(v) ** 2
+    raw = 0.5 * float(kappa) * grad_sq
+    w = int(window)
+    if w <= 1:
+        smoothed = np.asarray(raw, dtype=np.float64)
+    else:
+        smoothed = ndimage.uniform_filter(np.asarray(raw, dtype=np.float64), size=w, mode="nearest")
+    return np.asarray(smoothed, dtype=v.dtype)
 
 
 def percentile_rank_in_mask(
@@ -63,41 +79,26 @@ def percentile_rank_in_mask(
 
 def compute_reliability_maps(
     rho: np.ndarray,
-    delta_rho: np.ndarray,
     *,
     window: int = 5,
-    sigma: float = 1.0,
     kappa: float = 1.0,
     mask: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """
-    Reproducibility-based reliability from averaged map rho and half difference.
+    Reliability maps from z-scored averaged-map density ``rho`` (rho_tilde).
 
     **Primary export:** ``reliability_score`` — in-mask percentile rank of
-    :math:`H_{\\mathrm{repro}}` (higher = more reliable vs windowed half-map correlation on test maps).
-
-    Also returns exploratory LH decomposition (T, V, L = T - V) for methods figures.
+    ``reliability_smoothness`` (higher = more reliable).
     """
-    if rho.shape != delta_rho.shape:
-        raise ValueError(f"Shape mismatch: rho {rho.shape} vs delta_rho {delta_rho.shape}")
-    repro = halfmap_hamiltonian(
-        rho, delta_rho, window=window, sigma=sigma, kappa=kappa
+    smooth = np.asarray(
+        windowed_smoothness(rho, window=window, kappa=kappa),
+        dtype=np.float32,
     )
-    h = np.asarray(repro["H_repro"], dtype=np.float32)
-    t = np.asarray(repro["fluctuation_T"], dtype=np.float32)
-    v = np.asarray(repro["constraint_V"], dtype=np.float32)
-    out: dict[str, np.ndarray] = {
-        "reliability_H_repro": h,
-        "reliability_fluctuation": t,
-        "reliability_smoothness": v,
-        "reliability_fluctuation_T": t,
-        "reliability_constraint_V": v,
-        "reliability_L_balance": np.asarray(repro["L_balance"], dtype=np.float32),
-    }
+    out: dict[str, np.ndarray] = {"reliability_smoothness": smooth}
     if mask is not None:
-        out["reliability_score"] = percentile_rank_in_mask(h, mask)
+        out["reliability_score"] = percentile_rank_in_mask(smooth, mask)
     else:
-        out["reliability_score"] = h
+        out["reliability_score"] = smooth
     return out
 
 
@@ -138,13 +139,15 @@ def attach_reliability_to_features(
     half2: np.ndarray,
     *,
     window: int = 5,
-    sigma: float = 1.0,
     kappa: float = 1.0,
     mask: np.ndarray | None = None,
     compute_zones: bool = True,
 ) -> dict[str, np.ndarray]:
     """
     Add reliability maps to a feature dict (requires ``density_normalized``).
+
+    Half-maps are validated for grid alignment but are not used in the
+    smoothness reliability path.
 
     Returns the same dict, updated in place and also returned for chaining.
     """
@@ -155,10 +158,7 @@ def attach_reliability_to_features(
     rho = np.asarray(features["density_normalized"])
     if rho.shape != half1.shape:
         raise ValueError(f"Feature grid {rho.shape} != half-map grid {half1.shape}")
-    delta = np.asarray(half1, dtype=np.float32) - np.asarray(half2, dtype=np.float32)
-    rel = compute_reliability_maps(
-        rho, delta, window=window, sigma=sigma, kappa=kappa, mask=mask
-    )
+    rel = compute_reliability_maps(rho, window=window, kappa=kappa, mask=mask)
     features.update(rel)
     if compute_zones and mask is not None:
         features["build_zone"] = classify_build_zones(rel["reliability_score"], mask)

@@ -1,4 +1,4 @@
-"""Per-residue Q-score validation: cryo-EM-native map quality vs LH constraint V."""
+"""Per-residue Q-score validation: cryo-EM-native map quality vs windowed smoothness."""
 
 from __future__ import annotations
 
@@ -14,22 +14,23 @@ from .analysis import build_contour_mask
 from .map_grid import MapGrid, load_map_grid
 from .repo_paths import (
     COHORT_MANIFEST,
-    emd_output_dir,
     halfmap_reliability_dir,
     resolve_halfmap_reliability_dir,
 )
+from .reliability_volumes import recompute_reliability_volumes
 from .structure_validation import (
     CaResidue,
     iter_ca_residues,
     load_cohort_manifest_row,
     physical_xyz_to_voxel_indices,
+    read_residue_validation_csv,
     sample_volume_at_ca,
 )
 
 
 @dataclass
 class QscoreResidueRow:
-    """Per-residue Q-score and LH V samples for external validation."""
+    """Per-residue Q-score and smoothness samples for external validation."""
 
     chain: str
     seq_num: int
@@ -40,8 +41,8 @@ class QscoreResidueRow:
     z: float
     b_iso: float
     q_score: float
-    reliability_constraint_V: float
-    reliability_constraint_V_rank: float
+    reliability_smoothness: float
+    reliability_smoothness_rank: float
     in_contour_mask: bool
     auth_chain: str = ""
     auth_seq_num: int = 0
@@ -53,15 +54,15 @@ class QscoreResidueRow:
 
 @dataclass
 class QscoreValidationStats:
-    """Spearman correlations for Q-score vs LH V (in-mask Cα)."""
+    """Spearman correlations for Q-score vs smoothness (in-mask Cα)."""
 
     emdb_id: str
     pdb_id: str
     n_residues: int
     n_in_mask: int
     n_with_q_score: int
-    spearman_q_vs_V: float
-    spearman_q_vs_V_rank: float
+    spearman_q_vs_smoothness: float
+    spearman_q_vs_smoothness_rank: float
     spearman_q_vs_b_iso: float = float("nan")
     median_q_by_b_tercile: dict[str, float] = field(default_factory=dict)
     notes: str = ""
@@ -133,17 +134,17 @@ def build_qscore_validation_table(
     grid: MapGrid,
     reference_density: np.ndarray,
     contour: float,
-    reliability_constraint_V: np.ndarray,
+    reliability_smoothness: np.ndarray,
     q_scores: np.ndarray,
     window_radius: int = 0,
 ) -> list[QscoreResidueRow]:
     """Join Cα coordinates with Q-scores and V samples inside the contour mask."""
-    if reference_density.shape != reliability_constraint_V.shape:
-        raise ValueError("reference_density and reliability_constraint_V must share shape")
+    if reference_density.shape != reliability_smoothness.shape:
+        raise ValueError("reference_density and reliability_smoothness must share shape")
     mask = build_contour_mask(reference_density, contour)
 
     v_s = sample_volume_at_ca(
-        reliability_constraint_V, grid, residues, window_radius=window_radius
+        reliability_smoothness, grid, residues, window_radius=window_radius
     )
     in_mask_s = sample_volume_at_ca(
         mask.astype(np.float64), grid, residues, window_radius=window_radius
@@ -172,8 +173,8 @@ def build_qscore_validation_table(
                 z=res.z,
                 b_iso=res.b_iso,
                 q_score=float(q_scores[i]),
-                reliability_constraint_V=float(v_s[i]),
-                reliability_constraint_V_rank=float(v_rank_all[i]),
+                reliability_smoothness=float(v_s[i]),
+                reliability_smoothness_rank=float(v_rank_all[i]),
                 in_contour_mask=bool(in_mask_s[i] >= 0.5),
                 auth_chain=res.auth_chain or res.chain,
                 auth_seq_num=res.auth_seq_num or res.seq_num,
@@ -195,7 +196,7 @@ def compute_qscore_validation_stats(
         for r in rows
         if (r.in_contour_mask if in_mask_only else True)
         and np.isfinite(r.q_score)
-        and np.isfinite(r.reliability_constraint_V)
+        and np.isfinite(r.reliability_smoothness)
     ]
     n_all = len(rows)
     n_use = len(use)
@@ -207,14 +208,14 @@ def compute_qscore_validation_stats(
             n_residues=n_all,
             n_in_mask=n_in_mask,
             n_with_q_score=sum(1 for r in rows if np.isfinite(r.q_score)),
-            spearman_q_vs_V=float("nan"),
-            spearman_q_vs_V_rank=float("nan"),
+            spearman_q_vs_smoothness=float("nan"),
+            spearman_q_vs_smoothness_rank=float("nan"),
             notes="too few residues for correlation",
         )
 
     q = np.array([r.q_score for r in use], dtype=np.float64)
-    v = np.array([r.reliability_constraint_V for r in use], dtype=np.float64)
-    v_rank = np.array([r.reliability_constraint_V_rank for r in use], dtype=np.float64)
+    v = np.array([r.reliability_smoothness for r in use], dtype=np.float64)
+    v_rank = np.array([r.reliability_smoothness_rank for r in use], dtype=np.float64)
     b = np.array([r.b_iso for r in use], dtype=np.float64)
 
     rho_v, _ = stats.spearmanr(q, v)
@@ -236,8 +237,8 @@ def compute_qscore_validation_stats(
         n_residues=n_all,
         n_in_mask=n_in_mask,
         n_with_q_score=sum(1 for r in rows if np.isfinite(r.q_score)),
-        spearman_q_vs_V=float(rho_v),
-        spearman_q_vs_V_rank=float(rho_vr),
+        spearman_q_vs_smoothness=float(rho_v),
+        spearman_q_vs_smoothness_rank=float(rho_vr),
         spearman_q_vs_b_iso=float(rho_b),
         median_q_by_b_tercile=med_by_tercile,
     )
@@ -252,7 +253,7 @@ def read_qscore_lookup(path: str | Path) -> dict[tuple[str, int, str], float]:
 def read_qscore_validation_lookups(
     path: str | Path,
 ) -> tuple[dict[tuple[str, int, str], float], dict[tuple[str, int, str], float]]:
-    """Load Q-score and LH constraint V keyed by mmCIF residue key."""
+    """Load Q-score and smoothness keyed by mmCIF residue key."""
     path = Path(path)
     q_lookup: dict[tuple[str, int, str], float] = {}
     v_lookup: dict[tuple[str, int, str], float] = {}
@@ -260,7 +261,7 @@ def read_qscore_validation_lookups(
         for row in csv.DictReader(f):
             key = (row["chain"], int(row["seq_num"]), row["seq_icode"])
             q_raw = row.get("q_score", "")
-            v_raw = row.get("reliability_constraint_V", "")
+            v_raw = row.get("reliability_smoothness", "")
             q_lookup[key] = float(q_raw) if q_raw else float("nan")
             v_lookup[key] = float(v_raw) if v_raw else float("nan")
     return q_lookup, v_lookup
@@ -293,8 +294,8 @@ def build_qscore_only_table(
                 z=res.z,
                 b_iso=res.b_iso,
                 q_score=float(q_scores[i]),
-                reliability_constraint_V=float("nan"),
-                reliability_constraint_V_rank=float("nan"),
+                reliability_smoothness=float("nan"),
+                reliability_smoothness_rank=float("nan"),
                 in_contour_mask=bool(in_mask_s[i] >= 0.5),
                 auth_chain=res.auth_chain or res.chain,
                 auth_seq_num=res.auth_seq_num or res.seq_num,
@@ -360,8 +361,8 @@ def read_qscore_per_residue_csv(path: str | Path) -> list[QscoreResidueRow]:
                     z=float(row["z"]),
                     b_iso=float(row.get("b_iso", "nan")),
                     q_score=float(q_raw) if q_raw else float("nan"),
-                    reliability_constraint_V=float("nan"),
-                    reliability_constraint_V_rank=float("nan"),
+                    reliability_smoothness=float("nan"),
+                    reliability_smoothness_rank=float("nan"),
                     in_contour_mask=bool(int(row.get("in_contour_mask", "0"))),
                     auth_chain=row.get("auth_chain") or row["chain"],
                     auth_seq_num=int(row.get("auth_seq_num") or row["seq_num"]),
@@ -370,29 +371,28 @@ def read_qscore_per_residue_csv(path: str | Path) -> list[QscoreResidueRow]:
     return rows
 
 
-def production_v_metric_path(emdb_id: str) -> Path:
-    """Authoritative per-residue V from ``metric_comparison/residue_metrics.csv``."""
-    return emd_output_dir(emdb_id) / "metric_comparison" / "residue_metrics.csv"
+def bundle_residue_validation_path(emdb_id: str) -> Path:
+    """Per-residue smoothness table from the halfmap reliability bundle."""
+    return resolve_halfmap_reliability_dir(emdb_id) / "residue_validation.csv"
 
 
-def load_production_v_metric_lookup(emdb_id: str) -> dict[tuple[str, int], float]:
-    path = production_v_metric_path(emdb_id)
+def load_bundle_smoothness_lookup(emdb_id: str) -> dict[tuple[str, int], float]:
+    path = bundle_residue_validation_path(emdb_id)
     if not path.is_file():
-        raise FileNotFoundError(f"EMD-{emdb_id} missing production v_metric table: {path}")
-    lookup: dict[tuple[str, int], float] = {}
-    with path.open(newline="") as f:
-        for row in csv.DictReader(f):
-            lookup[(row["chain"], int(row["seq_num"]))] = float(row["v_metric"])
-    return lookup
+        raise FileNotFoundError(
+            f"EMD-{emdb_id} missing residue_validation.csv in halfmap reliability bundle: {path}"
+        )
+    rel_rows = read_residue_validation_csv(path)
+    return {(r.chain, r.seq_num): r.reliability_smoothness for r in rel_rows}
 
 
-def _recompute_in_mask_v_ranks(rows: Sequence[QscoreResidueRow]) -> list[QscoreResidueRow]:
-    """Percentile rank of production V among in-mask Cα (higher V → higher rank)."""
+def _recompute_in_mask_smoothness_ranks(rows: Sequence[QscoreResidueRow]) -> list[QscoreResidueRow]:
+    """Percentile rank of smoothness among in-mask Cα (higher smoothness → higher rank)."""
     v_in_mask = np.array(
         [
-            r.reliability_constraint_V
+            r.reliability_smoothness
             for r in rows
-            if r.in_contour_mask and np.isfinite(r.reliability_constraint_V)
+            if r.in_contour_mask and np.isfinite(r.reliability_smoothness)
         ],
         dtype=np.float64,
     )
@@ -401,7 +401,7 @@ def _recompute_in_mask_v_ranks(rows: Sequence[QscoreResidueRow]) -> list[QscoreR
     j = 0
     for r in rows:
         v_rank = float("nan")
-        if r.in_contour_mask and np.isfinite(r.reliability_constraint_V):
+        if r.in_contour_mask and np.isfinite(r.reliability_smoothness):
             v_rank = float(rank_in_mask[j])
             j += 1
         out.append(
@@ -415,8 +415,8 @@ def _recompute_in_mask_v_ranks(rows: Sequence[QscoreResidueRow]) -> list[QscoreR
                 z=r.z,
                 b_iso=r.b_iso,
                 q_score=r.q_score,
-                reliability_constraint_V=r.reliability_constraint_V,
-                reliability_constraint_V_rank=v_rank,
+                reliability_smoothness=r.reliability_smoothness,
+                reliability_smoothness_rank=v_rank,
                 in_contour_mask=r.in_contour_mask,
                 auth_chain=r.auth_chain,
                 auth_seq_num=r.auth_seq_num,
@@ -425,12 +425,12 @@ def _recompute_in_mask_v_ranks(rows: Sequence[QscoreResidueRow]) -> list[QscoreR
     return out
 
 
-def attach_production_v_metric(
+def attach_bundle_smoothness(
     rows: Sequence[QscoreResidueRow],
     emdb_id: str,
 ) -> list[QscoreResidueRow]:
-    """Attach production ``v_metric`` (not legacy ``reliability.npz`` samples)."""
-    lookup = load_production_v_metric_lookup(emdb_id)
+    """Attach per-residue smoothness from ``residue_validation.csv`` in the reliability bundle."""
+    lookup = load_bundle_smoothness_lookup(emdb_id)
     merged: list[QscoreResidueRow] = []
     for r in rows:
         merged.append(
@@ -444,14 +444,31 @@ def attach_production_v_metric(
                 z=r.z,
                 b_iso=r.b_iso,
                 q_score=r.q_score,
-                reliability_constraint_V=lookup.get((r.chain, r.seq_num), float("nan")),
-                reliability_constraint_V_rank=float("nan"),
+                reliability_smoothness=lookup.get((r.chain, r.seq_num), float("nan")),
+                reliability_smoothness_rank=float("nan"),
                 in_contour_mask=r.in_contour_mask,
                 auth_chain=r.auth_chain,
                 auth_seq_num=r.auth_seq_num,
             )
         )
-    return _recompute_in_mask_v_ranks(merged)
+    return _recompute_in_mask_smoothness_ranks(merged)
+
+
+def load_smoothness_volume_for_qscore(
+    emdb_id: str,
+    *,
+    manifest: Path = COHORT_MANIFEST,
+) -> np.ndarray:
+    """Recompute windowed smoothness on the reference grid from manifest half-maps."""
+    row = load_cohort_manifest_row(manifest, emdb_id)
+    _score, smooth = recompute_reliability_volumes(
+        emdb_id,
+        reference_path=Path(row["reference_mrc"]),
+        half1_path=Path(row["half1_path"]),
+        half2_path=Path(row["half2_path"]),
+        contour=float(row["contour"]),
+    )
+    return smooth
 
 
 def resolve_qscore_bundle_dir(emdb_id: str, *, for_write: bool = False) -> Path:
@@ -461,15 +478,12 @@ def resolve_qscore_bundle_dir(emdb_id: str, *, for_write: bool = False) -> Path:
     return resolve_halfmap_reliability_dir(emdb_id)
 
 
-def load_reliability_constraint_v(npz_path: Path) -> np.ndarray:
-    """Deprecated: prefer :func:`attach_production_v_metric`."""
+def load_reliability_smoothness(npz_path: Path) -> np.ndarray:
+    """Load windowed smoothness from a reliability feature NPZ."""
     with np.load(npz_path, allow_pickle=False) as d:
-        v_key = (
-            "reliability_smoothness"
-            if "reliability_smoothness" in d
-            else "reliability_constraint_V"
-        )
-        return np.asarray(d[v_key], dtype=np.float32)
+        if "reliability_smoothness" not in d:
+            raise KeyError(f"{npz_path}: missing reliability_smoothness")
+        return np.asarray(d["reliability_smoothness"], dtype=np.float32)
 
 
 def write_qscore_validation_csv(path: str | Path, rows: Sequence[QscoreResidueRow]) -> Path:
@@ -486,8 +500,8 @@ def write_qscore_validation_csv(path: str | Path, rows: Sequence[QscoreResidueRo
         "z",
         "b_iso",
         "q_score",
-        "reliability_constraint_V",
-        "reliability_constraint_V_rank",
+        "reliability_smoothness",
+        "reliability_smoothness_rank",
         "in_contour_mask",
     ]
     with path.open("w", newline="") as f:
@@ -507,10 +521,10 @@ def write_qscore_validation_csv(path: str | Path, rows: Sequence[QscoreResidueRo
                     "z": f"{r.z:.3f}",
                     "b_iso": f"{r.b_iso:.2f}",
                     "q_score": f"{r.q_score:.6f}" if np.isfinite(r.q_score) else "",
-                    "reliability_constraint_V": f"{r.reliability_constraint_V:.6f}",
-                    "reliability_constraint_V_rank": (
-                        f"{r.reliability_constraint_V_rank:.6f}"
-                        if np.isfinite(r.reliability_constraint_V_rank)
+                    "reliability_smoothness": f"{r.reliability_smoothness:.6f}",
+                    "reliability_smoothness_rank": (
+                        f"{r.reliability_smoothness_rank:.6f}"
+                        if np.isfinite(r.reliability_smoothness_rank)
                         else ""
                     ),
                     "in_contour_mask": int(r.in_contour_mask),
@@ -535,7 +549,7 @@ def write_qscore_validation_md(
     text = f"""# Q-score external validation — EMD-{stats.emdb_id}
 
 Cryo-EM-native comparison of **per-residue Q-scores** (deposited model + map) vs
-**production constraint V** (`v_metric` from ``metric_comparison/residue_metrics.csv``).
+**windowed smoothness** from the halfmap reliability bundle (``residue_validation.csv`` or recomputed from half-maps).
 
 **Model:** `{pdb_path}`  
 **Map:** `{map_path}`  
@@ -549,12 +563,12 @@ Cryo-EM-native comparison of **per-residue Q-scores** (deposited model + map) vs
 
 | Comparison | ρ |
 |------------|--:|
-| Q-score vs constraint V | {stats.spearman_q_vs_V:+.3f} |
-| Q-score vs in-mask V rank | {stats.spearman_q_vs_V_rank:+.3f} |
+| Q-score vs smoothness | {stats.spearman_q_vs_smoothness:+.3f} |
+| Q-score vs in-mask smoothness rank | {stats.spearman_q_vs_smoothness_rank:+.3f} |
 | Q-score vs deposited B_iso | {stats.spearman_q_vs_b_iso:+.3f} |
 
-**Framing:** Q-scores require a fitted model; V is computed from half-maps alone.
-A **positive** ρ(Q, V) supports model-free recovery of per-residue map quality.{caveat}
+**Framing:** Q-scores require a fitted model; smoothness is computed from half-maps alone.
+A **positive** ρ(Q, smoothness) supports model-free recovery of per-residue map quality.{caveat}
 
 ---
 
@@ -631,7 +645,7 @@ def run_emdb_qscore_merge_reliability(
     window_radius: int = 0,
 ) -> tuple[int, list[QscoreResidueRow], QscoreValidationStats, Path]:
     """
-    Merge precomputed Q-scores with production ``v_metric`` and write validation outputs.
+    Merge precomputed Q-scores with bundle smoothness and write validation outputs.
 
     ``reliability_npz`` is ignored (kept for CLI compatibility with older invocations).
     """
@@ -648,7 +662,7 @@ def run_emdb_qscore_merge_reliability(
         ("reference", ref_path),
         ("pdb", pdb_path),
         ("qscore_per_residue.csv", q_only_path),
-        ("production v_metric", production_v_metric_path(emd_id)),
+        ("residue_validation.csv", bundle_residue_validation_path(emd_id)),
     ):
         if not p.exists():
             raise FileNotFoundError(f"EMD-{emd_id} missing {label}: {p}")
@@ -660,7 +674,7 @@ def run_emdb_qscore_merge_reliability(
             f"EMD-{emd_id}: Cα count mismatch ({len(residues)} vs {len(q_only)} Q rows)"
         )
 
-    rows = attach_production_v_metric(q_only, emd_id)
+    rows = attach_bundle_smoothness(q_only, emd_id)
 
     pdb_id = pdb_path.stem
     stats = compute_qscore_validation_stats(rows, emdb_id=emd_id, pdb_id=pdb_id)
@@ -688,7 +702,7 @@ def run_emdb_qscore_validation(
     num_points: int = 8,
 ) -> tuple[int, list[QscoreResidueRow], QscoreValidationStats | None, Path]:
     """
-    Run Q-score vs production V validation for one EMDB entry.
+    Run Q-score vs smoothness validation for one EMDB entry.
 
     Returns ``(exit_code, rows, stats, out_dir)``. ``stats`` is None when skipped.
     """
@@ -702,7 +716,6 @@ def run_emdb_qscore_validation(
     for label, p in (
         ("reference", ref_path),
         ("pdb", pdb_path),
-        ("production v_metric", production_v_metric_path(emd_id)),
     ):
         if not p.exists():
             raise FileNotFoundError(f"EMD-{emd_id} missing {label}: {p}")
@@ -714,15 +727,16 @@ def run_emdb_qscore_validation(
     q_scores = compute_per_residue_q_scores(
         pdb_path, ref_path, residues, num_points=num_points
     )
-    rows = build_qscore_only_table(
+    smooth_vol = load_smoothness_volume_for_qscore(emd_id, manifest=manifest)
+    rows = build_qscore_validation_table(
         residues,
         grid=grid,
         reference_density=reference_density,
         contour=contour_val,
+        reliability_smoothness=smooth_vol,
         q_scores=q_scores,
         window_radius=window_radius,
     )
-    rows = attach_production_v_metric(rows, emd_id)
 
     pdb_id = pdb_path.stem
     stats = compute_qscore_validation_stats(rows, emdb_id=emd_id, pdb_id=pdb_id)

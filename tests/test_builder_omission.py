@@ -7,13 +7,13 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from cryoem_mrc.builder_omission import (
+from thesis.builder_omission import (
     enumerate_sequence_gaps,
     interpolate_gap_residue,
     summarize_builder_omission_roc_per_map,
     tpr_at_fpr,
 )
-from cryoem_mrc.placement_utility import placement_roc_positive_mask, rank_auc
+from thesis.placement_utility import placement_roc_positive_mask, rank_auc
 from cryoem_mrc.structure_validation import CaResidue
 
 
@@ -45,7 +45,7 @@ class TestSequenceGaps(unittest.TestCase):
     def test_interpolation_midpoint(self) -> None:
         left = _ca("A", 10, 0.0)
         right = _ca("A", 20, 10.0)
-        from cryoem_mrc.builder_omission import SequenceGap
+        from thesis.builder_omission import SequenceGap
 
         gap = SequenceGap(chain="A", left=left, right=right, missing_seq_nums=(15,))
         mid = interpolate_gap_residue(gap, 15)
@@ -82,7 +82,7 @@ class TestBuilderOmissionRoc(unittest.TestCase):
     def test_v_auc_beats_resmap(self) -> None:
         df = self._synthetic_frame()
         rows = summarize_builder_omission_roc_per_map([("test", df)])
-        v_auc = float(next(r for r in rows if r["predictor"] == "constraint_v")["auc"])
+        v_auc = float(next(r for r in rows if r["predictor"] == "smoothness")["auc"])
         res_auc = float(
             next(r for r in rows if r["predictor"] == "resmap_locres_worse_than_median")["auc"]
         )

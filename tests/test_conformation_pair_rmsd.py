@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from cryoem_mrc.conformation_pair import (
+from thesis.conformation_pair import (
     ConformationPairStats,
     compute_conformation_pair_stats,
     compute_per_residue_ca_rmsd,
 )
 from cryoem_mrc.structure_validation import ResidueValidationRow
-from cryoem_mrc.conformation_coupling import (
+from thesis.conformation_coupling import (
     DEFAULT_COUPLING_LAYOUT_THRESHOLD,
     compute_coupling_layout_scores,
     compute_diagonal_coupling_contrast_score,
@@ -40,7 +40,7 @@ def _row(
         z=z,
         b_iso=50.0,
         reliability_score=rel,
-        reliability_H_repro=1.0 - rel,
+        reliability_smoothness=1.0 - rel,
         build_zone=2,
         in_contour_mask=in_mask,
     )
@@ -73,7 +73,7 @@ def test_sorted_conformation_motion_returns_rmsd_and_drel() -> None:
 
 
 def test_conformation_pair_stats_rmsd_vs_reliability(monkeypatch) -> None:
-    from cryoem_mrc import conformation_pair as cp
+    from thesis import conformation_pair as cp
 
     pairs = [
         (_row("A", i, float(i) * 0.1), _row("A", i, float(i) * 0.2))
@@ -125,7 +125,7 @@ def test_select_layout_uses_coupling_threshold() -> None:
 
 
 def test_rmsd_superposition_diagnostics_per_chain() -> None:
-    from cryoem_mrc.conformation_pair import compute_rmsd_superposition_diagnostics
+    from thesis.conformation_pair import compute_rmsd_superposition_diagnostics
 
     body_a = [_row("A", i, 0.1, x=0, y=float(i), z=0) for i in range(10)]
     body_b = [_row("B", i, 0.2, x=50, y=float(i), z=0) for i in range(10)]

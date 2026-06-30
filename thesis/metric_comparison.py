@@ -29,7 +29,7 @@ from cryoem_mrc.structure_validation import (
     sample_volume_at_ca,
 )
 
-from .reliability_volumes import load_reliability_mrc_pair, recompute_lh_volumes
+from thesis.reliability_volumes import load_reliability_mrc_pair, recompute_lh_volumes
 
 logger = logging.getLogger(__name__)
 

@@ -21,12 +21,12 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 import numpy as np
 import pandas as pd
 
-from .halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
-from .incremental_prediction import load_metrics_dataframe
-from .local_resolution import RESMAP_UNRESOLVED_SENTINEL_A, locres_resmap_path
-from .manifest_policy import row_ca_metrics_eligible
-from .map_grid import load_map_grid, resample_volume_onto_grid
-from .placement_utility import (
+from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
+from thesis.incremental_prediction import load_metrics_dataframe
+from cryoem_mrc.local_resolution import RESMAP_UNRESOLVED_SENTINEL_A, locres_resmap_path
+from cryoem_mrc.manifest_policy import row_ca_metrics_eligible
+from cryoem_mrc.map_grid import load_map_grid, resample_volume_onto_grid
+from thesis.placement_utility import (
     PLACEMENT_Q_ROC_PREDICTORS,
     PREDICTOR_LABELS,
     PredictorId,
@@ -36,8 +36,8 @@ from .placement_utility import (
     placement_roc_positive_mask,
     rank_auc,
 )
-from .repo_paths import COHORT_MANIFEST, emd_output_dir, find_features_npz, halfmap_metrics_npz, resolve_halfmap_reliability_dir
-from .structure_validation import (
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, emd_output_dir, find_features_npz, halfmap_metrics_npz, resolve_halfmap_reliability_dir
+from cryoem_mrc.structure_validation import (
     CaResidue,
     build_contour_mask,
     iter_ca_residues,
@@ -229,11 +229,7 @@ def _load_reliability_volumes(
         with np.load(npz_path, allow_pickle=False) as d:
             rel = np.asarray(d["reliability_score"], dtype=np.float32)
             zone = np.rint(np.asarray(d["build_zone"], dtype=np.float32)).astype(np.uint8)
-            v_key = (
-                "reliability_smoothness"
-                if "reliability_smoothness" in d
-                else "reliability_constraint_V"
-            )
+            v_key = "reliability_smoothness"
             if v_key not in d:
                 return None
             v = np.asarray(d[v_key], dtype=np.float32)
@@ -244,11 +240,11 @@ def _load_reliability_volumes(
 
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
-    from thesis.reliability_volumes import load_reliability_mrc_pair, recompute_lh_volumes
+    from cryoem_mrc.reliability_volumes import load_reliability_mrc_pair, recompute_reliability_volumes
 
     try:
         reliability_score, build_zone = load_reliability_mrc_pair(emdb_id)
-        _, v_metric_vol = recompute_lh_volumes(
+        _, v_metric_vol = recompute_reliability_volumes(
             emdb_id,
             reference_path=reference_path,
             half1_path=half1_path,

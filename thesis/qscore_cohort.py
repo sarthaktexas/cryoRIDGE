@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
-from .manifest_policy import QSCORE_HARD_EXCLUDE_EMDB_IDS
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT
+from cryoem_mrc.manifest_policy import QSCORE_HARD_EXCLUDE_EMDB_IDS
 
 # Hard exclusions for any Q-score panel (core or expansion).
 QSCORE_PANEL_EXCLUDE: frozenset[str] = QSCORE_HARD_EXCLUDE_EMDB_IDS
 
-# Additional exclusions for the primary "core" Q-score cohort (thesis headline n≈24).
+# Additional exclusions for the primary "core" Q-score cohort (headline n≈24).
 # Document each in methods; full panel retained for sensitivity tables.
 QSCORE_CORE_EXCLUDE: frozenset[str] = frozenset(
     {

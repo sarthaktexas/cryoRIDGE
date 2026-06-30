@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from cryoem_mrc.complementarity import (
+from thesis.complementarity import (
     FOCUS_PREDICTORS,
     LOMO_MODEL_FEATURES,
     masked_percentile_rank,
@@ -28,14 +28,14 @@ class TestComplementarity(unittest.TestCase):
             {
                 "in_contour_mask": np.ones(n, bool),
                 "q_score": np.linspace(0, 1, n),
-                "constraint_V": np.linspace(0, 1, n),
+                "smoothness": np.linspace(0, 1, n),
                 "neg_lam_min": np.linspace(0, -1, n),
                 "T_vonweizsacker": np.linspace(0, 1, n),
                 "V_curvature": np.linspace(0, 1, n),
             }
         )
         rhos = spearman_vs_q(df, FOCUS_PREDICTORS)
-        self.assertAlmostEqual(rhos["constraint_V"], 1.0, places=5)
+        self.assertAlmostEqual(rhos["smoothness"], 1.0, places=5)
         self.assertAlmostEqual(rhos["neg_lam_min"], -1.0, places=5)
 
     def test_masked_percentile_rank(self) -> None:

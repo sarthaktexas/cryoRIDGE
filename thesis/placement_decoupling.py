@@ -10,16 +10,16 @@ from typing import Sequence
 import numpy as np
 from scipy import stats
 
-from .analysis import build_contour_mask
-from .halfmap_metrics import (
+from cryoem_mrc.analysis import build_contour_mask
+from cryoem_mrc.halfmap_metrics import (
     WINDOWED_HALFMAP_CORRELATION_KEY,
     half_map_local_metrics,
     load_windowed_halfmap_correlation,
 )
-from .map_grid import load_full_and_half_maps
-from .reliability import attach_reliability_to_features, percentile_rank_in_mask
-from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, halfmap_metrics_npz, resolve_halfmap_reliability_dir
-from .structure_validation import (
+from cryoem_mrc.map_grid import load_full_and_half_maps
+from cryoem_mrc.reliability import attach_reliability_to_features
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, halfmap_metrics_npz, resolve_halfmap_reliability_dir
+from cryoem_mrc.structure_validation import (
     ResidueValidationRow,
     build_residue_validation_table,
     compute_model_placement_audit_stats,
@@ -172,8 +172,8 @@ def recompute_rho_at_ca(
     """
     Re-sample reliability variants at deposited Cα.
 
-    ``rho_source``: ``avg_half`` (canonical, matched to half-map CC), ``primary``
-    (deposited sharpened map, sensitivity), or ``t_only``.
+    ``rho_source``: ``avg_half`` (canonical, matched to half-map CC) or ``primary``
+    (deposited sharpened map, sensitivity).
     """
     row = load_cohort_manifest_row(manifest, emd_id)
     ref_path = Path(row["reference_mrc"])
@@ -210,21 +210,12 @@ def recompute_rho_at_ca(
             with np.load(hm, allow_pickle=False) as d:
                 cc_vol = load_windowed_halfmap_correlation(d)
 
-    if rho_source == "t_only":
-        delta = bundle.half1.data - bundle.half2.data
-        work: dict[str, np.ndarray] = {"density_normalized": rho}
-        attach_reliability_to_features(
-            work, bundle.half1.data, bundle.half2.data, window=lh_window, mask=mask, compute_zones=False
-        )
-        rel_vol = percentile_rank_in_mask(work["reliability_fluctuation"], mask)
-        h_vol = work["reliability_fluctuation"]
-    else:
-        work = {"density_normalized": rho}
-        attach_reliability_to_features(
-            work, bundle.half1.data, bundle.half2.data, window=lh_window, mask=mask, compute_zones=True
-        )
-        rel_vol = work["reliability_score"]
-        h_vol = work["reliability_H_repro"]
+    work = {"density_normalized": rho}
+    attach_reliability_to_features(
+        work, bundle.half1.data, bundle.half2.data, window=lh_window, mask=mask, compute_zones=True
+    )
+    rel_vol = work["reliability_score"]
+    h_vol = work["reliability_smoothness"]
 
     residues = iter_ca_residues(pdb_path)
     rows = build_residue_validation_table(
@@ -233,16 +224,18 @@ def recompute_rho_at_ca(
         reference_density=ref_vol,
         contour=contour,
         reliability_score=rel_vol,
-        reliability_H_repro=h_vol,
+        reliability_smoothness=h_vol,
         build_zone=work.get("build_zone", np.zeros_like(rel_vol, dtype=np.uint8)),
         windowed_halfmap_correlation=cc_vol,
     )
     cc, rel, _ = _in_mask_arrays(rows)
     h_vals = np.array(
         [
-            r.reliability_H_repro
+            r.reliability_smoothness
             for r in rows
-            if r.in_contour_mask and np.isfinite(r.windowed_halfmap_correlation) and np.isfinite(r.reliability_H_repro)
+            if r.in_contour_mask
+            and np.isfinite(r.windowed_halfmap_correlation)
+            and np.isfinite(r.reliability_smoothness)
         ],
         dtype=np.float64,
     )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cryoem_mrc.placement_supplement import in_mask_arrays, median_by_zone, spearman_pair
+from thesis.placement_supplement import in_mask_arrays, median_by_zone, spearman_pair
 from cryoem_mrc.structure_validation import ResidueValidationRow
 
 
@@ -17,7 +17,7 @@ def _row(*, zone: int, cc: float, b: float, rel: float, in_mask: bool = True) ->
         z=0.0,
         b_iso=b,
         reliability_score=rel,
-        reliability_H_repro=rel,
+        reliability_smoothness=rel,
         build_zone=zone,
         in_contour_mask=in_mask,
         windowed_halfmap_correlation=cc,

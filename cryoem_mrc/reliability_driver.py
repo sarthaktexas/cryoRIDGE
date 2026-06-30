@@ -63,13 +63,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--no-crop-to-contour",
         action="store_true",
-        help="Compute constraint V on the full grid (default: tight bbox around contour mask)",
+        help="Compute smoothness on the full grid (default: tight bbox around contour mask)",
     )
     p.add_argument(
         "--density-source",
         choices=("avg_half", "primary"),
         default="avg_half",
-        help="ρ for constraint V: avg_half (default, matched to half-map CC) or primary (sensitivity)",
+        help="ρ for smoothness: avg_half (default, matched to half-map CC) or primary (sensitivity)",
     )
     return p.parse_args(argv)
 
@@ -159,8 +159,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         rel_keys = (
             "reliability_score",
-            "reliability_H_repro",
-            "reliability_fluctuation",
             "reliability_smoothness",
             "build_zone",
         )

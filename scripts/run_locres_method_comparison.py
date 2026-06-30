@@ -33,8 +33,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from style.nature import apply, savefig as save_nature
-from style.thesis_palette import PALETTES
+from style.figures import apply, savefig as save_nature
+from style.palette import PALETTES
 
 from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
 from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY

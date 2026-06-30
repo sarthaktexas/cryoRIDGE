@@ -24,7 +24,7 @@ from cryoem_mrc.analysis import build_contour_mask
 from cryoem_mrc.hessian import density_hessian_scalar_maps
 from cryoem_mrc.io import load_mrc
 from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid
-from cryoem_mrc.mechanics import fluctuation_constraint_decomposition
+from cryoem_mrc.archive.lh_decomposition import lh_decomposition
 from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY, load_windowed_halfmap_correlation
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, halfmap_metrics_npz
 from cryoem_mrc.structure_validation import (
@@ -107,7 +107,7 @@ def _load_score_maps(
     )
     delta = bundle.half1.data.astype(np.float32) - bundle.half2.data.astype(np.float32)
     del bundle
-    lh = fluctuation_constraint_decomposition(rho, delta, window=lh_window)
+    lh = lh_decomposition(rho, delta, window=lh_window)
     score_maps["lagrangian"] = lh["L_balance"].astype(np.float32)
     score_maps["hamiltonian"] = lh["H_sum"].astype(np.float32)
     del lh, delta

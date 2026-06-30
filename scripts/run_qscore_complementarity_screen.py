@@ -26,7 +26,7 @@ if str(_REPO) not in sys.path:
 import numpy as np
 import pandas as pd
 
-from cryoem_mrc.complementarity import (
+from thesis.complementarity import (
     FOCUS_PREDICTORS,
     GRADIENT_FAMILY_COLUMNS,
     LOMO_MODEL_FEATURES,
@@ -40,11 +40,11 @@ from cryoem_mrc.hessian import density_hessian_scalar_maps
 from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid
 from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, glob_halfmap_reliability_files, resolve_halfmap_reliability_dir
 from cryoem_mrc.structure_validation import iter_ca_residues, load_cohort_manifest_row, sample_volume_at_ca
-from cryoem_mrc.tv_curvature import density_tv_curvature_maps
-from cryoem_mrc.incremental_prediction import load_qscore_target, load_metrics_dataframe
+from thesis.tv_curvature import density_tv_curvature_maps
+from thesis.incremental_prediction import load_qscore_target, load_metrics_dataframe
 from thesis.metric_comparison import load_all_metrics
 
-from cryoem_mrc.qscore_cohort import filter_emdb_ids, qscore_exclude_ids
+from thesis.qscore_cohort import filter_emdb_ids, qscore_exclude_ids
 DEFAULT_SPHERE_A = 2.0
 
 PER_MAP_FIELDS = ["emdb_id", "n_used", *[f"rho_q_{c}" for c in FOCUS_PREDICTORS]]

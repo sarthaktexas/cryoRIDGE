@@ -1,11 +1,11 @@
-"""Tests for cryoem_mrc.tv_curvature density-derived T/V maps and block correlations."""
+"""Tests for thesis.tv_curvature density-derived T/V maps and block correlations."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from cryoem_mrc.tv_curvature import (
+from thesis.tv_curvature import (
     TV_FEATURE_KEYS,
     density_tv_curvature_maps,
     tv_block_correlations,

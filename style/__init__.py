@@ -1,6 +1,6 @@
-"""Shared figure styling for thesis and publication outputs."""
+"""Shared figure styling for publication outputs."""
 
-from style.thesis_palette import (
+from style.palette import (
     BUILD_ZONE_COLORS,
     MASTER_PALETTE,
     PALETTES,

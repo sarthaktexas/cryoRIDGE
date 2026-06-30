@@ -17,20 +17,20 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY
-from .cohort_resolution import COHORT_RESOLUTION_BINS, median_rho_by_resolution_bin
-from .incremental_prediction import (
+from cryoem_mrc.halfmap_metrics import WINDOWED_HALFMAP_CORRELATION_KEY
+from cryoem_mrc.cohort_resolution import COHORT_RESOLUTION_BINS, median_rho_by_resolution_bin
+from thesis.incremental_prediction import (
     TARGET_Q,
     iter_eligible_emdb_ids,
     load_metrics_dataframe,
     load_qscore_target,
 )
-from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, emd_output_dir, resolve_halfmap_reliability_dir
-from .structure_validation import load_cohort_manifest_row
-from .emringer import attach_emringer_scores, emringer_csv_path, pdb_code_from_flexibility_path
-from .emringer_cohort import emringer_interpretable, load_manifest_global_resolution_a
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, emd_output_dir, resolve_halfmap_reliability_dir
+from cryoem_mrc.structure_validation import load_cohort_manifest_row
+from cryoem_mrc.emringer import attach_emringer_scores, emringer_csv_path, pdb_code_from_flexibility_path
+from cryoem_mrc.emringer_cohort import emringer_interpretable, load_manifest_global_resolution_a
 
-from .qscore_cohort import QSCORE_PANEL_EXCLUDE, filter_emdb_ids, qscore_exclude_ids
+from thesis.qscore_cohort import QSCORE_PANEL_EXCLUDE, filter_emdb_ids, qscore_exclude_ids
 
 # Maps excluded from ResMap parallel LOMO after auto-mask QC (sentinel / coverage / flat range).
 RESMAP_QC_EXCLUDE = frozenset(
@@ -70,7 +70,7 @@ LOCRES_METHOD_LOMO_PREDICTORS: tuple[LocresMethodLomoPredictor, ...] = (
 PredictorId = Literal[
     "omit_zone",
     "reliability_below_0_33",
-    "constraint_v",
+    "smoothness",
     "emringer_score",
     "cc_below_0_5",
     "locres_worse_than_median",
@@ -80,8 +80,8 @@ PredictorId = Literal[
 
 PREDICTOR_LABELS: dict[PredictorId, str] = {
     "omit_zone": "Omit build zone (tercile)",
-    "reliability_below_0_33": "Reliability score < 0.33 (ranked V)",
-    "constraint_v": "Constraint V (v_metric, continuous)",
+    "reliability_below_0_33": "Reliability score < 0.33 (ranked smoothness)",
+    "smoothness": "Reliability smoothness (v_metric, continuous)",
     "emringer_score": "EMRinger score (continuous)",
     "cc_below_0_5": "Windowed half-map CC < 0.5",
     "locres_worse_than_median": "BlocRes worse than in-map median (Å)",
@@ -91,13 +91,13 @@ PREDICTOR_LABELS: dict[PredictorId, str] = {
 
 # Headline per-map ROC panel (manuscript): raw V vs ResMap; reliability omitted (same signal as V).
 PLACEMENT_Q_ROC_PREDICTORS: tuple[PredictorId, ...] = (
-    "constraint_v",
+    "smoothness",
     "resmap_locres_worse_than_median",
 )
 
 # Robustness tables also report the reliability transform for transparency.
 PLACEMENT_Q_ROC_ROBUSTNESS_PREDICTORS: tuple[PredictorId, ...] = (
-    "constraint_v",
+    "smoothness",
     "reliability_below_0_33",
     "resmap_locres_worse_than_median",
 )
@@ -129,7 +129,7 @@ RANK_RECOVERY_PROXY_LABELS: dict[str, str] = {
     "spearman_q_vs_cc": "windowed CC",
     "spearman_q_vs_locres": "BlocRes (sharpness)",
     "spearman_q_vs_variance": "variance",
-    "spearman_q_vs_v": "constraint V",
+    "spearman_q_vs_v": "smoothness",
 }
 
 RANK_RECOVERY_Q_COUPLING_SIGN: dict[str, float] = {
@@ -432,7 +432,7 @@ def _predictor_flags(df: pd.DataFrame) -> dict[PredictorId, np.ndarray]:
     return {
         "omit_zone": zone == 0,
         "reliability_below_0_33": rel < 0.33,
-        "constraint_v": v < v_med if np.isfinite(v_med) else np.zeros(len(df), bool),
+        "smoothness": v < v_med if np.isfinite(v_med) else np.zeros(len(df), bool),
         "emringer_score": em < em_med if np.isfinite(em_med) else np.zeros(len(df), bool),
         "cc_below_0_5": cc < 0.5,
         "locres_worse_than_median": loc > loc_med if np.isfinite(loc_med) else np.zeros(len(df), bool),
@@ -468,7 +468,7 @@ def _predictor_scores(df: pd.DataFrame) -> dict[PredictorId, np.ndarray]:
     return {
         "omit_zone": zone_score,
         "reliability_below_0_33": rel_score,
-        "constraint_v": v_score,
+        "smoothness": v_score,
         "emringer_score": em_score,
         "cc_below_0_5": cc_score,
         "locres_worse_than_median": loc_score,
@@ -988,7 +988,7 @@ def write_placement_utility_markdown(
     summary: PlacementUtilitySummary,
     path: Path,
 ) -> Path:
-    """Human-readable summary for thesis / Structure paper supplement."""
+    """Human-readable summary for publication supplement."""
     path = Path(path)
     lines: list[str] = [
         "# Placement utility analysis (Q-score operational validation)",
@@ -1052,7 +1052,7 @@ def write_placement_utility_markdown(
                 f"- ρ(Q, BlocRes sharpness): {med_rr('spearman_q_vs_locres'):.3f} "
                 f"(raw ρ vs Å: {float(np.median([r.spearman_q_vs_locres for r in summary.rank_recovery_rows if np.isfinite(r.spearman_q_vs_locres)])):.3f})",
                 f"- ρ(Q, local variance): {med_rr('spearman_q_vs_variance'):.3f}",
-                f"- ρ(Q, constraint V): {med_rr('spearman_q_vs_v'):.3f}",
+                f"- ρ(Q, smoothness): {med_rr('spearman_q_vs_v'):.3f}",
                 "",
                 "_BlocRes bars use sign-aligned coupling (negate raw ρ vs Å); "
                 "median-split flags use loc > in-map median as low-confidence._",
@@ -1352,7 +1352,7 @@ def _predictor_rank_proxy(df: pd.DataFrame, predictor: PredictorId) -> np.ndarra
     return {
         "omit_zone": zone,
         "reliability_below_0_33": rel,
-        "constraint_v": _v_metric_array(df),
+        "smoothness": _v_metric_array(df),
         "emringer_score": em,
         "cc_below_0_5": cc,
         "locres_worse_than_median": loc,

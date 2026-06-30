@@ -121,7 +121,7 @@ def _warn_outside_building_regime(resolution_a: float) -> bool:
             "(masked half-map FSC at 0.143)\n"
             f"Build zones are intended for maps finer than "
             f"[bold]≤ {BUILDING_REGIME_MAX_RESOLUTION_A:g} Å[/bold] "
-            "(thesis cohort uses roughly 2.5–4 Å depositions).\n\n"
+            "(the cohort uses roughly 2.5–4 Å depositions).\n\n"
             "Reliability scores may still be informative, but "
             "[italic]omit / caution / build[/italic] labels should be "
             "interpreted cautiously on coarse maps.",

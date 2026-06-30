@@ -26,8 +26,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import apply, label_panel, savefig as save_nature
-from style.thesis_palette import PALETTES
+from style.figures import apply, label_panel, savefig as save_nature
+from style.palette import PALETTES
 
 from cryoem_mrc.qscore_validation import (
     QscoreResidueRow,
@@ -46,7 +46,7 @@ from cryoem_mrc.repo_paths import (
     sync_thesis_doc_figure,
 )
 
-from cryoem_mrc.qscore_cohort import QSCORE_PANEL_EXCLUDE, filter_emdb_ids, qscore_exclude_ids
+from thesis.qscore_cohort import QSCORE_PANEL_EXCLUDE, filter_emdb_ids, qscore_exclude_ids
 from cryoem_mrc.manifest_policy import row_qscore_eligible
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:

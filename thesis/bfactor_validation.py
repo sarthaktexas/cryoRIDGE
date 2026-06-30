@@ -22,7 +22,7 @@ from cryoem_mrc.structure_validation import (
     write_residue_validation_csv,
 )
 
-from .reliability_volumes import load_reliability_mrc_pair, recompute_lh_volumes
+from thesis.reliability_volumes import load_reliability_mrc_pair, recompute_lh_volumes
 
 
 @dataclass

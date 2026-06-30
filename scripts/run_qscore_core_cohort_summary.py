@@ -1,6 +1,6 @@
 """Build filtered core Q-score cohort summaries from existing cohort CSVs.
 
-Applies :data:`cryoem_mrc.qscore_cohort.QSCORE_CORE_EXCLUDE` plus resolution
+Applies :data:`thesis.qscore_cohort.QSCORE_CORE_EXCLUDE` plus resolution
 cutoff (``QSCORE_CORE_MAX_RESOLUTION_A``) without re-running map pipelines.
 
 Example::
@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 from cryoem_mrc.cohort_labels import load_display_name_map
-from cryoem_mrc.qscore_cohort import (
+from thesis.qscore_cohort import (
     QSCORE_CORE_EXCLUDE,
     QSCORE_CORE_MAX_RESOLUTION_A,
     QSCORE_PANEL_EXCLUDE,

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from .conformation_pair import (
+from thesis.conformation_pair import (
     compute_domain_mean_coupling,
     compute_per_residue_ca_rmsd,
     get_domain_assignments,

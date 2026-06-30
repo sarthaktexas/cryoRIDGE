@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cryoem-halfmap-qc"
-version = "0.6.0"
+version = "0.7.0"
 description = "Half-map QC and local reliability scores for cryo-EM density maps"
 readme = "README.md"
 license = { text = "MIT" }
@@ -41,7 +41,8 @@ halfmap-qc = "cryoem_mrc.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["cryoem_mrc*", "style*"]
-# ``thesis/`` is repo-local cohort analysis (bfactor validation, metric comparison); not on PyPI.
+# ``style/`` is a small palette + figure-helper package shipped alongside cryoem_mrc.
+# ``thesis/`` is repo-local cohort validation (ROC/AUC, Q-score panels, Figma exports).
 
 [project.urls]
 Homepage = "https://github.com/sarthaktexas/cryoem-halfmap-qc"

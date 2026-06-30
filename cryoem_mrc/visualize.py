@@ -8,7 +8,7 @@ from typing import Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 
-from style.nature import apply, label_panel, savefig as save_nature
+from style.figures import apply, label_panel, savefig as save_nature
 
 
 def rigidity_inspection_keys(features: dict[str, np.ndarray]) -> list[str]:

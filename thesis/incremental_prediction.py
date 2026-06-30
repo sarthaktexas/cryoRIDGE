@@ -1,13 +1,14 @@
 """Leave-one-map-out nested prediction: does V add held-out value beyond variance?
 
 Design A (capability gate): baseline = {local variance, half-map CC, BlocRes locres};
-full model adds constraint V. Resampling unit is the map (EMDB entry), not residue.
+full model adds gradient-energy smoothness. Resampling unit is the map (EMDB entry), not residue.
 Predictors and targets are percentile-ranked within each map before pooling so scale
 differences across maps do not dominate OLS.
 """
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Sequence
@@ -16,9 +17,16 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .halfmap_metrics import LEGACY_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_KEY
-from .repo_paths import COHORT_MANIFEST, emd_output_dir, resolve_halfmap_reliability_dir
-from .structure_validation import _b_iso_is_uniform, load_cohort_manifest_row
+from cryoem_mrc.halfmap_metrics import LEGACY_HALFMAP_CORRELATION_KEY, WINDOWED_HALFMAP_CORRELATION_KEY
+from cryoem_mrc.repo_paths import (
+    COHORT_MANIFEST,
+    OUTPUTS_ROOT,
+    emd_output_dir,
+    glob_halfmap_reliability_files,
+    resolve_halfmap_reliability_dir,
+)
+from thesis.metric_comparison import load_all_metrics
+from cryoem_mrc.structure_validation import _b_iso_is_uniform, load_cohort_manifest_row
 
 BASELINE_COLUMNS: tuple[str, ...] = (
     "local_variance",
@@ -200,8 +208,6 @@ def load_metrics_dataframe(
     if cached.is_file():
         return normalize_metrics_columns(pd.read_csv(cached))
     try:
-        from thesis.metric_comparison import load_all_metrics
-
         return load_all_metrics(emdb_id, manifest=manifest, sphere_radius_a=sphere_radius_a)
     except (FileNotFoundError, ValueError, KeyError):
         return None
@@ -251,14 +257,10 @@ def iter_eligible_emdb_ids(
     qscore_exclude: frozenset[str] | None = None,
 ) -> list[str]:
     """List candidate EMDB IDs for a target without loading full metrics."""
-    from .repo_paths import OUTPUTS_ROOT
-
     exclude = qscore_exclude or frozenset()
     root = outputs_root or OUTPUTS_ROOT
     if target == TARGET_Q:
         ids: list[str] = []
-        from .repo_paths import glob_halfmap_reliability_files
-
         for path in glob_halfmap_reliability_files(root, "qscore_validation.csv"):
             emdb_id = path.parts[-3].replace("emd_", "")
             if emdb_id not in exclude:
@@ -267,8 +269,6 @@ def iter_eligible_emdb_ids(
 
     ids = []
     with manifest.open(newline="") as f:
-        import csv
-
         for row in csv.DictReader(f):
             if row.get("flexibility_source", "").strip() == "b_factor":
                 ids.append(str(row["emdb_id"]).strip())

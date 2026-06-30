@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from cryoem_mrc.placement_utility import (
+from thesis.placement_utility import (
     balanced_accuracy,
     compute_calibration_bins,
     compute_low_q_enrichment_row,
@@ -144,9 +144,9 @@ class TestResmapRoc(unittest.TestCase):
         df["reliability_score"] = (v - v.min()) / (v.max() - v.min())
         rows = summarize_q_roc_per_map(
             [("test", df)],
-            predictors=("constraint_v", "reliability_below_0_33"),
+            predictors=("smoothness", "reliability_below_0_33"),
         )
-        v_auc = float(next(r for r in rows if r["predictor"] == "constraint_v")["auc"])
+        v_auc = float(next(r for r in rows if r["predictor"] == "smoothness")["auc"])
         rel_auc = float(
             next(r for r in rows if r["predictor"] == "reliability_below_0_33")["auc"]
         )

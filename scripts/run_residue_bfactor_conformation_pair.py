@@ -26,7 +26,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from cryoem_mrc.conformation_pair import (
+from thesis.conformation_pair import (
     compute_conformation_pair_coverage,
     compute_conformation_pair_stats,
     compute_per_residue_ca_rmsd,
@@ -37,7 +37,7 @@ from cryoem_mrc.conformation_pair import (
     write_conformation_pair_md,
     write_conformation_pairs_summary,
 )
-from cryoem_mrc.conformation_coupling import (
+from thesis.conformation_coupling import (
     DEFAULT_COUPLING_LAYOUT_THRESHOLD,
     compute_conformation_coupling,
     compute_coupling_layout_scores,
@@ -63,9 +63,9 @@ def _write_conformation_pair_figures(
     cluster_threshold: float,
     out_dir: Path,
 ) -> str:
-    """Render thesis figures when local ``cryoem_mrc.thesis_figures`` is available."""
+    """Render thesis figures when local ``thesis.thesis_figures`` is available."""
     try:
-        from cryoem_mrc.thesis_figures import (
+        from thesis.thesis_figures import (
             compute_domain_coupling_block_colors,
             plot_conformation_pair_delta_reliability_supplement,
             plot_conformation_pair_domain_coupling_supplement,
@@ -94,7 +94,7 @@ def _write_conformation_pair_figures(
     chimerax_coupling_png = None
     if has_domains:
         try:
-            from cryoem_mrc.chimerax_figures import (
+            from thesis.chimerax_figures import (
                 ensure_chimerax_domain_render,
                 render_chimerax_domain_colored_surface,
             )

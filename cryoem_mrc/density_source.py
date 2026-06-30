@@ -17,7 +17,7 @@ def zscore_global(volume: np.ndarray) -> np.ndarray:
 
 
 def zscore_halfmap_average(half1: np.ndarray, half2: np.ndarray) -> np.ndarray:
-    """Global z-score of ρ = ½(h₁+h₂) for constraint V / reliability ranking."""
+    """Global z-score of ρ = ½(h₁+h₂) for smoothness reliability ranking."""
     rho = 0.5 * (np.asarray(half1, dtype=np.float32) + np.asarray(half2, dtype=np.float32))
     return zscore_global(rho)
 
@@ -31,7 +31,7 @@ def rho_normalized_for_reliability(
     primary_volume: np.ndarray | None = None,
 ) -> np.ndarray:
     """
-    ρ for constraint V / reliability ranking.
+    ρ for smoothness reliability ranking.
 
     ``avg_half`` (default): z-score(½(h₁+h₂)), matched to half-map CC validation.
     ``primary``: z-scored deposited map from feature NPZ or raw primary volume (sensitivity).
@@ -45,5 +45,5 @@ def rho_normalized_for_reliability(
     return zscore_halfmap_average(half1, half2)
 
 
-# Deprecated alias (LH-map naming).
+# Deprecated alias.
 rho_normalized_for_lh = rho_normalized_for_reliability
