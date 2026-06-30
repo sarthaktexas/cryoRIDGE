@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 from textwrap import dedent
@@ -15,6 +16,7 @@ from rich.status import Status
 from rich.text import Text
 
 from cryoem_mrc import __version__
+from cryoem_mrc.emringer_cohort import BUILDING_REGIME_MAX_RESOLUTION_A
 
 console = Console()
 
@@ -34,7 +36,8 @@ HELP_TEXT = dedent(
       halfmap-qc reliability --reference ref.map --half1 h1.map --half2 h2.map \\
         --features features.npz --contour CONTOUR --out-dir out
 
-    From two half-maps alone, interactive mode averages them, picks a contour,
+    From two half-maps alone, interactive mode averages them, offers auto or
+    manual contour, warns when resolution is outside the model-building band,
     and writes ``halfmap_qc_out/{stem}_reliability.mrc`` and ``*_build_zones.mrc``.
 
     Advanced: halfmap-qc features --help, halfmap-qc reliability --help
@@ -79,6 +82,58 @@ def _prompt_path(label: str, *, default: str = "") -> Path:
         return path
 
 
+def _prompt_contour(suggested: float) -> float:
+    console.print(
+        f"[dim]Auto contour suggestion:[/dim] [cyan]{suggested:.6g}[/cyan] "
+        "(heuristic on averaged half-map)"
+    )
+    try:
+        use_auto = Confirm.ask("Use auto-detected contour?", default=True)
+    except (EOFError, KeyboardInterrupt):
+        raise
+    if use_auto:
+        return float(suggested)
+
+    while True:
+        try:
+            raw = Prompt.ask(
+                "Contour level (density units, same as map)",
+                default=f"{suggested:.6g}",
+            )
+            val = float(raw.strip())
+            if val <= 0:
+                console.print("[red]  contour must be positive[/red]")
+                continue
+            return val
+        except ValueError:
+            console.print("[red]  enter a number[/red]")
+        except (EOFError, KeyboardInterrupt):
+            raise
+
+
+def _warn_outside_building_regime(resolution_a: float) -> bool:
+    """Warn and ask whether to continue. Returns False when the user cancels."""
+    console.print()
+    console.print(
+        Panel(
+            "[bold yellow]Low resolution — outside model-building regime[/bold yellow]\n\n"
+            f"Estimated global resolution: [bold]{resolution_a:.2f} Å[/bold] "
+            "(masked half-map FSC at 0.143)\n"
+            f"Build zones are intended for maps finer than "
+            f"[bold]≤ {BUILDING_REGIME_MAX_RESOLUTION_A:g} Å[/bold] "
+            "(thesis cohort uses roughly 2.5–4 Å depositions).\n\n"
+            "Reliability scores may still be informative, but "
+            "[italic]omit / caution / build[/italic] labels should be "
+            "interpreted cautiously on coarse maps.",
+            border_style="yellow",
+        )
+    )
+    try:
+        return Confirm.ask("Continue anyway?", default=True)
+    except (EOFError, KeyboardInterrupt):
+        raise
+
+
 def run_interactive() -> int:
     if not sys.stdin.isatty():
         console.print("[red]halfmap-qc:[/red] interactive mode requires a TTY.")
@@ -89,8 +144,8 @@ def run_interactive() -> int:
     console.print(_banner())
     console.print(
         Panel(
-            "[white]Provide two half-maps.[/white] Everything else is automatic:\n"
-            "average → features → reliability + build-zone MRCs in "
+            "[white]Provide two half-maps.[/white] The tool will average them, "
+            "let you choose a contour, then write reliability + build-zone MRCs to "
             "[cyan]halfmap_qc_out/[/cyan] next to half-map 1.",
             border_style="green",
         )
@@ -110,13 +165,49 @@ def run_interactive() -> int:
 
     try:
         with Status(
+            "[bold cyan]Loading half-maps…[/bold cyan]",
+            console=console,
+            spinner="dots",
+        ):
+            from cryoem_mrc.halfmap_run import (
+                load_halfmap_pair_context,
+                run_halfmap_qc,
+                summarize_halfmap_pair,
+            )
+
+            context = load_halfmap_pair_context(half1, half2)
+            summary = summarize_halfmap_pair(context)
+
+        if math.isfinite(summary.resolution_a):
+            console.print(
+                f"[dim]Estimated global resolution:[/dim] "
+                f"[cyan]{summary.resolution_a:.2f} Å[/cyan] "
+                f"(voxel {summary.voxel_size_a:.3f} Å)"
+            )
+        else:
+            console.print("[dim]Estimated global resolution:[/dim] [yellow]unavailable[/yellow]")
+
+        if math.isfinite(summary.resolution_a) and not summary.in_building_regime:
+            if not _warn_outside_building_regime(summary.resolution_a):
+                console.print("[dim]Cancelled.[/dim]")
+                return 0
+
+        console.print()
+        contour = _prompt_contour(summary.suggested_contour)
+        console.print()
+
+        with Status(
             "[bold cyan]Running pipeline…[/bold cyan] (this may take a few minutes on large maps)",
             console=console,
             spinner="dots",
         ):
-            from cryoem_mrc.halfmap_run import run_halfmap_qc
-
-            outputs = run_halfmap_qc(half1, half2, out_dir=out_dir)
+            outputs = run_halfmap_qc(
+                half1,
+                half2,
+                out_dir=out_dir,
+                contour=contour,
+                context=context,
+            )
     except (EOFError, KeyboardInterrupt):
         console.print("\n[dim]Cancelled.[/dim]")
         return 130

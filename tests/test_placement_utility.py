@@ -14,6 +14,7 @@ from cryoem_mrc.placement_utility import (
     compute_misranking_row,
     compute_rank_recovery_row,
     rank_auc,
+    summarize_q_roc_per_map,
     _predictor_flags,
     _predictor_scores,
 )
@@ -115,6 +116,57 @@ class TestCalibration(unittest.TestCase):
         self.assertGreater(len(bins), 2)
         means = [b.mean_q for b in bins]
         self.assertGreater(means[-1], means[0])
+
+
+class TestResmapRoc(unittest.TestCase):
+    def test_resmap_risk_score_tracks_low_q(self) -> None:
+        rng = np.random.default_rng(3)
+        n = 80
+        resmap = rng.uniform(2.0, 6.0, size=n)
+        q = 0.8 - 0.12 * resmap + rng.normal(0, 0.05, size=n)
+        df = _synthetic_df(n=n, seed=1)
+        df["q_score"] = q
+        df["local_resolution_resmap"] = resmap
+        rows = summarize_q_roc_per_map([("test", df)], q_threshold=0.5)
+        resmap_row = next(
+            r for r in rows if r["predictor"] == "resmap_locres_worse_than_median"
+        )
+        self.assertGreater(float(resmap_row["auc"]), 0.75)
+
+    def test_v_matches_reliability_auc(self) -> None:
+        rng = np.random.default_rng(5)
+        n = 80
+        v = rng.uniform(0.0, 10.0, size=n)
+        q = 0.2 + 0.06 * v + rng.normal(0, 0.05, size=n)
+        df = _synthetic_df(n=n, seed=1)
+        df["q_score"] = q
+        df["v_metric"] = v
+        df["reliability_score"] = (v - v.min()) / (v.max() - v.min())
+        rows = summarize_q_roc_per_map(
+            [("test", df)],
+            predictors=("constraint_v", "reliability_below_0_33"),
+        )
+        v_auc = float(next(r for r in rows if r["predictor"] == "constraint_v")["auc"])
+        rel_auc = float(
+            next(r for r in rows if r["predictor"] == "reliability_below_0_33")["auc"]
+        )
+        self.assertAlmostEqual(v_auc, rel_auc, places=5)
+
+    def test_resmap_tracks_low_emringer(self) -> None:
+        rng = np.random.default_rng(4)
+        n = 80
+        resmap = rng.uniform(2.0, 6.0, size=n)
+        em = 0.08 - 0.01 * resmap + rng.normal(0, 0.005, size=n)
+        df = _synthetic_df(n=n, seed=1)
+        df["emringer_score"] = em
+        df["local_resolution_resmap"] = resmap
+        rows = summarize_q_roc_per_map(
+            [("test", df)], ground_truth="emringer_low"
+        )
+        resmap_row = next(
+            r for r in rows if r["predictor"] == "resmap_locres_worse_than_median"
+        )
+        self.assertGreater(float(resmap_row["auc"]), 0.75)
 
 
 if __name__ == "__main__":

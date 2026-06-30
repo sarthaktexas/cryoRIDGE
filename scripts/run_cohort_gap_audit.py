@@ -120,7 +120,7 @@ def audit_row(row: dict[str, str]) -> RowAudit:
     pdb_raw = row.get("flexibility_path_or_pdb", "")
 
     lh = resolve_halfmap_reliability_dir(eid)
-    rel = lh / "reliability.npz"
+    rel_mrc = lh / f"emd_{eid}_reliability.mrc"
     qscore = lh / "qscore_validation.csv"
     rv = lh / "residue_validation.csv"
     bfac_md = lh / "B_FACTOR_VALIDATION.md"
@@ -144,7 +144,7 @@ def audit_row(row: dict[str, str]) -> RowAudit:
         has_reference=ref.is_file(),
         has_halves=h1.is_file() and h2.is_file(),
         has_pdb=_has_pdb(pdb_raw),
-        has_reliability=rel.is_file(),
+        has_reliability=rel_mrc.is_file(),
         has_halfmap_metrics=halfmap_metrics_npz(eid).is_file(),
         has_features=features is not None,
         has_blocres=_blocres_done(eid),

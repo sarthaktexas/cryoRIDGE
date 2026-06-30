@@ -455,4 +455,44 @@ def save_local_fsc_resolution_mrc(
         dtype=np.float32,
         extra_label=label,
     )
+
+
+def estimate_global_halfmap_fsc_resolution(
+    half1: np.ndarray,
+    half2: np.ndarray,
+    *,
+    voxel_size_a: float,
+    fsc_threshold: float = 0.143,
+    mask: np.ndarray | None = None,
+) -> float:
+    """
+    Global masked half-map FSC resolution in Å (standard 0.143 criterion).
+
+    Both volumes must share the same grid. When ``mask`` is set, voxels outside
+    the mask are zeroed before the FFT (typical macromolecule-masked global FSC).
+    """
+    h1 = np.asarray(half1, dtype=np.float64)
+    h2 = np.asarray(half2, dtype=np.float64)
+    if h1.shape != h2.shape or h1.ndim != 3:
+        return float("nan")
+    if mask is not None:
+        m = np.asarray(mask, dtype=bool)
+        if m.shape != h1.shape or not m.any():
+            return float("nan")
+        h1 = h1 * m.astype(np.float64)
+        h2 = h2 * m.astype(np.float64)
+
+    nz, ny, nx = h1.shape
+    n_ref = max(int(round(float(np.mean([nz, ny, nx])))), 3)
+
+    kz_1d = np.fft.fftfreq(nz) * nz
+    ky_1d = np.fft.fftfreq(ny) * ny
+    kx_1d = np.fft.rfftfreq(nx) * nx
+    kz, ky, kx = np.meshgrid(kz_1d, ky_1d, kx_1d, indexing="ij")
+    shell_r = np.floor(np.sqrt(kz * kz + ky * ky + kx * kx)).astype(np.int32)
+    shell_idx = shell_r.ravel()
+    n_shells = int(shell_idx.max()) + 1
+
+    fsc = _fsc_curve_from_patches(h1, h2, shell_idx, n_shells)
+    return float(_resolution_from_fsc(fsc, fsc_threshold, n_ref, float(voxel_size_a)))
     return out_path

@@ -32,6 +32,8 @@ from style.thesis_palette import PALETTES
 from cryoem_mrc.qscore_validation import (
     QscoreResidueRow,
     QscoreValidationStats,
+    run_emdb_qscore_merge_reliability,
+    run_emdb_qscore_only,
     run_emdb_qscore_validation,
 )
 from cryoem_mrc.cohort_labels import cohort_figure_label, load_display_name_map
@@ -40,6 +42,7 @@ from cryoem_mrc.repo_paths import (
     BFACTOR_VALIDATION_EMDB_IDS,
     COHORT_MANIFEST,
     OUTPUTS_ROOT,
+    resolve_halfmap_reliability_dir,
     sync_thesis_doc_figure,
 )
 
@@ -72,6 +75,21 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--cohort-figure",
         action="store_true",
         help="Build cohort summary figure from existing qscore_correlations.csv (standalone-capable)",
+    )
+    p.add_argument(
+        "--qscore-only",
+        action="store_true",
+        help="Compute per-residue Q-scores only; write qscore_per_residue.csv (no reliability.npz)",
+    )
+    p.add_argument(
+        "--merge-reliability",
+        action="store_true",
+        help="Merge existing qscore_per_residue.csv with reliability.npz → full validation outputs",
+    )
+    p.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="With --qscore-only: skip maps that already have qscore_per_residue.csv",
     )
     return p.parse_args(argv)
 
@@ -259,6 +277,123 @@ def _write_cohort_summary(records: list[dict]) -> Path:
     return path
 
 
+def _run_one_qscore_only(
+    emd_id: str,
+    *,
+    manifest: Path,
+    reference: Path | None,
+    pdb: Path | None,
+    contour: float | None,
+    window_radius: int,
+    num_points: int,
+    skip_existing: bool = False,
+) -> int:
+    q_csv = resolve_halfmap_reliability_dir(emd_id) / "qscore_per_residue.csv"
+    if skip_existing and q_csv.is_file():
+        print(f"[qscore_validation] EMD-{emd_id}: skip (exists {q_csv.name})", flush=True)
+        return 0
+    try:
+        code, rows, out_dir = run_emdb_qscore_only(
+            emd_id,
+            manifest=manifest,
+            reference=reference,
+            pdb=pdb,
+            contour=contour,
+            window_radius=window_radius,
+            num_points=num_points,
+        )
+    except FileNotFoundError as e:
+        print(f"[qscore_validation] ERROR: {e}", file=sys.stderr)
+        return 2
+    except ImportError as e:
+        print(
+            "[qscore_validation] ERROR: qscore not installed. "
+            'Run: uv pip install "git+https://github.com/3dem/qscore.git" biopython tqdm',
+            file=sys.stderr,
+        )
+        print(f"[qscore_validation] ({e})", file=sys.stderr)
+        return 2
+
+    n_q = sum(1 for r in rows if np.isfinite(r.q_score))
+    n_mask = sum(1 for r in rows if r.in_contour_mask)
+    print(
+        f"[qscore_validation] EMD-{emd_id}: Q-only → {out_dir / 'qscore_per_residue.csv'} "
+        f"(n={n_q} Q, {n_mask} in-mask)",
+        flush=True,
+    )
+    return code
+
+
+def _run_one_merge(
+    emd_id: str,
+    *,
+    manifest: Path,
+    reliability_npz: Path | None,
+    reference: Path | None,
+    pdb: Path | None,
+    contour: float | None,
+    window_radius: int,
+    dpi: int,
+) -> tuple[int, dict | None]:
+    try:
+        code, rows, stats, out_dir = run_emdb_qscore_merge_reliability(
+            emd_id,
+            manifest=manifest,
+            reliability_npz=reliability_npz,
+            reference=reference,
+            pdb=pdb,
+            contour=contour,
+            window_radius=window_radius,
+        )
+    except FileNotFoundError as e:
+        print(f"[qscore_validation] ERROR: {e}", file=sys.stderr)
+        return 2, None
+    except (ImportError, ValueError) as e:
+        print(f"[qscore_validation] ERROR: {e}", file=sys.stderr)
+        return 2, None
+
+    fig_dir = out_dir / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    _plot_qscore_vs_v(
+        rows,
+        stats,
+        fig_dir / "qscore_vs_V_scatter.png",
+        emd_id=emd_id,
+        dpi=dpi,
+    )
+    (out_dir / "qscore_validation_stats.json").write_text(
+        json.dumps(
+            {
+                "emdb_id": stats.emdb_id,
+                "pdb_id": stats.pdb_id,
+                "n_residues": stats.n_residues,
+                "n_in_mask": stats.n_in_mask,
+                "n_with_q_score": stats.n_with_q_score,
+                "spearman_q_vs_V": stats.spearman_q_vs_V,
+                "spearman_q_vs_V_rank": stats.spearman_q_vs_V_rank,
+                "spearman_q_vs_b_iso": stats.spearman_q_vs_b_iso,
+                "median_q_by_b_tercile": stats.median_q_by_b_tercile,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    print(
+        f"[qscore_validation] EMD-{emd_id}: merged n={stats.n_in_mask} in-mask, "
+        f"ρ(Q, V)={stats.spearman_q_vs_V:+.3f}",
+        flush=True,
+    )
+    record = {
+        "emdb_id": stats.emdb_id,
+        "pdb_id": stats.pdb_id,
+        "spearman_q_vs_V": f"{stats.spearman_q_vs_V:.6f}",
+        "spearman_q_vs_V_rank": f"{stats.spearman_q_vs_V_rank:.6f}",
+        "n_residues": stats.n_in_mask,
+        "n_in_mask": stats.n_in_mask,
+    }
+    return 0, record
+
+
 def _run_one(
     emd_id: str,
     *,
@@ -347,6 +482,10 @@ def main(argv: list[str] | None = None) -> int:
         out = _build_cohort_figure(args.manifest, args.dpi)
         return 0 if out is not None else 2
 
+    if args.qscore_only and args.merge_reliability:
+        print("Choose only one of --qscore-only or --merge-reliability", file=sys.stderr)
+        return 2
+
     if not args.all and not args.emd_id and not args.anchors:
         print("Specify --emd-id, --anchors, --all, or --cohort-figure", file=sys.stderr)
         return 2
@@ -361,6 +500,34 @@ def main(argv: list[str] | None = None) -> int:
     rc = 0
     records: list[dict] = []
     for emd_id in ids:
+        if args.qscore_only:
+            code = _run_one_qscore_only(
+                emd_id,
+                manifest=args.manifest,
+                reference=args.reference,
+                pdb=args.pdb,
+                contour=args.contour,
+                window_radius=args.window_radius,
+                num_points=args.num_points,
+                skip_existing=args.skip_existing,
+            )
+            rc = max(rc, code)
+            continue
+        if args.merge_reliability:
+            code, record = _run_one_merge(
+                emd_id,
+                manifest=args.manifest,
+                reliability_npz=args.reliability_npz,
+                reference=args.reference,
+                pdb=args.pdb,
+                contour=args.contour,
+                window_radius=args.window_radius,
+                dpi=args.dpi,
+            )
+            rc = max(rc, code)
+            if record is not None:
+                records.append(record)
+            continue
         code, record = _run_one(
             emd_id,
             manifest=args.manifest,
@@ -383,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cohort_figure:
         _build_cohort_figure(args.manifest, args.dpi)
 
-    if rc == 0 and len(ids) == 1 and ids[0] == ANCHOR_EMDB_ID:
+    if rc == 0 and len(ids) == 1 and ids[0] == ANCHOR_EMDB_ID and not args.qscore_only:
         print(f"[qscore_validation] anchor complete — check outputs/emd_{ANCHOR_EMDB_ID}/halfmap_reliability/")
     return rc
 

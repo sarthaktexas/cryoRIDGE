@@ -38,7 +38,7 @@ from cryoem_mrc.complementarity import (
 from cryoem_mrc.density_source import zscore_halfmap_average
 from cryoem_mrc.hessian import density_hessian_scalar_maps
 from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, resolve_halfmap_reliability_dir
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, glob_halfmap_reliability_files, resolve_halfmap_reliability_dir
 from cryoem_mrc.structure_validation import iter_ca_residues, load_cohort_manifest_row, sample_volume_at_ca
 from cryoem_mrc.tv_curvature import density_tv_curvature_maps
 from cryoem_mrc.incremental_prediction import load_qscore_target, load_metrics_dataframe
@@ -79,10 +79,7 @@ def _emd_ids_from_qscore_cohort(*, core: bool = False) -> list[str]:
                 eid = str(row["emdb_id"]).strip()
                 ids.append(eid)
     else:
-        for bundle in sorted(OUTPUTS_ROOT.glob("emd_*/halfmap_reliability/qscore_validation.csv")):
-            eid = bundle.parent.parent.name.removeprefix("emd_")
-            ids.append(eid)
-        for bundle in sorted(OUTPUTS_ROOT.glob("emd_*/lh_map_reliability/qscore_validation.csv")):
+        for bundle in glob_halfmap_reliability_files(OUTPUTS_ROOT, "qscore_validation.csv"):
             eid = bundle.parent.parent.name.removeprefix("emd_")
             if eid not in ids:
                 ids.append(eid)

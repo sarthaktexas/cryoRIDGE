@@ -30,7 +30,7 @@ from cryoem_mrc.density_source import zscore_halfmap_average
 from cryoem_mrc.hessian import density_hessian_scalar_maps
 from cryoem_mrc.local_stats import gradient_magnitude
 from cryoem_mrc.map_grid import load_full_and_half_maps, load_map_grid
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, resolve_halfmap_reliability_dir
+from cryoem_mrc.repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, glob_halfmap_reliability_files, resolve_halfmap_reliability_dir
 from cryoem_mrc.structure_validation import iter_ca_residues, load_cohort_manifest_row, sample_volume_at_ca
 
 QSCORE_PANEL_EXCLUDE = frozenset({"33736"})
@@ -129,12 +129,7 @@ def _emd_ids_from_qscore_cohort(manifest: Path) -> list[str]:
                 ids.append(eid)
         return ids
 
-    for bundle in sorted(OUTPUTS_ROOT.glob("emd_*/halfmap_reliability/qscore_validation.csv")):
-        eid = bundle.parent.parent.name.removeprefix("emd_")
-        if eid in QSCORE_PANEL_EXCLUDE:
-            continue
-        ids.append(eid)
-    for bundle in sorted(OUTPUTS_ROOT.glob("emd_*/lh_map_reliability/qscore_validation.csv")):
+    for bundle in glob_halfmap_reliability_files(OUTPUTS_ROOT, "qscore_validation.csv"):
         eid = bundle.parent.parent.name.removeprefix("emd_")
         if eid in QSCORE_PANEL_EXCLUDE or eid in ids:
             continue

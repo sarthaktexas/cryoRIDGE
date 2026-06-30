@@ -12,7 +12,7 @@ halfmap-qc          # interactive: two half-map paths → two MRC outputs
 halfmap-qc help     # CLI reference
 ```
 
-Interactive mode asks for **half-map 1** and **half-map 2**, then writes `{stem}_reliability.mrc` and `{stem}_build_zones.mrc` under `halfmap_qc_out/` next to half-map 1 (contour is chosen automatically from the averaged map).
+Interactive mode asks for **half-map 1** and **half-map 2**, offers **auto or manual contour**, warns when estimated resolution is outside the model-building band (>4 Å), then writes `{stem}_reliability.mrc` and `{stem}_build_zones.mrc` under `halfmap_qc_out/` next to half-map 1.
 
 ![halfmap-qc interactive menu](readme-assets/tui-screenshot.png)
 
@@ -75,7 +75,7 @@ If install fails with empty `(from versions:)`, check `python --version` (need �
   year = {2026},
   doi = {10.5281/zenodo.20618526},
   url = {https://doi.org/10.5281/zenodo.20618526},
-  version = {0.5.3}
+  version = {0.6.0}
 }
 ```
 

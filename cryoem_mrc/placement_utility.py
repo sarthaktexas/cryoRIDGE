@@ -27,6 +27,8 @@ from .incremental_prediction import (
 )
 from .repo_paths import COHORT_MANIFEST, OUTPUTS_ROOT, emd_output_dir, resolve_halfmap_reliability_dir
 from .structure_validation import load_cohort_manifest_row
+from .emringer import attach_emringer_scores, emringer_csv_path, pdb_code_from_flexibility_path
+from .emringer_cohort import emringer_interpretable, load_manifest_global_resolution_a
 
 from .qscore_cohort import QSCORE_PANEL_EXCLUDE, filter_emdb_ids, qscore_exclude_ids
 
@@ -68,17 +70,47 @@ LOCRES_METHOD_LOMO_PREDICTORS: tuple[LocresMethodLomoPredictor, ...] = (
 PredictorId = Literal[
     "omit_zone",
     "reliability_below_0_33",
+    "constraint_v",
+    "emringer_score",
     "cc_below_0_5",
     "locres_worse_than_median",
+    "resmap_locres_worse_than_median",
     "variance_above_median",
 ]
 
 PREDICTOR_LABELS: dict[PredictorId, str] = {
     "omit_zone": "Omit build zone (tercile)",
-    "reliability_below_0_33": "Reliability score < 0.33",
+    "reliability_below_0_33": "Reliability score < 0.33 (ranked V)",
+    "constraint_v": "Constraint V (v_metric, continuous)",
+    "emringer_score": "EMRinger score (continuous)",
     "cc_below_0_5": "Windowed half-map CC < 0.5",
     "locres_worse_than_median": "BlocRes worse than in-map median (Å)",
+    "resmap_locres_worse_than_median": "ResMap worse than in-map median (Å)",
     "variance_above_median": "Local variance above in-map median",
+}
+
+# Headline per-map ROC panel (manuscript): raw V vs ResMap; reliability omitted (same signal as V).
+PLACEMENT_Q_ROC_PREDICTORS: tuple[PredictorId, ...] = (
+    "constraint_v",
+    "resmap_locres_worse_than_median",
+)
+
+# Robustness tables also report the reliability transform for transparency.
+PLACEMENT_Q_ROC_ROBUSTNESS_PREDICTORS: tuple[PredictorId, ...] = (
+    "constraint_v",
+    "reliability_below_0_33",
+    "resmap_locres_worse_than_median",
+)
+
+# Q < 0.5 = below the "Good" band (0.5–1.0 highly resolved); see Perrakis/Q-score docs.
+PLACEMENT_ROC_Q_THRESHOLD_DEFAULT: float = 0.5
+
+PlacementRocGroundTruth = Literal["q_low", "emringer_low", "builder_omission"]
+
+PLACEMENT_ROC_GROUND_TRUTH_LABELS: dict[PlacementRocGroundTruth, str] = {
+    "q_low": "Q-score below Good band",
+    "emringer_low": "EMRinger below in-map median",
+    "builder_omission": "Builder-refused sequence gap (in-mask proxy)",
 }
 
 # Rank-recovery bar charts compare proxies on a common axis: higher ⇒ better Q coupling.
@@ -218,6 +250,7 @@ def load_map_with_qscore(
     *,
     manifest: Path = COHORT_MANIFEST,
     sphere_radius_a: float = 2.0,
+    attach_emringer: bool = True,
 ) -> pd.DataFrame | None:
     """In-mask per-residue metrics merged with Q-scores when available."""
     metrics = load_metrics_dataframe(
@@ -228,6 +261,15 @@ def load_map_with_qscore(
     merged = load_qscore_target(metrics, emdb_id)
     if merged is None:
         return None
+    if attach_emringer:
+        try:
+            row = load_cohort_manifest_row(manifest, emdb_id)
+            pdb_path = Path(row["flexibility_path_or_pdb"])
+            em_csv = emringer_csv_path(pdb_code_from_flexibility_path(pdb_path))
+            if em_csv.is_file():
+                merged = attach_emringer_scores(merged, em_csv, pdb_path=pdb_path)
+        except (KeyError, ValueError, FileNotFoundError):
+            pass
     if "in_contour_mask" in merged.columns:
         merged = merged[merged["in_contour_mask"].astype(bool)].copy()
     merged["emdb_id"] = str(emdb_id)
@@ -289,22 +331,114 @@ def balanced_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(0.5 * (sens + spec))
 
 
+def _emringer_array(df: pd.DataFrame) -> np.ndarray:
+    if "emringer_score" not in df.columns:
+        return np.full(len(df), np.nan, dtype=np.float64)
+    return pd.to_numeric(df["emringer_score"], errors="coerce").to_numpy()
+
+
+def _inmap_emringer_median(em: np.ndarray) -> float:
+    finite = em[np.isfinite(em)]
+    return float(np.median(finite)) if finite.size else float("nan")
+
+
+def placement_roc_positive_mask(
+    df: pd.DataFrame,
+    *,
+    ground_truth: PlacementRocGroundTruth,
+    q_threshold: float = PLACEMENT_ROC_Q_THRESHOLD_DEFAULT,
+    q_inclusive: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Return (finite_mask, positive_mask) for placement ROC ground truth.
+
+    ``q_low``: Q below ``q_threshold`` (or Q <= threshold when ``q_inclusive``).
+    ``emringer_low``: EMRinger below the in-map median (no literature residue cutoff).
+    ``builder_omission``: interpolated in-mask sites at internal sequence gaps (positive class).
+    """
+    if ground_truth == "builder_omission":
+        if "builder_omission" not in df.columns:
+            empty = np.zeros(len(df), dtype=bool)
+            return empty, empty
+        m = np.ones(len(df), dtype=bool)
+        positive = df["builder_omission"].astype(bool).to_numpy()
+        return m, positive
+
+    if ground_truth == "q_low":
+        q = pd.to_numeric(df["q_score"], errors="coerce").to_numpy()
+        m = np.isfinite(q)
+        if q_inclusive:
+            return m, (q <= q_threshold) & m
+        return m, (q < q_threshold) & m
+
+    em = _emringer_array(df)
+    m = np.isfinite(em)
+    em_med = _inmap_emringer_median(em)
+    if not np.isfinite(em_med):
+        return m, np.zeros(len(df), dtype=bool)
+    return m, (em < em_med) & m
+
+
+def _placement_roc_spearman_target(
+    df: pd.DataFrame,
+    predictor: PredictorId,
+    *,
+    ground_truth: PlacementRocGroundTruth,
+) -> float:
+    """Spearman ρ between the validation target and the predictor proxy."""
+    if ground_truth == "q_low":
+        target = pd.to_numeric(df["q_score"], errors="coerce").to_numpy()
+    elif ground_truth == "builder_omission":
+        target = df["builder_omission"].astype(float).to_numpy()
+    else:
+        target = _emringer_array(df)
+    proxy = _predictor_rank_proxy(df, predictor)
+    if ground_truth == "emringer_low":
+        # Higher EMRinger is better; proxies are oriented as low-Q risk scores.
+        proxy = -proxy
+    m = np.isfinite(target) & np.isfinite(proxy)
+    return _finite_spearman(target[m], proxy[m])
+
+
+def _resmap_locres_array(df: pd.DataFrame) -> np.ndarray:
+    if "local_resolution_resmap" not in df.columns:
+        return np.full(len(df), np.nan, dtype=np.float64)
+    return pd.to_numeric(df["local_resolution_resmap"], errors="coerce").to_numpy()
+
+
+def _v_metric_array(df: pd.DataFrame) -> np.ndarray:
+    if "v_metric" not in df.columns:
+        return np.full(len(df), np.nan, dtype=np.float64)
+    return pd.to_numeric(df["v_metric"], errors="coerce").to_numpy()
+
+
 def _predictor_flags(df: pd.DataFrame) -> dict[PredictorId, np.ndarray]:
     rel = pd.to_numeric(df["reliability_score"], errors="coerce").to_numpy()
+    v = _v_metric_array(df)
     cc = pd.to_numeric(df[WINDOWED_HALFMAP_CORRELATION_KEY], errors="coerce").to_numpy()
     loc = pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy()
+    resmap = _resmap_locres_array(df)
     var = pd.to_numeric(df["local_variance"], errors="coerce").to_numpy()
     zone = pd.to_numeric(df["build_zone"], errors="coerce").to_numpy(dtype=np.int32)
+    em = _emringer_array(df)
 
     loc_med = np.nanmedian(loc) if np.isfinite(loc).any() else float("nan")
+    resmap_med = np.nanmedian(resmap) if np.isfinite(resmap).any() else float("nan")
     var_med = np.nanmedian(var) if np.isfinite(var).any() else float("nan")
+    em_med = np.nanmedian(em) if np.isfinite(em).any() else float("nan")
+    v_med = float(np.nanmedian(v[np.isfinite(v)])) if np.isfinite(v).any() else float("nan")
 
-    # BlocRes Å increases with blur; flag residues worse than the in-map median.
+    # BlocRes/ResMap Å increases with blur; flag residues worse than the in-map median.
     return {
         "omit_zone": zone == 0,
         "reliability_below_0_33": rel < 0.33,
+        "constraint_v": v < v_med if np.isfinite(v_med) else np.zeros(len(df), bool),
+        "emringer_score": em < em_med if np.isfinite(em_med) else np.zeros(len(df), bool),
         "cc_below_0_5": cc < 0.5,
         "locres_worse_than_median": loc > loc_med if np.isfinite(loc_med) else np.zeros(len(df), bool),
+        "resmap_locres_worse_than_median": resmap > resmap_med
+        if np.isfinite(resmap_med)
+        else np.zeros(len(df), bool),
         "variance_above_median": var > var_med if np.isfinite(var_med) else np.zeros(len(df), bool),
     }
 
@@ -312,22 +446,33 @@ def _predictor_flags(df: pd.DataFrame) -> dict[PredictorId, np.ndarray]:
 def _predictor_scores(df: pd.DataFrame) -> dict[PredictorId, np.ndarray]:
     """Continuous scores where higher ⇒ more likely low Q (for AUC)."""
     rel = pd.to_numeric(df["reliability_score"], errors="coerce").to_numpy()
+    v = _v_metric_array(df)
     cc = pd.to_numeric(df[WINDOWED_HALFMAP_CORRELATION_KEY], errors="coerce").to_numpy()
     loc = pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy()
+    resmap = _resmap_locres_array(df)
     var = pd.to_numeric(df["local_variance"], errors="coerce").to_numpy()
     zone = pd.to_numeric(df["build_zone"], errors="coerce").to_numpy()
+    em = _emringer_array(df)
 
     loc_score = loc.copy()
+    resmap_score = resmap.copy()
     cc_score = -cc.copy()
     var_score = var.copy()
     rel_score = 1.0 - rel
+    # Q-score ROC: higher V tracks low Q (−V as risk score). Builder-omission frames
+    # use raw V (higher V ⇒ more likely gap-proxy refusal site).
+    v_score = v.copy() if "builder_omission" in df.columns else -v
     zone_score = np.where(zone == 0, 1.0, np.where(zone == 1, 0.5, 0.0))
+    em_score = -em
 
     return {
         "omit_zone": zone_score,
         "reliability_below_0_33": rel_score,
+        "constraint_v": v_score,
+        "emringer_score": em_score,
         "cc_below_0_5": cc_score,
         "locres_worse_than_median": loc_score,
+        "resmap_locres_worse_than_median": resmap_score,
         "variance_above_median": var_score,
     }
 
@@ -1079,15 +1224,23 @@ def single_map_roc_curve(
     df: pd.DataFrame,
     predictor: PredictorId,
     *,
-    q_threshold: float,
+    ground_truth: PlacementRocGroundTruth = "q_low",
+    q_threshold: float = PLACEMENT_ROC_Q_THRESHOLD_DEFAULT,
+    q_inclusive: bool = False,
 ) -> RocCurve:
     """ROC/AUC for one map's in-mask residues."""
-    q = pd.to_numeric(df["q_score"], errors="coerce").to_numpy()
-    m = np.isfinite(q)
+    pos_m, positive = placement_roc_positive_mask(
+        df,
+        ground_truth=ground_truth,
+        q_threshold=q_threshold,
+        q_inclusive=q_inclusive,
+    )
+    scores = _predictor_scores(df)[predictor]
+    m = pos_m & np.isfinite(scores)
     if int(m.sum()) < 5:
         return RocCurve(predictor=predictor, fpr=(), tpr=(), auc=float("nan"))
-    y = (q < q_threshold)[m]
-    s = _predictor_scores(df)[predictor][m]
+    y = positive[m]
+    s = scores[m]
     fpr, tpr, auc = _roc_points_from_scores(y, s)
     return RocCurve(predictor=predictor, fpr=fpr, tpr=tpr, auc=auc)
 
@@ -1096,7 +1249,9 @@ def cohort_representative_roc(
     per_map_frames: Sequence[tuple[str, pd.DataFrame]],
     predictor: PredictorId,
     *,
-    q_threshold: float,
+    ground_truth: PlacementRocGroundTruth = "q_low",
+    q_threshold: float = PLACEMENT_ROC_Q_THRESHOLD_DEFAULT,
+    q_inclusive: bool = False,
     eligible_emdb_ids: frozenset[str] | None = None,
 ) -> CohortRocSummary:
     """
@@ -1108,7 +1263,13 @@ def cohort_representative_roc(
     for emdb_id, df in per_map_frames:
         if eligible_emdb_ids is not None and str(emdb_id) not in eligible_emdb_ids:
             continue
-        curve = single_map_roc_curve(df, predictor, q_threshold=q_threshold)
+        curve = single_map_roc_curve(
+            df,
+            predictor,
+            ground_truth=ground_truth,
+            q_threshold=q_threshold,
+            q_inclusive=q_inclusive,
+        )
         if not np.isfinite(curve.auc):
             continue
         per_map_aucs.append((str(emdb_id), float(curve.auc)))
@@ -1184,13 +1345,18 @@ def _predictor_rank_proxy(df: pd.DataFrame, predictor: PredictorId) -> np.ndarra
     rel = pd.to_numeric(df["reliability_score"], errors="coerce").to_numpy()
     cc = pd.to_numeric(df[WINDOWED_HALFMAP_CORRELATION_KEY], errors="coerce").to_numpy()
     loc = pd.to_numeric(df["local_resolution"], errors="coerce").to_numpy()
+    resmap = _resmap_locres_array(df)
     var = pd.to_numeric(df["local_variance"], errors="coerce").to_numpy()
     zone = pd.to_numeric(df["build_zone"], errors="coerce").to_numpy()
+    em = _emringer_array(df)
     return {
         "omit_zone": zone,
         "reliability_below_0_33": rel,
+        "constraint_v": _v_metric_array(df),
+        "emringer_score": em,
         "cc_below_0_5": cc,
         "locres_worse_than_median": loc,
+        "resmap_locres_worse_than_median": resmap,
         "variance_above_median": var,
     }[predictor]
 
@@ -1403,6 +1569,166 @@ def load_per_map_frames_for_lomo(
             continue
         frames.append((emdb_id, df, _global_resolution(row)))
     return frames
+
+
+def load_per_map_frames_for_q_roc(
+    *,
+    manifest: Path = COHORT_MANIFEST,
+    sphere_radius_a: float = 2.0,
+    exclude: frozenset[str] | None = None,
+    require_resmap: bool = True,
+) -> list[tuple[str, pd.DataFrame, float]]:
+    """
+    Maps with Q-score validation and (optionally) ResMap local resolution.
+
+    EMRinger scores are attached when flat CSVs exist (for the EMRinger-ground-truth
+    ROC panel). When ``require_resmap`` is true, keeps only maps with at least 30
+    in-mask residues with finite ``local_resolution_resmap``.
+    """
+    frames: list[tuple[str, pd.DataFrame, float]] = []
+    for emdb_id in iter_qscore_maps(manifest=manifest, exclude=exclude):
+        try:
+            row = load_cohort_manifest_row(manifest, emdb_id)
+        except KeyError:
+            continue
+        df = load_map_with_qscore_and_resmap(
+            emdb_id,
+            manifest=manifest,
+            sphere_radius_a=sphere_radius_a,
+        )
+        if df is None or df.empty:
+            continue
+        if require_resmap:
+            if "local_resolution_resmap" not in df.columns:
+                continue
+            resmap = pd.to_numeric(df["local_resolution_resmap"], errors="coerce")
+            if int(resmap.notna().sum()) < 30:
+                continue
+        frames.append((emdb_id, df, _global_resolution(row)))
+    return frames
+
+
+def filter_emringer_roc_frames(
+    frames: Sequence[tuple[str, pd.DataFrame, float]],
+    *,
+    manifest: Path = COHORT_MANIFEST,
+    min_emringer_residues: int = 30,
+) -> list[tuple[str, pd.DataFrame, float]]:
+    """Subset to Barad-interpretable maps (≤5 Å) with enough finite EMRinger scores."""
+    resolutions = load_manifest_global_resolution_a(manifest)
+    kept: list[tuple[str, pd.DataFrame, float]] = []
+    for emdb_id, df, gres in frames:
+        if not emringer_interpretable(emdb_id, resolutions=resolutions):
+            continue
+        if "emringer_score" not in df.columns:
+            continue
+        em = pd.to_numeric(df["emringer_score"], errors="coerce")
+        if int(em.notna().sum()) < min_emringer_residues:
+            continue
+        kept.append((emdb_id, df, gres))
+    return kept
+
+
+def summarize_q_roc_per_map(
+    per_map_frames: Sequence[tuple[str, pd.DataFrame]],
+    *,
+    ground_truth: PlacementRocGroundTruth = "q_low",
+    q_threshold: float = PLACEMENT_ROC_Q_THRESHOLD_DEFAULT,
+    q_inclusive: bool = False,
+    predictors: Sequence[PredictorId] = PLACEMENT_Q_ROC_PREDICTORS,
+) -> list[dict[str, object]]:
+    """Per-map AUC rows for placement ROC (V / reliability / ResMap vs Q or EMRinger)."""
+    rows: list[dict[str, object]] = []
+    for emdb_id, df in per_map_frames:
+        pos_m, positive = placement_roc_positive_mask(
+            df,
+            ground_truth=ground_truth,
+            q_threshold=q_threshold,
+            q_inclusive=q_inclusive,
+        )
+        for pid in predictors:
+            scores = _predictor_scores(df)[pid]
+            m = pos_m & np.isfinite(scores)
+            if int(m.sum()) < 30:
+                continue
+            y = positive[m]
+            if int(y.sum()) == 0 or int((~y).sum()) == 0:
+                continue
+            auc = rank_auc(y, scores[m])
+            rho = _placement_roc_spearman_target(
+                df, pid, ground_truth=ground_truth
+            )
+            rows.append(
+                {
+                    "emdb_id": str(emdb_id),
+                    "ground_truth": ground_truth,
+                    "predictor": pid,
+                    "label": PREDICTOR_LABELS[pid],
+                    "auc": float(auc),
+                    "spearman_target_vs_score": float(rho),
+                    "n_residues": int(m.sum()),
+                    "n_positive": int(y.sum()),
+                }
+            )
+    return rows
+
+
+def write_q_roc_summary_csv(
+    per_map_rows: Sequence[dict[str, object]],
+    out_dir: Path,
+    *,
+    filename: str = "placement_q_roc_per_map.csv",
+    ground_truth: PlacementRocGroundTruth = "q_low",
+    predictors: Sequence[PredictorId] = PLACEMENT_Q_ROC_PREDICTORS,
+) -> Path:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / filename
+    medians: dict[str, float] = {}
+    for pid in predictors:
+        vals = [
+            float(r["auc"])
+            for r in per_map_rows
+            if r["predictor"] == pid and np.isfinite(float(r["auc"]))
+        ]
+        medians[pid] = float(np.median(vals)) if vals else float("nan")
+
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=[
+                "emdb_id",
+                "ground_truth",
+                "predictor",
+                "label",
+                "auc",
+                "cohort_median_auc",
+                "spearman_target_vs_score",
+                "n_residues",
+                "n_positive",
+            ],
+        )
+        w.writeheader()
+        for row in sorted(per_map_rows, key=lambda r: (str(r["predictor"]), float(r["auc"]))):
+            pid = str(row["predictor"])
+            w.writerow(
+                {
+                    "emdb_id": row["emdb_id"],
+                    "ground_truth": row.get("ground_truth", ground_truth),
+                    "predictor": pid,
+                    "label": row["label"],
+                    "auc": f"{float(row['auc']):.4f}",
+                    "cohort_median_auc": f"{medians.get(pid, float('nan')):.4f}"
+                    if np.isfinite(medians.get(pid, float("nan")))
+                    else "",
+                    "spearman_target_vs_score": f"{float(row['spearman_target_vs_score']):.4f}"
+                    if np.isfinite(float(row["spearman_target_vs_score"]))
+                    else "",
+                    "n_residues": row["n_residues"],
+                    "n_positive": row["n_positive"],
+                }
+            )
+    return path
 
 
 def write_lomo_placement_csvs(

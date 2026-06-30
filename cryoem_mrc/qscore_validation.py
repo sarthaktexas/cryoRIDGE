@@ -12,7 +12,12 @@ from scipy import stats
 
 from .analysis import build_contour_mask
 from .map_grid import MapGrid, load_map_grid
-from .repo_paths import COHORT_MANIFEST, resolve_halfmap_reliability_dir
+from .repo_paths import (
+    COHORT_MANIFEST,
+    emd_output_dir,
+    halfmap_reliability_dir,
+    resolve_halfmap_reliability_dir,
+)
 from .structure_validation import (
     CaResidue,
     iter_ca_residues,
@@ -261,6 +266,212 @@ def read_qscore_validation_lookups(
     return q_lookup, v_lookup
 
 
+def build_qscore_only_table(
+    residues: Sequence[CaResidue],
+    *,
+    grid: MapGrid,
+    reference_density: np.ndarray,
+    contour: float,
+    q_scores: np.ndarray,
+    window_radius: int = 0,
+) -> list[QscoreResidueRow]:
+    """Per-residue Q-scores and mask flags only (V filled later via merge)."""
+    mask = build_contour_mask(reference_density, contour)
+    in_mask_s = sample_volume_at_ca(
+        mask.astype(np.float64), grid, residues, window_radius=window_radius
+    )
+    rows: list[QscoreResidueRow] = []
+    for i, res in enumerate(residues):
+        rows.append(
+            QscoreResidueRow(
+                chain=res.chain,
+                seq_num=res.seq_num,
+                seq_icode=res.seq_icode,
+                res_name=res.res_name,
+                x=res.x,
+                y=res.y,
+                z=res.z,
+                b_iso=res.b_iso,
+                q_score=float(q_scores[i]),
+                reliability_constraint_V=float("nan"),
+                reliability_constraint_V_rank=float("nan"),
+                in_contour_mask=bool(in_mask_s[i] >= 0.5),
+                auth_chain=res.auth_chain or res.chain,
+                auth_seq_num=res.auth_seq_num or res.seq_num,
+            )
+        )
+    return rows
+
+
+def write_qscore_per_residue_csv(path: str | Path, rows: Sequence[QscoreResidueRow]) -> Path:
+    """Write Q-only table (no V columns) for deferred merge with ``reliability.npz``."""
+    path = Path(path)
+    fieldnames = [
+        "chain",
+        "seq_num",
+        "auth_chain",
+        "auth_seq_num",
+        "seq_icode",
+        "res_name",
+        "x",
+        "y",
+        "z",
+        "b_iso",
+        "q_score",
+        "in_contour_mask",
+    ]
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for r in rows:
+            w.writerow(
+                {
+                    "chain": r.chain,
+                    "seq_num": r.seq_num,
+                    "auth_chain": r.auth_chain or r.chain,
+                    "auth_seq_num": r.auth_seq_num or r.seq_num,
+                    "seq_icode": r.seq_icode,
+                    "res_name": r.res_name,
+                    "x": f"{r.x:.3f}",
+                    "y": f"{r.y:.3f}",
+                    "z": f"{r.z:.3f}",
+                    "b_iso": f"{r.b_iso:.2f}",
+                    "q_score": f"{r.q_score:.6f}" if np.isfinite(r.q_score) else "",
+                    "in_contour_mask": int(r.in_contour_mask),
+                }
+            )
+    return path
+
+
+def read_qscore_per_residue_csv(path: str | Path) -> list[QscoreResidueRow]:
+    """Load Q-only rows written by :func:`write_qscore_per_residue_csv`."""
+    rows: list[QscoreResidueRow] = []
+    with Path(path).open(newline="") as f:
+        for row in csv.DictReader(f):
+            q_raw = row.get("q_score", "")
+            rows.append(
+                QscoreResidueRow(
+                    chain=row["chain"],
+                    seq_num=int(row["seq_num"]),
+                    seq_icode=row.get("seq_icode", ""),
+                    res_name=row.get("res_name", ""),
+                    x=float(row["x"]),
+                    y=float(row["y"]),
+                    z=float(row["z"]),
+                    b_iso=float(row.get("b_iso", "nan")),
+                    q_score=float(q_raw) if q_raw else float("nan"),
+                    reliability_constraint_V=float("nan"),
+                    reliability_constraint_V_rank=float("nan"),
+                    in_contour_mask=bool(int(row.get("in_contour_mask", "0"))),
+                    auth_chain=row.get("auth_chain") or row["chain"],
+                    auth_seq_num=int(row.get("auth_seq_num") or row["seq_num"]),
+                )
+            )
+    return rows
+
+
+def production_v_metric_path(emdb_id: str) -> Path:
+    """Authoritative per-residue V from ``metric_comparison/residue_metrics.csv``."""
+    return emd_output_dir(emdb_id) / "metric_comparison" / "residue_metrics.csv"
+
+
+def load_production_v_metric_lookup(emdb_id: str) -> dict[tuple[str, int], float]:
+    path = production_v_metric_path(emdb_id)
+    if not path.is_file():
+        raise FileNotFoundError(f"EMD-{emdb_id} missing production v_metric table: {path}")
+    lookup: dict[tuple[str, int], float] = {}
+    with path.open(newline="") as f:
+        for row in csv.DictReader(f):
+            lookup[(row["chain"], int(row["seq_num"]))] = float(row["v_metric"])
+    return lookup
+
+
+def _recompute_in_mask_v_ranks(rows: Sequence[QscoreResidueRow]) -> list[QscoreResidueRow]:
+    """Percentile rank of production V among in-mask Cα (higher V → higher rank)."""
+    v_in_mask = np.array(
+        [
+            r.reliability_constraint_V
+            for r in rows
+            if r.in_contour_mask and np.isfinite(r.reliability_constraint_V)
+        ],
+        dtype=np.float64,
+    )
+    rank_in_mask = _percentile_rank(v_in_mask) if v_in_mask.size else np.array([], dtype=np.float64)
+    out: list[QscoreResidueRow] = []
+    j = 0
+    for r in rows:
+        v_rank = float("nan")
+        if r.in_contour_mask and np.isfinite(r.reliability_constraint_V):
+            v_rank = float(rank_in_mask[j])
+            j += 1
+        out.append(
+            QscoreResidueRow(
+                chain=r.chain,
+                seq_num=r.seq_num,
+                seq_icode=r.seq_icode,
+                res_name=r.res_name,
+                x=r.x,
+                y=r.y,
+                z=r.z,
+                b_iso=r.b_iso,
+                q_score=r.q_score,
+                reliability_constraint_V=r.reliability_constraint_V,
+                reliability_constraint_V_rank=v_rank,
+                in_contour_mask=r.in_contour_mask,
+                auth_chain=r.auth_chain,
+                auth_seq_num=r.auth_seq_num,
+            )
+        )
+    return out
+
+
+def attach_production_v_metric(
+    rows: Sequence[QscoreResidueRow],
+    emdb_id: str,
+) -> list[QscoreResidueRow]:
+    """Attach production ``v_metric`` (not legacy ``reliability.npz`` samples)."""
+    lookup = load_production_v_metric_lookup(emdb_id)
+    merged: list[QscoreResidueRow] = []
+    for r in rows:
+        merged.append(
+            QscoreResidueRow(
+                chain=r.chain,
+                seq_num=r.seq_num,
+                seq_icode=r.seq_icode,
+                res_name=r.res_name,
+                x=r.x,
+                y=r.y,
+                z=r.z,
+                b_iso=r.b_iso,
+                q_score=r.q_score,
+                reliability_constraint_V=lookup.get((r.chain, r.seq_num), float("nan")),
+                reliability_constraint_V_rank=float("nan"),
+                in_contour_mask=r.in_contour_mask,
+                auth_chain=r.auth_chain,
+                auth_seq_num=r.auth_seq_num,
+            )
+        )
+    return _recompute_in_mask_v_ranks(merged)
+
+
+def resolve_qscore_bundle_dir(emdb_id: str, *, for_write: bool = False) -> Path:
+    """Canonical write path; reads fall back to legacy bundle during migration."""
+    if for_write:
+        return halfmap_reliability_dir(emdb_id)
+    return resolve_halfmap_reliability_dir(emdb_id)
+
+
+def load_reliability_constraint_v(npz_path: Path) -> np.ndarray:
+    """Deprecated: prefer :func:`attach_production_v_metric`."""
+    with np.load(npz_path, allow_pickle=False) as d:
+        v_key = (
+            "reliability_smoothness"
+            if "reliability_smoothness" in d
+            else "reliability_constraint_V"
+        )
+        return np.asarray(d[v_key], dtype=np.float32)
+
+
 def write_qscore_validation_csv(path: str | Path, rows: Sequence[QscoreResidueRow]) -> Path:
     path = Path(path)
     fieldnames = [
@@ -324,7 +535,7 @@ def write_qscore_validation_md(
     text = f"""# Q-score external validation — EMD-{stats.emdb_id}
 
 Cryo-EM-native comparison of **per-residue Q-scores** (deposited model + map) vs
-**LH constraint V** sampled model-free from half-maps at Cα positions.
+**production constraint V** (`v_metric` from ``metric_comparison/residue_metrics.csv``).
 
 **Model:** `{pdb_path}`  
 **Map:** `{map_path}`  
@@ -365,6 +576,106 @@ A **positive** ρ(Q, V) supports model-free recovery of per-residue map quality.
     path.write_text(text)
 
 
+def run_emdb_qscore_only(
+    emd_id: str,
+    *,
+    manifest: Path = COHORT_MANIFEST,
+    reference: Path | None = None,
+    pdb: Path | None = None,
+    contour: float | None = None,
+    window_radius: int = 0,
+    num_points: int = 8,
+) -> tuple[int, list[QscoreResidueRow], Path]:
+    """
+    Compute per-residue Q-scores only (no ``reliability.npz`` required).
+
+    Writes ``qscore_per_residue.csv`` under the half-map reliability bundle dir.
+    """
+    row = load_cohort_manifest_row(manifest, emd_id)
+    ref_path = reference or Path(row["reference_mrc"])
+    pdb_path = pdb or Path(row["flexibility_path_or_pdb"])
+    contour_val = contour if contour is not None else float(row["contour"])
+    out_dir = resolve_qscore_bundle_dir(emd_id, for_write=True)
+
+    for label, p in (("reference", ref_path), ("pdb", pdb_path)):
+        if not p.exists():
+            raise FileNotFoundError(f"EMD-{emd_id} missing {label}: {p}")
+
+    residues = iter_ca_residues(pdb_path)
+    grid = load_map_grid(ref_path, dtype=np.float32)
+    reference_density = np.asarray(grid.data, dtype=np.float32)
+    q_scores = compute_per_residue_q_scores(
+        pdb_path, ref_path, residues, num_points=num_points
+    )
+    rows = build_qscore_only_table(
+        residues,
+        grid=grid,
+        reference_density=reference_density,
+        contour=contour_val,
+        q_scores=q_scores,
+        window_radius=window_radius,
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    write_qscore_per_residue_csv(out_dir / "qscore_per_residue.csv", rows)
+    return 0, rows, out_dir
+
+
+def run_emdb_qscore_merge_reliability(
+    emd_id: str,
+    *,
+    manifest: Path = COHORT_MANIFEST,
+    reliability_npz: Path | None = None,
+    reference: Path | None = None,
+    pdb: Path | None = None,
+    contour: float | None = None,
+    window_radius: int = 0,
+) -> tuple[int, list[QscoreResidueRow], QscoreValidationStats, Path]:
+    """
+    Merge precomputed Q-scores with production ``v_metric`` and write validation outputs.
+
+    ``reliability_npz`` is ignored (kept for CLI compatibility with older invocations).
+    """
+    del reliability_npz, window_radius
+    row = load_cohort_manifest_row(manifest, emd_id)
+    ref_path = reference or Path(row["reference_mrc"])
+    pdb_path = pdb or Path(row["flexibility_path_or_pdb"])
+    contour_val = contour if contour is not None else float(row["contour"])
+    read_dir = resolve_qscore_bundle_dir(emd_id)
+    out_dir = resolve_qscore_bundle_dir(emd_id, for_write=True)
+    q_only_path = read_dir / "qscore_per_residue.csv"
+
+    for label, p in (
+        ("reference", ref_path),
+        ("pdb", pdb_path),
+        ("qscore_per_residue.csv", q_only_path),
+        ("production v_metric", production_v_metric_path(emd_id)),
+    ):
+        if not p.exists():
+            raise FileNotFoundError(f"EMD-{emd_id} missing {label}: {p}")
+
+    q_only = read_qscore_per_residue_csv(q_only_path)
+    residues = iter_ca_residues(pdb_path)
+    if len(residues) != len(q_only):
+        raise ValueError(
+            f"EMD-{emd_id}: Cα count mismatch ({len(residues)} vs {len(q_only)} Q rows)"
+        )
+
+    rows = attach_production_v_metric(q_only, emd_id)
+
+    pdb_id = pdb_path.stem
+    stats = compute_qscore_validation_stats(rows, emdb_id=emd_id, pdb_id=pdb_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    write_qscore_validation_csv(out_dir / "qscore_validation.csv", rows)
+    write_qscore_validation_md(
+        out_dir / "QSCORE_VALIDATION.md",
+        stats,
+        pdb_path=pdb_path,
+        map_path=ref_path,
+        contour=contour_val,
+    )
+    return 0, rows, stats, out_dir
+
+
 def run_emdb_qscore_validation(
     emd_id: str,
     *,
@@ -377,18 +688,22 @@ def run_emdb_qscore_validation(
     num_points: int = 8,
 ) -> tuple[int, list[QscoreResidueRow], QscoreValidationStats | None, Path]:
     """
-    Run Q-score vs V validation for one EMDB entry.
+    Run Q-score vs production V validation for one EMDB entry.
 
     Returns ``(exit_code, rows, stats, out_dir)``. ``stats`` is None when skipped.
     """
+    del reliability_npz
     row = load_cohort_manifest_row(manifest, emd_id)
     ref_path = reference or Path(row["reference_mrc"])
     pdb_path = pdb or Path(row["flexibility_path_or_pdb"])
     contour_val = contour if contour is not None else float(row["contour"])
-    out_dir = resolve_halfmap_reliability_dir(emd_id)
-    npz_path = reliability_npz or (out_dir / "reliability.npz")
+    out_dir = resolve_qscore_bundle_dir(emd_id, for_write=True)
 
-    for label, p in (("reference", ref_path), ("pdb", pdb_path), ("reliability.npz", npz_path)):
+    for label, p in (
+        ("reference", ref_path),
+        ("pdb", pdb_path),
+        ("production v_metric", production_v_metric_path(emd_id)),
+    ):
         if not p.exists():
             raise FileNotFoundError(f"EMD-{emd_id} missing {label}: {p}")
 
@@ -396,26 +711,23 @@ def run_emdb_qscore_validation(
     grid = load_map_grid(ref_path, dtype=np.float32)
     reference_density = np.asarray(grid.data, dtype=np.float32)
 
-    with np.load(npz_path, allow_pickle=False) as d:
-        v_key = "reliability_smoothness" if "reliability_smoothness" in d else "reliability_constraint_V"
-        reliability_v = np.asarray(d[v_key], dtype=np.float32)
-
     q_scores = compute_per_residue_q_scores(
         pdb_path, ref_path, residues, num_points=num_points
     )
-    rows = build_qscore_validation_table(
+    rows = build_qscore_only_table(
         residues,
         grid=grid,
         reference_density=reference_density,
         contour=contour_val,
-        reliability_constraint_V=reliability_v,
         q_scores=q_scores,
         window_radius=window_radius,
     )
+    rows = attach_production_v_metric(rows, emd_id)
 
     pdb_id = pdb_path.stem
     stats = compute_qscore_validation_stats(rows, emdb_id=emd_id, pdb_id=pdb_id)
     out_dir.mkdir(parents=True, exist_ok=True)
+    write_qscore_per_residue_csv(out_dir / "qscore_per_residue.csv", rows)
     write_qscore_validation_csv(out_dir / "qscore_validation.csv", rows)
     write_qscore_validation_md(
         out_dir / "QSCORE_VALIDATION.md",

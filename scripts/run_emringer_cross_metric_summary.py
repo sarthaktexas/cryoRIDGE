@@ -1,20 +1,26 @@
-"""Per-structure Spearman summary: V vs EMRinger and ResMap vs EMRinger.
+"""Per-structure Spearman summary: map-only proxies vs Q-score and EMRinger.
 
-For every cohort entry with a flat EMRinger CSV and cached ResMap metrics this writes
-one row with in-mask Spearman ρ for both comparisons on the same deposited model.
+For every manifest entry with a flat EMRinger CSV this writes in-mask Spearman ρ for:
 
-EMRinger headline medians use maps with global resolution ≤5 Å (Barad et al. 2015
-breakdown threshold). Maps coarser than 5 Å are flagged ``emringer_interpretable=False``.
-The 2.5–4 Å model-building band is flagged separately. V vs EMRinger medians are
-also reported on the full deposited cohort.
+- ρ(V, EMRinger), ρ(ResMap, EMRinger)
+- ρ(Q, EMRinger), ρ(Q, V), ρ(Q, ResMap) when ``qscore_validation.csv`` exists
 
-Output: ``outputs/cohort_summary/emringer_cross_metric_summary.csv``
+EMRinger headline medians use maps with global resolution ≤5 Å (Barad et al. 2015).
+Expansion cohort maps with ``resmap_expected_failure=document`` (megacomplexes,
+membrane assemblies, partial composites) are flagged; V remains valid when ResMap
+returns flat 100 Å sentinel output.
+
+Output: ``outputs/cohort_summary/emringer_cross_metric_summary.csv`` (core)
+        ``outputs/cohort_summary/emringer_cross_metric_summary_expansion.csv``
 
 Example::
 
     source .venv/bin/activate
     python scripts/run_emringer_cross_metric_summary.py --resume
     python scripts/run_emringer_cross_metric_summary.py --emd-id 49450
+    python scripts/run_emringer_cross_metric_summary.py \\
+        --manifest cohort/expansion_manifest.csv \\
+        --out outputs/cohort_summary/emringer_cross_metric_summary_expansion.csv
 """
 
 from __future__ import annotations
@@ -45,7 +51,22 @@ from cryoem_mrc.emringer_cohort import (
     emringer_panel_reason,
     load_manifest_global_resolution_a,
 )
-from cryoem_mrc.repo_paths import COHORT_MANIFEST, EMRINGER_FLAT_DIR, OUTPUTS_ROOT, emd_output_dir
+from cryoem_mrc.incremental_prediction import load_qscore_target, normalize_metrics_columns
+from cryoem_mrc.local_resolution import RESMAP_UNRESOLVED_SENTINEL_A
+from cryoem_mrc.manifest_policy import (
+    cohort_tag_for_manifest,
+    load_manifest_policy_by_emdb,
+    row_qscore_eligible,
+    row_resmap_ca_headline_eligible,
+    row_resmap_expected_failure,
+)
+from cryoem_mrc.repo_paths import (
+    COHORT_MANIFEST,
+    EMRINGER_FLAT_DIR,
+    EXPANSION_COHORT_MANIFEST,
+    OUTPUTS_ROOT,
+    emd_output_dir,
+)
 
 import numpy as np
 import pandas as pd
@@ -54,6 +75,9 @@ from scipy import stats
 logger = logging.getLogger(__name__)
 
 OUTPUT_CSV = OUTPUTS_ROOT / "cohort_summary" / "emringer_cross_metric_summary.csv"
+OUTPUT_CSV_EXPANSION = (
+    OUTPUTS_ROOT / "cohort_summary" / "emringer_cross_metric_summary_expansion.csv"
+)
 MIN_FINITE = 30
 MIN_PAIRS = 10
 
@@ -61,10 +85,15 @@ SUMMARY_COLUMNS = [
     "emdb_id",
     "display_name",
     "pdb_code",
+    "cohort_tag",
     "global_resolution_a",
     "emringer_interpretable",
     "building_regime_panel",
     "emringer_panel_reason",
+    "qscore_eligible",
+    "resmap_expected_failure",
+    "resmap_headline_eligible",
+    "resmap_usable",
     "emringer_csv",
     "rho_v_emringer",
     "p_value_v",
@@ -81,6 +110,18 @@ SUMMARY_COLUMNS = [
     "resmap_variance",
     "emringer_variance_resmap",
     "nan_reason_resmap",
+    "rho_q_emringer",
+    "p_value_q_emringer",
+    "n_pairs_q_emringer",
+    "nan_reason_q_emringer",
+    "rho_q_v",
+    "p_value_q_v",
+    "n_pairs_q_v",
+    "nan_reason_q_v",
+    "rho_q_resmap",
+    "p_value_q_resmap",
+    "n_pairs_q_resmap",
+    "nan_reason_q_resmap",
 ]
 
 
@@ -95,7 +136,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=EMRINGER_FLAT_DIR,
         help="Flat directory of {pdb_code}_emringer.csv files",
     )
-    p.add_argument("--out", type=Path, default=OUTPUT_CSV)
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Output CSV (default: core or expansion path from --manifest)",
+    )
     p.add_argument("--emd-id", type=str, default=None)
     p.add_argument("--resume", action="store_true")
     p.add_argument("--verbose", action="store_true")
@@ -112,6 +158,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         f"(default {EMRINGER_INTERPRETABLE_MAX_RESOLUTION_A:g}, Barad et al. 2015 breakdown)",
     )
     return p.parse_args(argv)
+
+
+def _default_out_path(manifest: Path) -> Path:
+    if cohort_tag_for_manifest(manifest) == "expansion":
+        return OUTPUT_CSV_EXPANSION
+    return OUTPUT_CSV
 
 
 def _configure_logging(*, verbose: bool) -> None:
@@ -161,24 +213,42 @@ def _load_existing_rows(out: Path) -> dict[str, dict]:
 
 def _write_rows(out: Path, rows: list[dict]) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows)[SUMMARY_COLUMNS].sort_values(
-        "rho_v_emringer", na_position="last"
-    ).to_csv(out, index=False)
+    df = pd.DataFrame(rows)
+    for col in SUMMARY_COLUMNS:
+        if col not in df.columns:
+            df[col] = np.nan
+    df[SUMMARY_COLUMNS].sort_values("rho_v_emringer", na_position="last").to_csv(out, index=False)
 
 
-def _load_metrics_with_resmap(emdb_id: str) -> pd.DataFrame:
+def _load_base_metrics(emdb_id: str) -> pd.DataFrame:
     base_path = emd_output_dir(emdb_id) / "metric_comparison" / "residue_metrics.csv"
+    if not base_path.is_file():
+        raise FileNotFoundError(f"missing {base_path}")
+    return normalize_metrics_columns(pd.read_csv(base_path))
+
+
+def _attach_resmap_locres(df: pd.DataFrame, emdb_id: str) -> pd.DataFrame:
     resmap_path = (
         emd_output_dir(emdb_id) / "metric_comparison_resmap" / "residue_metrics.csv"
     )
-    if not base_path.is_file():
-        raise FileNotFoundError(f"missing {base_path}")
+    out = df.drop(columns=["local_resolution"], errors="ignore")
     if not resmap_path.is_file():
-        raise FileNotFoundError(f"missing {resmap_path}")
-    base = pd.read_csv(base_path)
+        out["local_resolution"] = np.nan
+        return out
     resmap = pd.read_csv(resmap_path, usecols=["chain", "seq_num", "local_resolution"])
-    out = base.drop(columns=["local_resolution"], errors="ignore")
     return out.merge(resmap, on=["chain", "seq_num"], how="left")
+
+
+def _resmap_usable(sub: pd.DataFrame) -> bool:
+    loc = pd.to_numeric(sub["local_resolution"], errors="coerce")
+    finite = loc[np.isfinite(loc)]
+    if int(finite.notna().sum()) < MIN_FINITE:
+        return False
+    # ResMap failure mode: flat sentinel (100 Å) or near-zero variance.
+    usable = finite[finite < RESMAP_UNRESOLVED_SENTINEL_A - 1.0]
+    if int(usable.notna().sum()) < MIN_FINITE:
+        return False
+    return float(np.var(usable.to_numpy(dtype=float))) > 1e-6
 
 
 def _spearman_summary(
@@ -191,6 +261,8 @@ def _spearman_summary(
     x_var_name: str,
     y_var_name: str,
 ) -> dict | None:
+    if x_col not in sub.columns or y_col not in sub.columns:
+        return None
     n_x = int(sub[x_col].notna().sum())
     n_y = int(sub[y_col].notna().sum())
     if n_x < min_finite_x or n_y < min_finite_y:
@@ -232,24 +304,46 @@ def _spearman_summary(
     }
 
 
+def _apply_spearman_block(
+    row: dict,
+    prefix: str,
+    summary: dict | None,
+    *,
+    fallback_x_in_mask: int,
+    fallback_y_in_mask: int,
+    insufficient_reason: str,
+) -> None:
+    if summary is not None:
+        row[f"rho_{prefix}"] = summary["rho"]
+        row[f"p_value_{prefix}"] = summary["p_value"]
+        row[f"n_pairs_{prefix}"] = summary["n_pairs"]
+        row[f"nan_reason_{prefix}"] = summary["nan_reason"]
+        return
+    row[f"rho_{prefix}"] = float("nan")
+    row[f"p_value_{prefix}"] = float("nan")
+    row[f"n_pairs_{prefix}"] = 0
+    row[f"nan_reason_{prefix}"] = insufficient_reason
+
+
 def _summarize_entry(
     emdb_id: str,
     *,
-    manifest: Path,
     emringer_csv: Path,
     pdb_path: Path,
 ) -> dict | None:
     try:
-        df = attach_emringer_scores(
-            _load_metrics_with_resmap(emdb_id),
-            emringer_csv,
-            pdb_path=pdb_path,
-        )
+        df = _attach_resmap_locres(_load_base_metrics(emdb_id), emdb_id)
+        df = attach_emringer_scores(df, emringer_csv, pdb_path=pdb_path)
+        q_df = load_qscore_target(df, emdb_id)
+        if q_df is not None:
+            df = q_df
     except (FileNotFoundError, ValueError, KeyError) as exc:
         logger.warning("skip EMD-%s: %s", emdb_id, exc)
         return None
 
     sub = df[df["in_contour_mask"].astype(bool)]
+    has_q = "q_score" in sub.columns
+
     v_sum = _spearman_summary(
         sub,
         "v_metric",
@@ -268,10 +362,54 @@ def _summarize_entry(
         x_var_name="resmap",
         y_var_name="emringer",
     )
-    if v_sum is None and res_sum is None:
+    q_em_sum = (
+        _spearman_summary(
+            sub,
+            "q_score",
+            "emringer_score",
+            min_finite_x=MIN_FINITE,
+            min_finite_y=MIN_FINITE,
+            x_var_name="q",
+            y_var_name="emringer",
+        )
+        if has_q
+        else None
+    )
+    q_v_sum = (
+        _spearman_summary(
+            sub,
+            "q_score",
+            "v_metric",
+            min_finite_x=MIN_FINITE,
+            min_finite_y=MIN_FINITE,
+            x_var_name="q",
+            y_var_name="v",
+        )
+        if has_q
+        else None
+    )
+    q_res_sum = (
+        _spearman_summary(
+            sub,
+            "q_score",
+            "local_resolution",
+            min_finite_x=MIN_FINITE,
+            min_finite_y=MIN_FINITE,
+            x_var_name="q",
+            y_var_name="resmap",
+        )
+        if has_q
+        else None
+    )
+
+    if v_sum is None and res_sum is None and q_em_sum is None:
         return None
 
-    row: dict = {"emdb_id": emdb_id}
+    row: dict = {
+        "emdb_id": emdb_id,
+        "resmap_usable": _resmap_usable(sub),
+    }
+
     if v_sum is not None:
         row.update(
             {
@@ -323,35 +461,91 @@ def _summarize_entry(
                 "nan_reason_resmap": "insufficient_finite_resmap_or_emringer",
             }
         )
+
+    _apply_spearman_block(
+        row,
+        "q_emringer",
+        q_em_sum,
+        fallback_x_in_mask=int(sub["q_score"].notna().sum()) if has_q else 0,
+        fallback_y_in_mask=int(sub["emringer_score"].notna().sum()),
+        insufficient_reason="missing_qscore_validation" if not has_q else "insufficient_finite_q_or_emringer",
+    )
+    _apply_spearman_block(
+        row,
+        "q_v",
+        q_v_sum,
+        fallback_x_in_mask=0,
+        fallback_y_in_mask=0,
+        insufficient_reason="missing_qscore_validation" if not has_q else "insufficient_finite_q_or_v",
+    )
+    _apply_spearman_block(
+        row,
+        "q_resmap",
+        q_res_sum,
+        fallback_x_in_mask=0,
+        fallback_y_in_mask=0,
+        insufficient_reason="missing_qscore_validation" if not has_q else "insufficient_finite_q_or_resmap",
+    )
     return row
+
+
+def _median_rho(series: pd.Series, *, sign_align: bool = False) -> float:
+    v = pd.to_numeric(series, errors="coerce").dropna()
+    if sign_align:
+        v = -v
+    return float(v.median()) if len(v) else float("nan")
 
 
 def _print_medians(out_df: pd.DataFrame, *, max_resolution_a: float) -> None:
     interpretable = out_df[out_df["emringer_interpretable"].astype(bool)]
     building = out_df[out_df["building_regime_panel"].astype(bool)]
-    full_v = out_df["rho_v_emringer"].dropna()
-    panel_v = interpretable["rho_v_emringer"].dropna()
-    panel_r = interpretable["rho_resmap_emringer"].dropna()
-    build_v = building["rho_v_emringer"].dropna()
-    build_r = building["rho_resmap_emringer"].dropna()
+    with_q = out_df[pd.to_numeric(out_df["rho_q_emringer"], errors="coerce").notna()]
+
     print(
-        f"[emringer_xmetric] V vs EMRinger (full {len(full_v)} maps): "
-        f"median ρ={float(full_v.median()) if len(full_v) else float('nan'):+.3f}",
+        f"[emringer_xmetric] V vs EMRinger (full n={len(out_df)}): "
+        f"median ρ={_median_rho(out_df['rho_v_emringer']):+.3f}",
         flush=True,
     )
     print(
         f"[emringer_xmetric] EMRinger panel (≤{max_resolution_a:g} Å, "
         f"{EMRINGER_BARAD_2015_CITATION}; n={len(interpretable)}): "
-        f"V median ρ={float(panel_v.median()) if len(panel_v) else float('nan'):+.3f}, "
-        f"ResMap median ρ={float(panel_r.median()) if len(panel_r) else float('nan'):+.3f}",
+        f"V ρ={_median_rho(interpretable['rho_v_emringer']):+.3f}, "
+        f"ResMap ρ={_median_rho(interpretable['rho_resmap_emringer'], sign_align=True):+.3f} "
+        f"(raw {_median_rho(interpretable['rho_resmap_emringer']):+.3f})",
         flush=True,
     )
+    if len(with_q):
+        print(
+            f"[emringer_xmetric] Q-score triangle (n={len(with_q)} maps with qscore_validation): "
+            f"ρ(Q, EMRinger)={_median_rho(with_q['rho_q_emringer']):+.3f}, "
+            f"ρ(Q, V)={_median_rho(with_q['rho_q_v']):+.3f}, "
+            f"ρ(Q, ResMap)={_median_rho(with_q['rho_q_resmap'], sign_align=True):+.3f}",
+            flush=True,
+        )
+
+    resmap_fail = out_df[out_df["resmap_expected_failure"].astype(str).str.lower() == "document"]
+    if len(resmap_fail):
+        usable = resmap_fail[resmap_fail["resmap_usable"].astype(bool)]
+        print(
+            f"[emringer_xmetric] resmap_expected_failure=document (n={len(resmap_fail)}): "
+            f"V vs EMRinger median ρ={_median_rho(resmap_fail['rho_v_emringer']):+.3f}; "
+            f"ResMap usable on {len(usable)}/{len(resmap_fail)} maps",
+            flush=True,
+        )
+        if len(usable):
+            print(
+                f"  ResMap-usable subset: "
+                f"ρ(V, EMR)={_median_rho(usable['rho_v_emringer']):+.3f}, "
+                f"|ρ(ResMap, EMR)|={_median_rho(usable['rho_resmap_emringer'], sign_align=True):+.3f}",
+                flush=True,
+            )
+
     print(
         f"[emringer_xmetric] building regime "
         f"({BUILDING_REGIME_MIN_RESOLUTION_A:g}–{BUILDING_REGIME_MAX_RESOLUTION_A:g} Å, "
         f"n={len(building)}): "
-        f"V median ρ={float(build_v.median()) if len(build_v) else float('nan'):+.3f}, "
-        f"ResMap median ρ={float(build_r.median()) if len(build_r) else float('nan'):+.3f}",
+        f"V ρ={_median_rho(building['rho_v_emringer']):+.3f}, "
+        f"ResMap ρ={_median_rho(building['rho_resmap_emringer'], sign_align=True):+.3f}",
         flush=True,
     )
     excluded = out_df[~out_df["emringer_interpretable"].astype(bool)]
@@ -367,6 +561,9 @@ def _print_medians(out_df: pd.DataFrame, *, max_resolution_a: float) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     _configure_logging(verbose=args.verbose)
+    out_path = args.out or _default_out_path(args.manifest)
+    cohort_tag = cohort_tag_for_manifest(args.manifest)
+    policy_by_emdb = load_manifest_policy_by_emdb(args.manifest)
 
     missing = missing_emringer_csvs(args.manifest, args.emringer_dir)
     if missing:
@@ -390,29 +587,31 @@ def main(argv: list[str] | None = None) -> int:
         args.manifest, args.emringer_dir, require_existing=True
     )
     print(
-        f"[emringer_xmetric] lookup: {len(lookup)} structures with flat EMRinger CSV",
+        f"[emringer_xmetric] manifest={args.manifest} cohort={cohort_tag} "
+        f"lookup={len(lookup)} structures with flat EMRinger CSV",
         flush=True,
     )
 
-    existing = _load_existing_rows(args.out) if args.resume else {}
+    existing = _load_existing_rows(out_path) if args.resume else {}
     rows: list[dict] = list(existing.values())
 
     for emdb_id, emringer_csv in sorted(lookup.items(), key=lambda kv: kv[0]):
         if args.emd_id and emdb_id != args.emd_id.strip():
             continue
-        if args.resume and emdb_id in existing:
+        if args.resume and emdb_id in existing and "rho_q_emringer" in existing[emdb_id]:
             print(f"[emringer_xmetric] EMD-{emdb_id}: resume skip", flush=True)
             continue
         summary = _summarize_entry(
             emdb_id,
-            manifest=args.manifest,
             emringer_csv=emringer_csv,
             pdb_path=pdb_paths[emdb_id],
         )
         if summary is None:
             continue
+        pol = policy_by_emdb.get(emdb_id, {})
         summary["display_name"] = names.get(emdb_id, "")
         summary["pdb_code"] = pdb_codes.get(emdb_id, "")
+        summary["cohort_tag"] = cohort_tag
         summary["global_resolution_a"] = resolutions.get(emdb_id, float("nan"))
         summary["emringer_interpretable"] = emringer_interpretable(
             emdb_id,
@@ -427,16 +626,27 @@ def main(argv: list[str] | None = None) -> int:
             resolutions=resolutions,
             max_resolution_a=args.max_resolution_a,
         )
+        summary["qscore_eligible"] = row_qscore_eligible(pol) if pol else False
+        summary["resmap_expected_failure"] = str(
+            pol.get("resmap_expected_failure", "") or ""
+        ).strip()
+        summary["resmap_headline_eligible"] = (
+            row_resmap_ca_headline_eligible(pol) if pol else True
+        )
         summary["emringer_csv"] = str(emringer_csv)
         rows = [r for r in rows if str(r["emdb_id"]).strip() != emdb_id]
         rows.append(summary)
-        _write_rows(args.out, rows)
+        _write_rows(out_path, rows)
         panel = "panel" if summary["emringer_interpretable"] else "excluded"
+        q_part = ""
+        if pd.notna(summary.get("rho_q_emringer")):
+            q_part = f" Q×EMR ρ={summary['rho_q_emringer']:+.3f}"
         print(
             f"[emringer_xmetric] EMD-{emdb_id} ({summary['pdb_code']}, "
             f"{summary['global_resolution_a']:.2f} Å, {panel}): "
             f"V ρ={summary['rho_v_emringer']:+.3f} "
-            f"ResMap ρ={summary['rho_resmap_emringer']:+.3f}",
+            f"ResMap ρ={summary['rho_resmap_emringer']:+.3f}"
+            f"{q_part}",
             flush=True,
         )
 
@@ -444,9 +654,12 @@ def main(argv: list[str] | None = None) -> int:
         print("[emringer_xmetric] no eligible entries", file=sys.stderr)
         return 1
 
-    out_df = pd.DataFrame(rows)[SUMMARY_COLUMNS]
-    _print_medians(out_df, max_resolution_a=args.max_resolution_a)
-    print(f"[emringer_xmetric] wrote {args.out}", flush=True)
+    out_df = pd.DataFrame(rows)
+    for col in SUMMARY_COLUMNS:
+        if col not in out_df.columns:
+            out_df[col] = np.nan
+    _print_medians(out_df[SUMMARY_COLUMNS], max_resolution_a=args.max_resolution_a)
+    print(f"[emringer_xmetric] wrote {out_path}", flush=True)
     return 0
 
 
