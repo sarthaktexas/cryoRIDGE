@@ -1,4 +1,4 @@
-"""Load halfmap-qc MRC exports and recompute reliability volumes when needed."""
+"""Load cryoridge MRC exports and recompute reliability volumes when needed."""
 
 from __future__ import annotations
 

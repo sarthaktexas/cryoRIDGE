@@ -1,6 +1,6 @@
 """Thesis wrapper for half-map reliability export (EMD-49450 defaults).
 
-Prefer explicit paths via ``halfmap-qc reliability`` for generic use.
+Prefer explicit paths via ``cryoridge reliability`` for generic use.
 """
 
 from __future__ import annotations

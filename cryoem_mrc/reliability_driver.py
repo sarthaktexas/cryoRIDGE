@@ -7,7 +7,7 @@ Writes under ``--out-dir``:
 
 Example::
 
-    halfmap-qc reliability \\
+    cryoridge reliability \\
       --reference deposited.map --half1 half1.map --half2 half2.map \\
       --features features.npz --contour 0.116 --out-dir reliability_out
 """
@@ -45,7 +45,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--reference", required=True, type=Path, help="Reference map (grid for MRC exports)")
     p.add_argument("--half1", required=True, type=Path)
     p.add_argument("--half2", required=True, type=Path)
-    p.add_argument("--features", required=True, type=Path, help="Feature .npz from halfmap-qc features")
+    p.add_argument("--features", required=True, type=Path, help="Feature .npz from cryoridge features")
     p.add_argument(
         "--contour",
         required=True,

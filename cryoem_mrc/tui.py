@@ -1,4 +1,4 @@
-"""Rich interactive terminal UI for ``halfmap-qc``."""
+"""Rich interactive terminal UI for ``cryoridge``."""
 
 from __future__ import annotations
 
@@ -20,27 +20,29 @@ from cryoem_mrc.emringer_cohort import BUILDING_REGIME_MAX_RESOLUTION_A
 
 console = Console()
 
+DEFAULT_OUTPUT_DIRNAME = "cryoridge_out"
+
 HELP_TEXT = dedent(
     """
-    halfmap-qc — local reliability scores for cryo-EM density maps
+    cryoRIDGE — local reliability scores for cryo-EM density maps
 
     INSTALL
-      pip install cryoem-halfmap-qc
+      pip install cryoridge
 
     INTERACTIVE
-      halfmap-qc                  prompt for two half-maps (TTY)
-      halfmap-qc interactive
-      halfmap-qc help               print this reference
+      cryoridge                  prompt for two half-maps (TTY)
+      cryoridge interactive
+      cryoridge help               print this reference
 
     NON-INTERACTIVE
-      halfmap-qc reliability --reference ref.map --half1 h1.map --half2 h2.map \\
+      cryoridge reliability --reference ref.map --half1 h1.map --half2 h2.map \\
         --features features.npz --contour CONTOUR --out-dir out
 
     From two half-maps alone, interactive mode averages them, offers auto or
     manual contour, warns when resolution is outside the model-building band,
-    and writes ``halfmap_qc_out/{stem}_reliability.mrc`` and ``*_build_zones.mrc``.
+    and writes ``cryoridge_out/{stem}_reliability.mrc`` and ``*_build_zones.mrc``.
 
-    Advanced: halfmap-qc features --help, halfmap-qc reliability --help
+    Advanced: cryoridge features --help, cryoridge reliability --help
     """
 ).strip()
 
@@ -56,13 +58,13 @@ _BANNER_ART = r"""
 
 
 def print_help() -> None:
-    console.print(Panel(HELP_TEXT, title="[bold]halfmap-qc help[/bold]", border_style="cyan"))
+    console.print(Panel(HELP_TEXT, title="[bold]cryoRIDGE help[/bold]", border_style="cyan"))
 
 
 def _banner() -> Panel:
     art = Text.from_markup(f"[bold cyan]{_BANNER_ART}[/bold cyan]")
     title = Text.from_markup(
-        f"[bold white]HALFMAP-QC[/bold white]  [dim]v{__version__}[/dim]\n"
+        f"[bold white]cryoRIDGE[/bold white]  [dim]v{__version__}[/dim]\n"
         "[italic]reliability & build zones from half-maps[/italic]"
     )
     body = Group(Align.center(art), Align.center(title))
@@ -136,8 +138,8 @@ def _warn_outside_building_regime(resolution_a: float) -> bool:
 
 def run_interactive() -> int:
     if not sys.stdin.isatty():
-        console.print("[red]halfmap-qc:[/red] interactive mode requires a TTY.")
-        console.print("Try: [cyan]halfmap-qc help[/cyan]")
+        console.print("[red]cryoridge:[/red] interactive mode requires a TTY.")
+        console.print("Try: [cyan]cryoridge help[/cyan]")
         return 1
 
     console.clear()
@@ -146,7 +148,7 @@ def run_interactive() -> int:
         Panel(
             "[white]Provide two half-maps.[/white] The tool will average them, "
             "let you choose a contour, then write reliability + build-zone MRCs to "
-            "[cyan]halfmap_qc_out/[/cyan] next to half-map 1.",
+            f"[cyan]{DEFAULT_OUTPUT_DIRNAME}/[/cyan] next to half-map 1.",
             border_style="green",
         )
     )
@@ -159,7 +161,7 @@ def run_interactive() -> int:
         console.print("\n[dim]Cancelled.[/dim]")
         return 130
 
-    out_dir = half1.parent / "halfmap_qc_out"
+    out_dir = half1.parent / DEFAULT_OUTPUT_DIRNAME
     console.print(f"[dim]Output directory:[/dim] [cyan]{out_dir}[/cyan]")
     console.print()
 
@@ -171,7 +173,7 @@ def run_interactive() -> int:
         ):
             from cryoem_mrc.halfmap_run import (
                 load_halfmap_pair_context,
-                run_halfmap_qc,
+                run_cryoridge,
                 summarize_halfmap_pair,
             )
 
@@ -201,7 +203,7 @@ def run_interactive() -> int:
             console=console,
             spinner="dots",
         ):
-            outputs = run_halfmap_qc(
+            outputs = run_cryoridge(
                 half1,
                 half2,
                 out_dir=out_dir,

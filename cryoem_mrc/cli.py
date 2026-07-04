@@ -1,4 +1,4 @@
-"""``halfmap-qc`` command-line interface."""
+"""``cryoridge`` command-line interface."""
 
 from __future__ import annotations
 
@@ -14,20 +14,20 @@ _COMMANDS = frozenset({"features", "analyze", "reliability", "interactive", "hel
 _CLI_EPILOG = dedent(
     """
     examples:
-      halfmap-qc                              two half-maps → MRC outputs (TTY)
-      halfmap-qc help                         full command reference
-      halfmap-qc features map.mrc --float32 --out features.npz
-      halfmap-qc analyze --features features.npz --half1 h1.map --half2 h2.map \\
+      cryoridge                              two half-maps → MRC outputs (TTY)
+      cryoridge help                         full command reference
+      cryoridge features map.mrc --float32 --out features.npz
+      cryoridge analyze --features features.npz --half1 h1.map --half2 h2.map \\
         --reference ref.map --contour 0.116 --out-dir analysis_out
-      halfmap-qc reliability --reference ref.map --half1 h1.map --half2 h2.map \\
+      cryoridge reliability --reference ref.map --half1 h1.map --half2 h2.map \\
         --features features.npz --contour 0.116 --out-dir reliability_out
 
     install:
-      pip install cryoem-halfmap-qc
+      pip install cryoridge
 
     subcommand help:
-      halfmap-qc features --help
-      halfmap-qc reliability --help
+      cryoridge features --help
+      cryoridge reliability --help
     """
 ).strip()
 
@@ -61,9 +61,9 @@ def _interactive(_argv: list[str]) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="halfmap-qc",
+        prog="cryoridge",
         description=(
-            "Half-map QC: local reliability scores and build zones from cryo-EM half-maps."
+            "cryoRIDGE: local reliability scores and build zones from cryo-EM half-maps."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_CLI_EPILOG,
@@ -88,7 +88,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser(
         "interactive",
-        help="Prompt for two half-maps (same as running halfmap-qc with no arguments on a TTY)",
+        help="Prompt for two half-maps (same as running cryoridge with no arguments on a TTY)",
     ).set_defaults(_run=_interactive)
 
     sub.add_parser(
@@ -110,21 +110,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if "--version" in argv or "-V" in argv:
-        print(f"halfmap-qc {__version__}")
+        print(f"cryoridge {__version__}")
         return 0
 
     if argv[0] in ("-h", "--help"):
         parser.print_help()
         return 0
 
-    # Legacy shortcut: ``halfmap-qc map.mrc [opts]`` (same as ``halfmap-qc features map.mrc``).
+    # Legacy shortcut: ``cryoridge map.mrc [opts]`` (same as ``cryoridge features map.mrc``).
     if argv[0] not in _COMMANDS and str(argv[0]).lower().endswith((".mrc", ".map")):
         return _features(argv)
 
     if argv[0] not in _COMMANDS:
         parser.print_help(sys.stderr)
-        print(f"halfmap-qc: unknown command {argv[0]!r}", file=sys.stderr)
-        print("Try: halfmap-qc help", file=sys.stderr)
+        print(f"cryoridge: unknown command {argv[0]!r}", file=sys.stderr)
+        print("Try: cryoridge help", file=sys.stderr)
         return 2
 
     ns, rest = parser.parse_known_args(argv)

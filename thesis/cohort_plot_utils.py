@@ -1,4 +1,4 @@
-"""Shared cohort figure helpers (thesis-only; not part of cryoem-halfmap-qc)."""
+"""Shared cohort figure helpers (thesis-only; not part of cryoridge)."""
 
 from __future__ import annotations
 

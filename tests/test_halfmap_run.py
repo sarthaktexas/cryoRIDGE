@@ -13,7 +13,7 @@ from cryoem_mrc.emringer_cohort import BUILDING_REGIME_MAX_RESOLUTION_A
 from cryoem_mrc.halfmap_run import (
     HalfmapPairContext,
     load_halfmap_pair_context,
-    run_halfmap_qc,
+    run_cryoridge,
     summarize_halfmap_pair,
 )
 from cryoem_mrc.local_fsc import estimate_global_halfmap_fsc_resolution
@@ -31,7 +31,7 @@ class TestSuggestContour(unittest.TestCase):
         self.assertLessEqual(frac, 0.40)
 
 
-class TestRunHalfmapQc(unittest.TestCase):
+class TestRunCryoridge(unittest.TestCase):
     def _mock_bundle(self, vol: np.ndarray):
         half = type("Half", (), {"data": vol, "voxel_size_zyx": (1.0, 1.0, 1.0)})()
         return type(
@@ -40,7 +40,7 @@ class TestRunHalfmapQc(unittest.TestCase):
             {"half1": half, "half2": half, "reports": {"half2": type("R", (), {"ok": True})()}},
         )()
 
-    def test_run_halfmap_qc_orchestrates_pipeline(self) -> None:
+    def test_run_cryoridge_orchestrates_pipeline(self) -> None:
         with (
             patch("cryoem_mrc.halfmap_run.load_full_and_half_maps") as load_bundle,
             patch("cryoem_mrc.halfmap_run.save_volume_like_reference") as save_avg,
@@ -54,7 +54,7 @@ class TestRunHalfmapQc(unittest.TestCase):
             half2 = Path("/tmp/h2.map")
             out = Path("/tmp/out")
 
-            result = run_halfmap_qc(half1, half2, out_dir=out)
+            result = run_cryoridge(half1, half2, out_dir=out)
 
             save_avg.assert_called_once()
             features.assert_called_once()
@@ -62,7 +62,7 @@ class TestRunHalfmapQc(unittest.TestCase):
             self.assertEqual(result["reliability_mrc"], (out / "h1_reliability.mrc").resolve())
             self.assertEqual(result["build_zones_mrc"], (out / "h1_build_zones.mrc").resolve())
 
-    def test_run_halfmap_qc_accepts_explicit_contour(self) -> None:
+    def test_run_cryoridge_accepts_explicit_contour(self) -> None:
         with (
             patch("cryoem_mrc.halfmap_run.save_volume_like_reference"),
             patch("cryoem_mrc.__main__.main", return_value=0) as features,
@@ -77,7 +77,7 @@ class TestRunHalfmapQc(unittest.TestCase):
                 bundle=self._mock_bundle(vol),
                 avg=vol,
             )
-            result = run_halfmap_qc(half1, half2, out_dir=Path("/tmp/out"), contour=0.5, context=ctx)
+            result = run_cryoridge(half1, half2, out_dir=Path("/tmp/out"), contour=0.5, context=ctx)
             self.assertEqual(result["contour"], 0.5)
             feature_argv = features.call_args[0][0]
             self.assertIn("0.5", feature_argv)

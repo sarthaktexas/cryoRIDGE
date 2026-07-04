@@ -140,7 +140,7 @@ def _run_features(
         ]
     )
     if rc != 0:
-        raise subprocess.CalledProcessError(rc, "halfmap-qc features")
+        raise subprocess.CalledProcessError(rc, "cryoridge features")
 
 
 def _process_row(
@@ -214,7 +214,7 @@ def _process_row(
     print(f"[cohort] EMD-{eid} analysis", flush=True)
     rc = analysis_main(analysis_cmd)
     if rc != 0:
-        raise subprocess.CalledProcessError(rc, "halfmap-qc analyze")
+        raise subprocess.CalledProcessError(rc, "cryoridge analyze")
 
     reliability_cmd = [
         "--reference",
@@ -237,7 +237,7 @@ def _process_row(
     print(f"[cohort] EMD-{eid} reliability_export", flush=True)
     rc = reliability_main(reliability_cmd)
     if rc != 0:
-        raise subprocess.CalledProcessError(rc, "halfmap-qc reliability")
+        raise subprocess.CalledProcessError(rc, "cryoridge reliability")
 
     return 0
 

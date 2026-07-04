@@ -1,4 +1,4 @@
-"""Figure color palette and matplotlib colormaps for halfmap-qc outputs."""
+"""Figure color palette and matplotlib colormaps for cryoridge outputs."""
 
 from __future__ import annotations
 

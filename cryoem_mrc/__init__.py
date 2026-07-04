@@ -3,7 +3,7 @@
 try:
     from importlib.metadata import version as _pkg_version
 
-    __version__ = _pkg_version("cryoem-halfmap-qc")
+    __version__ = _pkg_version("cryoridge")
 except Exception:
     __version__ = "0.7.0"
 

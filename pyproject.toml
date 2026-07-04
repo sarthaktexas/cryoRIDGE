@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cryoem-halfmap-qc"
-version = "0.7.0"
-description = "Half-map QC and local reliability scores for cryo-EM density maps"
+name = "cryoridge"
+version = "0.8.0"
+description = "cryoRIDGE: local rigidity and reliability scores for cryo-EM density maps"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -37,7 +37,7 @@ dependencies = [
 dev = ["build", "twine"]
 
 [project.scripts]
-halfmap-qc = "cryoem_mrc.cli:main"
+cryoridge = "cryoem_mrc.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["cryoem_mrc*", "style*"]
@@ -45,8 +45,8 @@ include = ["cryoem_mrc*", "style*"]
 # ``thesis/`` is repo-local cohort validation (ROC/AUC, Q-score panels, Figma exports).
 
 [project.urls]
-Homepage = "https://github.com/sarthaktexas/cryoem-halfmap-qc"
-Documentation = "https://github.com/sarthaktexas/cryoem-halfmap-qc#readme"
-Repository = "https://github.com/sarthaktexas/cryoem-halfmap-qc"
-Issues = "https://github.com/sarthaktexas/cryoem-halfmap-qc/issues"
-Changelog = "https://github.com/sarthaktexas/cryoem-halfmap-qc/releases"
+Homepage = "https://github.com/sarthaktexas/cryoridge"
+Documentation = "https://github.com/sarthaktexas/cryoridge#readme"
+Repository = "https://github.com/sarthaktexas/cryoridge"
+Issues = "https://github.com/sarthaktexas/cryoridge/issues"
+Changelog = "https://github.com/sarthaktexas/cryoridge/releases"

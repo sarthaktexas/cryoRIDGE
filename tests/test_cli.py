@@ -1,4 +1,4 @@
-"""CLI smoke tests for ``halfmap-qc``."""
+"""CLI smoke tests for ``cryoridge``."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from cryoem_mrc.cli import main
 from cryoem_mrc.tui import print_help
 
 
-class TestHalfmapQcCli(unittest.TestCase):
+class TestCryoridgeCli(unittest.TestCase):
     def test_version(self) -> None:
         rc = main(["--version"])
         self.assertEqual(rc, 0)
@@ -38,7 +38,7 @@ class TestHalfmapQcCli(unittest.TestCase):
     def test_help_text_mentions_install(self) -> None:
         from cryoem_mrc.tui import HELP_TEXT
 
-        self.assertIn("pip install cryoem-halfmap-qc", HELP_TEXT)
+        self.assertIn("pip install cryoridge", HELP_TEXT)
         self.assertNotIn("git+", HELP_TEXT)
 
     def test_cohort_removed_from_cli(self) -> None:

@@ -203,10 +203,10 @@ def tpr_at_fpr(
 
 
 def _find_reliability_npz(emdb_id: str) -> Path | None:
-    """Locate cached half-map reliability bundle (canonical or legacy halfmap-qc path)."""
+    """Locate cached half-map reliability bundle (canonical or legacy cryoridge path)."""
     candidates = (
         resolve_halfmap_reliability_dir(emdb_id) / "reliability.npz",
-        emd_output_dir(emdb_id) / "halfmap-qc" / "reliability" / "reliability.npz",
+        emd_output_dir(emdb_id) / "cryoridge" / "reliability" / "reliability.npz",
     )
     for path in candidates:
         if path.is_file():

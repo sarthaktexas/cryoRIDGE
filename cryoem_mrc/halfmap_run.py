@@ -52,7 +52,7 @@ def load_halfmap_pair_context(half1: Path, half2: Path) -> HalfmapPairContext:
     for name, rep in bundle.reports.items():
         if not rep.ok:
             print(
-                f"[halfmap-qc] resampled {name} onto half-map 1 grid",
+                f"[cryoridge] resampled {name} onto half-map 1 grid",
                 flush=True,
             )
     avg = (0.5 * (bundle.half1.data + bundle.half2.data)).astype(np.float32)
@@ -80,7 +80,7 @@ def summarize_halfmap_pair(ctx: HalfmapPairContext) -> HalfmapPairSummary:
     )
 
 
-def run_halfmap_qc(
+def run_cryoridge(
     half1: Path,
     half2: Path,
     *,
@@ -104,7 +104,7 @@ def run_halfmap_qc(
         half2 = context.half2
 
     if out_dir is None:
-        out_dir = half1.parent / "halfmap_qc_out"
+        out_dir = half1.parent / "cryoridge_out"
     out_dir = Path(out_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -122,7 +122,7 @@ def run_halfmap_qc(
         )
     label_kind = "auto" if auto_contour else "user"
     print(
-        f"[halfmap-qc] {label_kind} contour {contour_val:.6g} ({n_mask:,} voxels in mask)",
+        f"[cryoridge] {label_kind} contour {contour_val:.6g} ({n_mask:,} voxels in mask)",
         flush=True,
     )
 

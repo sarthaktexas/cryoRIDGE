@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "cryoem-halfmap-qc: local map reliability from cryo-EM density and half-maps"
+title: "cryoRIDGE: local map reliability from cryo-EM density and half-maps"
 message: >-
   If you use this software, please cite it using the metadata in this file.
   When the associated manuscript is published, cite that article as the primary
@@ -8,11 +8,11 @@ type: software
 authors:
   - family-names: Mohanty
     given-names: Sarthak
-repository-code: "https://github.com/sarthaktexas/cryoem-halfmap-qc"
-url: "https://github.com/sarthaktexas/cryoem-halfmap-qc"
+repository-code: "https://github.com/sarthaktexas/cryoridge"
+url: "https://github.com/sarthaktexas/cryoridge"
 doi: 10.5281/zenodo.20618526
 license: MIT
-version: 0.5.0
+version: 0.8.0
 date-released: "2026-06-26"
 keywords:
   - cryo-electron-microscopy
