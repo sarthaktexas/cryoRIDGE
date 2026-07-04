@@ -63,7 +63,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cryoridge",
         description=(
-            "cryoRIDGE: local reliability scores and build zones from cryo-EM half-maps."
+            "cryoRIDGE — Reliability Inferred from Density Gradient Energy "
+            "for cryo-EM half-maps."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_CLI_EPILOG,

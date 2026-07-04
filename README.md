@@ -1,5 +1,7 @@
 # cryoRIDGE
 
+**RIDGE** = **R**eliability **I**nferred from **D**ensity **G**radient **E**nergy
+
 [![PyPI version](https://img.shields.io/pypi/v/cryoridge)](https://pypi.org/project/cryoridge/)
 [![DOI](https://zenodo.org/badge/1262218538.svg)](https://doi.org/10.5281/zenodo.20618526)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -13,8 +15,6 @@ cryoridge help     # CLI reference
 ```
 
 Interactive mode asks for **half-map 1** and **half-map 2**, offers **auto or manual contour**, warns when estimated resolution is outside the model-building band (>4 Ã…), then writes `{stem}_reliability.mrc` and `{stem}_build_zones.mrc` under `cryoridge_out/` next to half-map 1.
-
-![cryoRIDGE interactive menu](readme-assets/tui-screenshot.png)
 
 ## Pipeline (non-interactive / advanced)
 
@@ -71,11 +71,11 @@ If install fails with empty `(from versions:)`, check `python --version` (need â
 ```bibtex
 @software{mohanty2026cryoridge,
   author = {Mohanty, Sarthak},
-  title = {cryoRIDGE: local map reliability from cryo-EM density and half-maps},
+  title = {cryoRIDGE: Reliability Inferred from Density Gradient Energy},
   year = {2026},
   doi = {10.5281/zenodo.20618526},
   url = {https://doi.org/10.5281/zenodo.20618526},
-  version = {0.8.0}
+  version = {0.8.1}
 }
 ```
 

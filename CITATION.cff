@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "cryoRIDGE: local map reliability from cryo-EM density and half-maps"
+title: "cryoRIDGE: Reliability Inferred from Density Gradient Energy"
 message: >-
   If you use this software, please cite it using the metadata in this file.
   When the associated manuscript is published, cite that article as the primary
@@ -8,12 +8,12 @@ type: software
 authors:
   - family-names: Mohanty
     given-names: Sarthak
-repository-code: "https://github.com/sarthaktexas/cryoridge"
-url: "https://github.com/sarthaktexas/cryoridge"
+repository-code: "https://github.com/sarthaktexas/cryoRIDGE"
+url: "https://github.com/sarthaktexas/cryoRIDGE"
 doi: 10.5281/zenodo.20618526
 license: MIT
-version: 0.8.0
-date-released: "2026-06-26"
+version: 0.8.1
+date-released: "2026-07-04"
 keywords:
   - cryo-electron-microscopy
   - map quality

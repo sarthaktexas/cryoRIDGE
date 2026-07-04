@@ -24,7 +24,7 @@ DEFAULT_OUTPUT_DIRNAME = "cryoridge_out"
 
 HELP_TEXT = dedent(
     """
-    cryoRIDGE — local reliability scores for cryo-EM density maps
+    cryoRIDGE — Reliability Inferred from Density Gradient Energy
 
     INSTALL
       pip install cryoridge
@@ -65,7 +65,7 @@ def _banner() -> Panel:
     art = Text.from_markup(f"[bold cyan]{_BANNER_ART}[/bold cyan]")
     title = Text.from_markup(
         f"[bold white]cryoRIDGE[/bold white]  [dim]v{__version__}[/dim]\n"
-        "[italic]reliability & build zones from half-maps[/italic]"
+        "[italic]Reliability Inferred from Density Gradient Energy[/italic]"
     )
     body = Group(Align.center(art), Align.center(title))
     return Panel(body, border_style="bright_cyan", box=box.DOUBLE, padding=(1, 2))
