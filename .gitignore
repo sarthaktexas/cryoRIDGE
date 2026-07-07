@@ -21,6 +21,50 @@ pdb
 # Thesis cohort manifests, tables, and run scripts (local; not part of the package)
 cohort/
 
+# Thesis manuscript and validation code (local; not part of the cryoridge package)
+manuscript/
+thesis/
+
+# Thesis validation scripts (local)
+scripts/diagnose_medic_rebuilt_pairs.py
+scripts/export_figures_data_bundle.py
+scripts/export_manuscript_table_data.py
+scripts/plot_v_vs_locres_scatter.py
+scripts/run_6e1o_medic_case_figure.py
+scripts/run_manuscript_table_data_pipelines.sh
+scripts/run_map_level_statistical_tests.py
+scripts/run_medic_blocks_zone_type_figure.py
+scripts/run_medic_enrichment.py
+scripts/run_medic_rebuilt_overnight.sh
+scripts/run_medic_rebuilt_pipeline.py
+scripts/run_medic_resmap_independence_figure.py
+scripts/run_medic_validation_pipeline.py
+scripts/run_placement_metrics_regenerate.py
+scripts/run_pre_post_validation_by_category.py
+scripts/run_pre_post_validation_heatmap.py
+scripts/run_qscore_emringer_head_to_head.py
+scripts/run_regime_stratified_delta_r2.py
+scripts/run_relion_locres_export.py
+scripts/run_synced_cohort_roc_correlation.py
+scripts/run_table_data_chain_after_gradient.sh
+scripts/write_all_validation_numbers_md.py
+tests/test_cohort_size.py
+tests/test_cross_metric_figures.py
+tests/test_map_level_statistics.py
+tests/test_medic_block_figures.py
+tests/test_medic_cluster_enrichment.py
+tests/test_medic_enrichment.py
+tests/test_medic_resmap_independence.py
+tests/test_qscore_emringer_head_to_head.py
+tests/test_resolution_sensitivity_figures.py
+tests/test_synced_cohort_correlation_figures.py
+tests/test_validation_categories.py
+
+# ChimeraX bundle build artifacts
+chimerax_reliability/build/
+chimerax_reliability/dist/
+chimerax_reliability/*.egg-info/
+
 # Figma Dev plugins (local only; export scripts write JSON here)
 figma-plugins/
 

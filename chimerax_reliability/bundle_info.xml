@@ -1,0 +1,40 @@
+<!--
+ChimeraX bundle for coloring cryo-EM maps by half-map reliability scores
+and build zones (omit / caution / build), matching the thesis cryoem_mrc pipeline.
+-->
+<BundleInfo name="ChimeraX-MapReliability"
+            version="0.1"
+            package="chimerax.map_reliability"
+            minSessionVersion="1" maxSessionVersion="1">
+
+  <Author>Sarthak Mohanty</Author>
+  <Email>sarthakmohanty@example.com</Email>
+  <URL>https://github.com/sarthakmohanty/thesis</URL>
+  <Synopsis>Color maps by half-map reliability score or build zones</Synopsis>
+  <Description>Compute windowed gradient-energy reliability from two half-maps
+and color a reference density surface by reliability score (continuous) or
+discrete build zones (omit / caution / build).
+
+Matches the cryoem_mrc half-map reliability export used in the thesis cohort.
+  </Description>
+
+  <Categories>
+    <Category name="Validation"/>
+  </Categories>
+
+  <Dependencies>
+    <Dependency name="ChimeraX-Core" version="~=1.5"/>
+    <Dependency name="numpy" version="&gt;=1.20"/>
+    <Dependency name="scipy" version="&gt;=1.7"/>
+  </Dependencies>
+
+  <Classifiers>
+    <PythonClassifier>Development Status :: 3 - Alpha</PythonClassifier>
+    <PythonClassifier>License :: Freeware</PythonClassifier>
+    <ChimeraXClassifier>ChimeraX :: Command :: reliability :: Validation ::
+        Color a map by reliability score or build zones from half-maps</ChimeraXClassifier>
+    <ChimeraXClassifier>ChimeraX :: Tool :: Map Reliability :: Validation ::
+        GUI for half-map reliability coloring</ChimeraXClassifier>
+  </Classifiers>
+
+</BundleInfo>

@@ -45,7 +45,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--reference", required=True, type=Path, help="Reference map (grid for MRC exports)")
     p.add_argument("--half1", required=True, type=Path)
     p.add_argument("--half2", required=True, type=Path)
-    p.add_argument("--features", required=True, type=Path, help="Feature .npz from cryoridge features")
+    p.add_argument(
+        "--features",
+        type=Path,
+        default=None,
+        help="Optional feature .npz from cryoridge features (ρ primary path only)",
+    )
     p.add_argument(
         "--contour",
         required=True,
@@ -81,12 +86,14 @@ def _output_label(args: argparse.Namespace) -> str:
 
 
 def _paths(args: argparse.Namespace) -> dict[str, Path]:
-    return {
+    paths = {
         "reference": args.reference,
         "half1": args.half1,
         "half2": args.half2,
-        "features": args.features,
     }
+    if args.features is not None:
+        paths["features"] = args.features
+    return paths
 
 
 def _load_local_var(features_path: Path) -> np.ndarray:
@@ -120,7 +127,11 @@ def main(argv: list[str] | None = None) -> int:
     n_mask = int(mask.sum())
     print(f"{log} mask {n_mask:,} voxels at contour {args.contour}", flush=True)
 
-    local_var = _load_local_var(paths["features"])
+    feats_dn = (
+        _optional_density_normalized(paths["features"])
+        if paths.get("features") is not None
+        else None
+    )
     bundle = load_full_and_half_maps(
         paths["reference"], paths["half1"], paths["half2"],
         reference="full", dtype=np.float32, resample_if_needed=True,
@@ -129,13 +140,13 @@ def main(argv: list[str] | None = None) -> int:
         source=args.density_source,
         half1=bundle.half1.data,
         half2=bundle.half2.data,
-        features_density_normalized=_optional_density_normalized(paths["features"]),
+        features_density_normalized=feats_dn,
         primary_volume=reference if args.density_source == "primary" else None,
     )
     full_shape = reference.shape
     pad = pad_voxels_for_filters(window=args.window)
     if args.no_crop_to_contour:
-        work: dict[str, np.ndarray] = {"density_normalized": rho, "local_variance": local_var}
+        work: dict[str, np.ndarray] = {"density_normalized": rho}
         attach_reliability_to_features(
             work, bundle.half1.data, bundle.half2.data, window=args.window, mask=mask
         )
@@ -146,10 +157,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{log} contour crop: {format_bbox_log(bbox, full_shape, pad=pad)}",
             flush=True,
         )
-        work = {
-            "density_normalized": crop_array(rho, bbox),
-            "local_variance": crop_array(local_var, bbox),
-        }
+        work = {"density_normalized": crop_array(rho, bbox)}
         attach_reliability_to_features(
             work,
             crop_array(bundle.half1.data, bbox),
