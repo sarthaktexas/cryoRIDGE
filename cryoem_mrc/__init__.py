@@ -5,7 +5,7 @@ try:
 
     __version__ = _pkg_version("cryoridge")
 except Exception:
-    __version__ = "0.8.1"
+    __version__ = "0.8.2"
 
 from .analysis import (
     BinnedRelationship,
