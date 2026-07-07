@@ -169,7 +169,7 @@ def _warn_outside_building_regime(resolution_a: float) -> bool:
         Panel(
             "[bold yellow]Low resolution — outside model-building regime[/bold yellow]\n\n"
             f"Estimated global resolution: [bold]{resolution_a:.2f} Å[/bold] "
-            "(masked half-map FSC at 0.143)\n"
+            "(masked half-map FSC at 0.143; approximate — EMDB value may differ)\n"
             f"Build zones are intended for maps finer than "
             f"[bold]≤ {BUILDING_REGIME_MAX_RESOLUTION_A:g} Å[/bold] "
             "(the cohort uses roughly 2.5–4 Å depositions).\n\n"
@@ -232,15 +232,14 @@ def run_interactive() -> int:
             spinner="dots",
         ):
             from cryoem_mrc.halfmap_run import (
+                estimate_masked_global_resolution,
                 load_halfmap_pair_context,
                 run_cryoridge,
-                summarize_halfmap_pair,
                 write_avg_half_map,
             )
             from cryoem_mrc.io import load_mrc
 
             context = load_halfmap_pair_context(half1, half2)
-            summary = summarize_halfmap_pair(context)
             avg_path = write_avg_half_map(context, out_dir)
 
         if primary is not None:
@@ -250,25 +249,36 @@ def run_interactive() -> int:
             contour_map = avg_path
             contour_density = context.avg
 
+        contour = _prompt_chimerax_contour(contour_density, contour_map=contour_map)
+        console.print(
+            f"[dim]Using ChimeraX contour:[/dim] [cyan]{contour:.6g}[/cyan] "
+            f"on [cyan]{contour_map.name}[/cyan]"
+        )
+        console.print()
+
+        summary = estimate_masked_global_resolution(
+            context,
+            contour=contour,
+            mask_density=contour_density,
+            reference_map=primary,
+        )
         if math.isfinite(summary.resolution_a):
             console.print(
                 f"[dim]Estimated global resolution:[/dim] "
                 f"[cyan]{summary.resolution_a:.2f} Å[/cyan] "
-                f"(voxel {summary.voxel_size_a:.3f} Å)"
+                f"(voxel {summary.voxel_size_a:.3f} Å; masked half-map FSC, approximate)"
             )
         else:
-            console.print("[dim]Estimated global resolution:[/dim] [yellow]unavailable[/yellow]")
+            console.print(
+                "[dim]Estimated global resolution:[/dim] [yellow]unavailable[/yellow] "
+                "(FSC did not cross 0.143 in mask — check contour / map pairing)"
+            )
 
         if math.isfinite(summary.resolution_a) and not summary.in_building_regime:
             if not _warn_outside_building_regime(summary.resolution_a):
                 console.print("[dim]Cancelled.[/dim]")
                 return 0
 
-        contour = _prompt_chimerax_contour(contour_density, contour_map=contour_map)
-        console.print(
-            f"[dim]Using ChimeraX contour:[/dim] [cyan]{contour:.6g}[/cyan] "
-            f"on [cyan]{contour_map.name}[/cyan]"
-        )
         console.print()
 
         with Status(

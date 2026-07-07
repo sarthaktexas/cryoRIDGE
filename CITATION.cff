@@ -12,7 +12,7 @@ repository-code: "https://github.com/sarthaktexas/cryoRIDGE"
 url: "https://github.com/sarthaktexas/cryoRIDGE"
 doi: 10.5281/zenodo.20618526
 license: MIT
-version: 0.8.2
+version: 0.8.3
 date-released: "2026-07-07"
 keywords:
   - cryo-electron-microscopy

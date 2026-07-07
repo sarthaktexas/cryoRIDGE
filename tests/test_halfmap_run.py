@@ -12,9 +12,9 @@ from cryoem_mrc.analysis import build_contour_mask, suggest_contour
 from cryoem_mrc.emringer_cohort import BUILDING_REGIME_MAX_RESOLUTION_A
 from cryoem_mrc.halfmap_run import (
     HalfmapPairContext,
+    estimate_masked_global_resolution,
     load_halfmap_pair_context,
     run_cryoridge,
-    summarize_halfmap_pair,
 )
 from cryoem_mrc.local_fsc import estimate_global_halfmap_fsc_resolution
 
@@ -83,7 +83,7 @@ class TestRunCryoridge(unittest.TestCase):
             self.assertIn("0.5", feature_argv)
 
 
-class TestSummarizeHalfmapPair(unittest.TestCase):
+class TestEstimateMaskedGlobalResolution(unittest.TestCase):
     def test_flags_coarse_resolution_outside_building_regime(self) -> None:
         vol = np.zeros((32, 32, 32), dtype=np.float32)
         vol[8:24, 8:24, 8:24] = 1.0
@@ -104,17 +104,16 @@ class TestSummarizeHalfmapPair(unittest.TestCase):
             "cryoem_mrc.halfmap_run.estimate_global_halfmap_fsc_resolution",
             return_value=BUILDING_REGIME_MAX_RESOLUTION_A + 1.0,
         ):
-            summary = summarize_halfmap_pair(ctx)
+            summary = estimate_masked_global_resolution(ctx, contour=0.5, mask_density=avg)
         self.assertFalse(summary.in_building_regime)
         self.assertGreater(summary.resolution_a, BUILDING_REGIME_MAX_RESOLUTION_A)
 
 
 class TestGlobalHalfmapFsc(unittest.TestCase):
-    def test_identical_halves_yield_finite_resolution(self) -> None:
+    def test_identical_halves_return_nan_without_false_coarse_estimate(self) -> None:
         vol = np.random.default_rng(1).normal(size=(16, 16, 16)).astype(np.float32)
         res = estimate_global_halfmap_fsc_resolution(vol, vol, voxel_size_a=1.0)
-        self.assertTrue(np.isfinite(res))
-        self.assertGreater(res, 0.0)
+        self.assertFalse(np.isfinite(res))
 
 
 class TestLoadHalfmapPairContext(unittest.TestCase):

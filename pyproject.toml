@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cryoridge"
-version = "0.8.2"
+version = "0.8.3"
 description = "cryoRIDGE — Reliability Inferred from Density Gradient Energy for cryo-EM maps"
 readme = "README.md"
 license = { text = "MIT" }

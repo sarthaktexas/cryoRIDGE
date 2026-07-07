@@ -76,7 +76,7 @@ If install fails with empty `(from versions:)`, check `python --version` (need â
   year = {2026},
   doi = {10.5281/zenodo.20618526},
   url = {https://doi.org/10.5281/zenodo.20618526},
-  version = {0.8.2}
+  version = {0.8.3}
 }
 ```
 

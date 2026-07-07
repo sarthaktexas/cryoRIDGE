@@ -16,6 +16,7 @@ from cryoem_mrc.local_fsc import (
     _fsc_curve_from_patches,
     _resolution_from_fsc,
     compute_local_fsc_resolution,
+    estimate_global_halfmap_fsc_resolution,
     save_local_fsc_resolution_mrc,
 )
 
@@ -48,6 +49,23 @@ class TestLocalFscHelpers(unittest.TestCase):
         res = _resolution_from_fsc(fsc, 0.143, patch_size=17, voxel_size_a=1.0)
         self.assertGreater(res, 2.0)
         self.assertLessEqual(res, 17.0)
+
+
+class TestGlobalHalfmapFsc(unittest.TestCase):
+    def test_noisy_blob_yields_finite_resolution_in_mask(self) -> None:
+        shape = (64, 64, 64)
+        signal = _gaussian_blob(shape, sigma_vox=2.0, center=(32, 32, 32))
+        rng = np.random.default_rng(42)
+        half1 = signal + rng.normal(0, 0.05, size=shape).astype(np.float32)
+        half2 = signal + rng.normal(0, 0.05, size=shape).astype(np.float32)
+        mask = np.zeros(shape, dtype=bool)
+        mask[20:44, 20:44, 20:44] = True
+        res = estimate_global_halfmap_fsc_resolution(
+            half1, half2, voxel_size_a=1.0, mask=mask
+        )
+        self.assertTrue(np.isfinite(res))
+        self.assertGreater(res, 1.5)
+        self.assertLess(res, 20.0)
 
 
 class TestLocalFscSynthetic(unittest.TestCase):

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .analysis import build_contour_mask, suggest_contour
+from .analysis import build_contour_mask
 from .emringer_cohort import BUILDING_REGIME_MAX_RESOLUTION_A
 from .io import save_volume_like_reference
 from .local_fsc import estimate_global_halfmap_fsc_resolution
@@ -28,9 +28,8 @@ class HalfmapPairContext:
 
 @dataclass(frozen=True)
 class HalfmapPairSummary:
-    """Preflight summary shown in interactive mode before the long pipeline."""
+    """Preflight summary after ChimeraX contour is known."""
 
-    suggested_contour: float
     resolution_a: float
     in_building_regime: bool
     n_mask_voxels: int
@@ -86,20 +85,51 @@ def feature_start_threshold(avg: np.ndarray, ref: np.ndarray, contour: float) ->
     return float(contour)
 
 
-def summarize_halfmap_pair(ctx: HalfmapPairContext) -> HalfmapPairSummary:
-    """Estimate auto-contour and masked global FSC resolution for interactive prompts."""
-    suggested = suggest_contour(ctx.avg)
-    mask = build_contour_mask(ctx.avg, suggested)
-    vox = float(np.mean(ctx.bundle.half1.voxel_size_zyx))
+def estimate_masked_global_resolution(
+    ctx: HalfmapPairContext,
+    *,
+    contour: float,
+    mask_density: np.ndarray,
+    reference_map: Path | None = None,
+) -> HalfmapPairSummary:
+    """
+    Masked global half-map FSC at the user contour (same map as ChimeraX).
+
+    When ``reference_map`` is the deposited primary, half-maps are resampled onto
+    that grid before FSC (aligned with cohort validation).
+    """
+    from .io import load_mrc
+
+    contour = float(contour)
+    if reference_map is not None:
+        ref = Path(reference_map).expanduser().resolve()
+        bundle = load_full_and_half_maps(
+            ref,
+            ctx.half1,
+            ctx.half2,
+            reference="full",
+            dtype=np.float32,
+            resample_if_needed=True,
+        )
+        h1 = bundle.half1.data
+        h2 = bundle.half2.data
+        mask_vol = load_mrc(ref, dtype=np.float32)
+        vox = float(np.mean(bundle.half1.voxel_size_zyx))
+    else:
+        h1 = ctx.bundle.half1.data
+        h2 = ctx.bundle.half2.data
+        mask_vol = np.asarray(mask_density)
+        vox = float(np.mean(ctx.bundle.half1.voxel_size_zyx))
+
+    mask = build_contour_mask(mask_vol, contour)
     res_a = estimate_global_halfmap_fsc_resolution(
-        ctx.bundle.half1.data,
-        ctx.bundle.half2.data,
+        h1,
+        h2,
         voxel_size_a=vox,
         mask=mask,
     )
     in_building = math.isfinite(res_a) and res_a <= BUILDING_REGIME_MAX_RESOLUTION_A
     return HalfmapPairSummary(
-        suggested_contour=suggested,
         resolution_a=res_a,
         in_building_regime=in_building,
         n_mask_voxels=int(mask.sum()),

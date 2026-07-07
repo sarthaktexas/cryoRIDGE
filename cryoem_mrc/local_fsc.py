@@ -109,17 +109,23 @@ def _resolution_from_fsc(
     threshold: float,
     patch_size: int,
     voxel_size_a: float,
+    *,
+    if_no_crossing: str = "worst",
 ) -> float:
     """
     Smallest shell index where FSC drops below ``threshold``, with linear sub-shell
     interpolation; convert to Å via ``resolution = (patch_size * voxel_size_a) / k``.
+
+    When FSC never crosses ``threshold``, return ``patch_size * voxel_size_a`` for
+    patch-local FSC (``if_no_crossing='worst'``) or NaN for global masked FSC
+    (``if_no_crossing='nan'``).
     """
     p = int(patch_size)
     vox = float(voxel_size_a)
     worst = float(p * vox)
     fsc = np.asarray(fsc, dtype=np.float64)
     if fsc.size < 2:
-        return worst
+        return float("nan") if if_no_crossing == "nan" else worst
     # Skip DC shell (index 0); search for first crossing below threshold.
     for k in range(1, fsc.size):
         if fsc[k] < threshold:
@@ -135,7 +141,7 @@ def _resolution_from_fsc(
             lo = 2.0 * vox
             hi = worst
             return float(np.clip(res, lo, hi))
-    return worst
+    return float("nan") if if_no_crossing == "nan" else worst
 
 
 def _clip_resolution(
@@ -470,6 +476,10 @@ def estimate_global_halfmap_fsc_resolution(
 
     Both volumes must share the same grid. When ``mask`` is set, voxels outside
     the mask are zeroed before the FFT (typical macromolecule-masked global FSC).
+
+    Note: quick masked FFT FSC without noise substitution. Meaningful only when
+    ``mask`` matches the ChimeraX contour on the same map used for deposition.
+    EMDB-reported global resolution comes from refinement and may differ.
     """
     h1 = np.asarray(half1, dtype=np.float64)
     h2 = np.asarray(half2, dtype=np.float64)
@@ -483,7 +493,7 @@ def estimate_global_halfmap_fsc_resolution(
         h2 = h2 * m.astype(np.float64)
 
     nz, ny, nx = h1.shape
-    n_ref = max(int(round(float(np.mean([nz, ny, nx])))), 3)
+    n_ref = max(int(min(nz, ny, nx)), 3)
 
     kz_1d = np.fft.fftfreq(nz) * nz
     ky_1d = np.fft.fftfreq(ny) * ny
@@ -494,5 +504,12 @@ def estimate_global_halfmap_fsc_resolution(
     n_shells = int(shell_idx.max()) + 1
 
     fsc = _fsc_curve_from_patches(h1, h2, shell_idx, n_shells)
-    return float(_resolution_from_fsc(fsc, fsc_threshold, n_ref, float(voxel_size_a)))
-    return out_path
+    return float(
+        _resolution_from_fsc(
+            fsc,
+            fsc_threshold,
+            n_ref,
+            float(voxel_size_a),
+            if_no_crossing="nan",
+        )
+    )
