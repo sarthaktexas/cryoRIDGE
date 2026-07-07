@@ -54,7 +54,7 @@ class TestRunCryoridge(unittest.TestCase):
             half2 = Path("/tmp/h2.map")
             out = Path("/tmp/out")
 
-            result = run_cryoridge(half1, half2, out_dir=out)
+            result = run_cryoridge(half1, half2, out_dir=out, contour=0.5)
 
             save_avg.assert_called_once()
             features.assert_called_once()

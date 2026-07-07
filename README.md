@@ -14,7 +14,7 @@ cryoridge          # interactive: two half-map paths → two MRC outputs
 cryoridge help     # CLI reference
 ```
 
-Interactive mode asks for **half-map 1** and **half-map 2**, offers **auto or manual contour**, warns when estimated resolution is outside the model-building band (>4 Å), then writes `{stem}_reliability.mrc` and `{stem}_build_zones.mrc` under `cryoridge_out/` next to half-map 1.
+Interactive mode asks for **half-map 1** and **half-map 2**, prompts you to set the contour in **ChimeraX**, warns when estimated resolution is outside the model-building band (>4 Å), then writes `{stem}_reliability.mrc` and `{stem}_build_zones.mrc` under `cryoridge_out/` next to half-map 1.
 
 ## Pipeline (non-interactive / advanced)
 

@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from textwrap import dedent
 
+import numpy as np
+
 from rich import box
 from rich.align import Align
 from rich.console import Console, Group
@@ -21,6 +23,21 @@ from cryoem_mrc.emringer_cohort import BUILDING_REGIME_MAX_RESOLUTION_A
 console = Console()
 
 DEFAULT_OUTPUT_DIRNAME = "cryoridge_out"
+
+_PATH_DRAG_HINT = (
+    "[dim]Drag your .mrc / .map from Finder into this window, "
+    "or type the path — then press Enter.[/dim]"
+)
+
+_CHIMERAX_STEPS = dedent(
+    """
+    1. Open [bold]ChimeraX[/bold]
+    2. [bold]File → Open[/bold] → choose the map shown below
+    3. In [bold]Volume Viewer[/bold], move the [bold]Level[/bold] slider until the
+       isosurface encloses the macromolecule (not the whole box)
+    4. Copy the [bold]Level[/bold] number and paste it here
+    """
+).strip()
 
 HELP_TEXT = dedent(
     """
@@ -38,9 +55,11 @@ HELP_TEXT = dedent(
       cryoridge reliability --reference ref.map --half1 h1.map --half2 h2.map \\
         --features features.npz --contour CONTOUR --out-dir out
 
-    From two half-maps alone, interactive mode averages them, offers auto or
-    manual contour, warns when resolution is outside the model-building band,
-    and writes ``cryoridge_out/{stem}_reliability.mrc`` and ``*_build_zones.mrc``.
+    Interactive mode averages half-maps, asks you to set the contour in ChimeraX,
+    warns when resolution is outside the model-building band, and writes
+    ``cryoridge_out/{stem}_reliability.mrc`` and ``*_build_zones.mrc``.
+
+    On macOS, drag each half-map from Finder into the terminal when prompted.
 
     Advanced: cryoridge features --help, cryoridge reliability --help
     """
@@ -71,10 +90,13 @@ def _banner() -> Panel:
     return Panel(body, border_style="bright_cyan", box=box.DOUBLE, padding=(1, 2))
 
 
-def _prompt_path(label: str, *, default: str = "") -> Path:
+def _prompt_path(label: str, *, default: str = "", required: bool = True) -> Path | None:
+    console.print(_PATH_DRAG_HINT)
     while True:
         raw = Prompt.ask(f"[bold cyan]{label}[/bold cyan]", default=default)
         if not raw.strip():
+            if not required:
+                return None
             console.print("[yellow]  required[/yellow]")
             continue
         path = Path(raw.strip()).expanduser()
@@ -84,31 +106,58 @@ def _prompt_path(label: str, *, default: str = "") -> Path:
         return path
 
 
-def _prompt_contour(suggested: float) -> float:
-    console.print(
-        f"[dim]Auto contour suggestion:[/dim] [cyan]{suggested:.6g}[/cyan] "
-        "(heuristic on averaged half-map)"
+def _mask_fraction(density: np.ndarray, contour: float) -> float:
+    from cryoem_mrc.analysis import build_contour_mask
+
+    return float(build_contour_mask(density, contour).mean())
+
+
+def _chimerax_contour_panel(*, contour_map: Path) -> Panel:
+    body = (
+        f"{_CHIMERAX_STEPS}\n\n"
+        f"[bold]Map to open:[/bold] [cyan]{contour_map}[/cyan]\n\n"
+        "[dim]Use the deposited primary map when you have it (same as EMDB / "
+        "validation). Otherwise use avg_half.mrc written next to your half-maps.[/dim]"
     )
-    try:
-        use_auto = Confirm.ask("Use auto-detected contour?", default=True)
-    except (EOFError, KeyboardInterrupt):
-        raise
-    if use_auto:
-        return float(suggested)
+    return Panel(body, title="Set contour in ChimeraX", border_style="cyan")
+
+
+def _prompt_chimerax_contour(density: np.ndarray, *, contour_map: Path) -> float:
+    console.print()
+    console.print(_chimerax_contour_panel(contour_map=contour_map))
+    console.print()
 
     while True:
         try:
             raw = Prompt.ask(
-                "Contour level (density units, same as map)",
-                default=f"{suggested:.6g}",
+                "[bold cyan]ChimeraX Volume Viewer Level[/bold cyan] "
+                "(density units from the map above)",
             )
             val = float(raw.strip())
             if val <= 0:
                 console.print("[red]  contour must be positive[/red]")
                 continue
-            return val
+            frac = _mask_fraction(density, val)
+            console.print(
+                f"[dim]  → {frac:.1%} of grid masked at this level[/dim]"
+            )
+            if frac == 0:
+                console.print(
+                    "[yellow]  masks no voxels — lower the level or check you opened "
+                    "the correct map[/yellow]"
+                )
+                continue
+            if frac > 0.40:
+                console.print(
+                    "[yellow]  masks a large fraction of the box — surface may be too loose[/yellow]"
+                )
+            try:
+                if Confirm.ask("Use this contour?", default=True):
+                    return val
+            except (EOFError, KeyboardInterrupt):
+                raise
         except ValueError:
-            console.print("[red]  enter a number[/red]")
+            console.print("[red]  enter a number (the Level from Volume Viewer)[/red]")
         except (EOFError, KeyboardInterrupt):
             raise
 
@@ -146,8 +195,11 @@ def run_interactive() -> int:
     console.print(_banner())
     console.print(
         Panel(
-            "[white]Provide two half-maps.[/white] The tool will average them, "
-            "let you choose a contour, then write reliability + build-zone MRCs to "
+            "[white]Provide two half-maps[/white] (.mrc or .map).\n\n"
+            "When prompted, drag each file from Finder into this terminal window "
+            "(macOS pastes the full path), or type the path by hand.\n\n"
+            "You will set the analysis contour in [bold]ChimeraX[/bold], then "
+            "cryoRIDGE writes reliability + build-zone MRCs to "
             f"[cyan]{DEFAULT_OUTPUT_DIRNAME}/[/cyan] next to half-map 1.",
             border_style="green",
         )
@@ -157,9 +209,17 @@ def run_interactive() -> int:
     try:
         half1 = _prompt_path("Half-map 1 (.mrc / .map)")
         half2 = _prompt_path("Half-map 2 (.mrc / .map)", default="")
+        primary = _prompt_path(
+            "Deposited primary map for ChimeraX contour "
+            "(optional — Enter to skip and use avg_half.mrc)",
+            default="",
+            required=False,
+        )
     except (EOFError, KeyboardInterrupt):
         console.print("\n[dim]Cancelled.[/dim]")
         return 130
+
+    assert half1 is not None and half2 is not None
 
     out_dir = half1.parent / DEFAULT_OUTPUT_DIRNAME
     console.print(f"[dim]Output directory:[/dim] [cyan]{out_dir}[/cyan]")
@@ -175,10 +235,20 @@ def run_interactive() -> int:
                 load_halfmap_pair_context,
                 run_cryoridge,
                 summarize_halfmap_pair,
+                write_avg_half_map,
             )
+            from cryoem_mrc.io import load_mrc
 
             context = load_halfmap_pair_context(half1, half2)
             summary = summarize_halfmap_pair(context)
+            avg_path = write_avg_half_map(context, out_dir)
+
+        if primary is not None:
+            contour_map = primary
+            contour_density = load_mrc(primary, dtype=np.float32)
+        else:
+            contour_map = avg_path
+            contour_density = context.avg
 
         if math.isfinite(summary.resolution_a):
             console.print(
@@ -194,8 +264,11 @@ def run_interactive() -> int:
                 console.print("[dim]Cancelled.[/dim]")
                 return 0
 
-        console.print()
-        contour = _prompt_contour(summary.suggested_contour)
+        contour = _prompt_chimerax_contour(contour_density, contour_map=contour_map)
+        console.print(
+            f"[dim]Using ChimeraX contour:[/dim] [cyan]{contour:.6g}[/cyan] "
+            f"on [cyan]{contour_map.name}[/cyan]"
+        )
         console.print()
 
         with Status(
@@ -208,6 +281,7 @@ def run_interactive() -> int:
                 half2,
                 out_dir=out_dir,
                 contour=contour,
+                reference_map=primary,
                 context=context,
             )
     except (EOFError, KeyboardInterrupt):
@@ -222,7 +296,8 @@ def run_interactive() -> int:
     console.print()
     console.print(Panel(
         f"[bold green]Done[/bold green]\n\n"
-        f"[dim]contour[/dim]  {outputs['contour']:.6g}\n"
+        f"[dim]contour (ChimeraX)[/dim]  {outputs['contour']:.6g}\n"
+        f"[dim]mask map[/dim]  {outputs['reference_map']}\n"
         f"[dim]reliability[/dim]  {rel}\n"
         f"[dim]build zones[/dim]  {zones}",
         title="Outputs",

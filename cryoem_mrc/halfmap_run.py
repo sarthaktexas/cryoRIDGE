@@ -59,6 +59,33 @@ def load_halfmap_pair_context(half1: Path, half2: Path) -> HalfmapPairContext:
     return HalfmapPairContext(half1=half1, half2=half2, bundle=bundle, avg=avg)
 
 
+def write_avg_half_map(ctx: HalfmapPairContext, out_dir: Path) -> Path:
+    """Write averaged half-maps for ChimeraX contour picking and feature extraction."""
+    out_dir = Path(out_dir).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    avg_path = out_dir / "avg_half.mrc"
+    save_volume_like_reference(ctx.half1, ctx.avg, avg_path)
+    return avg_path
+
+
+def feature_start_threshold(avg: np.ndarray, ref: np.ndarray, contour: float) -> float:
+    """
+    ``--start-threshold`` for feature extraction when the contour mask is defined
+    on a deposited primary map but features are computed from averaged half-maps.
+    """
+    from .analysis import build_contour_mask
+
+    mask = build_contour_mask(ref, contour)
+    if not mask.any():
+        return float(contour)
+    avg_max_in_mask = float(np.max(avg[mask]))
+    if avg_max_in_mask < contour:
+        return 0.0
+    if avg_max_in_mask < contour * 1.05:
+        return 0.0
+    return float(contour)
+
+
 def summarize_halfmap_pair(ctx: HalfmapPairContext) -> HalfmapPairSummary:
     """Estimate auto-contour and masked global FSC resolution for interactive prompts."""
     suggested = suggest_contour(ctx.avg)
@@ -85,17 +112,19 @@ def run_cryoridge(
     half2: Path,
     *,
     out_dir: Path | None = None,
-    contour: float | None = None,
+    contour: float,
+    reference_map: Path | None = None,
     context: HalfmapPairContext | None = None,
 ) -> dict[str, Path | float]:
     """
     Features + reliability from two half-maps.
 
-    Uses half-map 1 as the reference grid, writes an averaged map, picks or
-    accepts a contour, and exports ``{stem}_reliability.mrc`` and
-    ``{stem}_build_zones.mrc``.
+    ``contour`` is the ChimeraX Volume Viewer level on ``reference_map`` (deposited
+    primary when provided, otherwise ``avg_half.mrc``). Uses half-map 1 as the
+    alignment grid and exports ``{stem}_reliability.mrc`` and ``{stem}_build_zones.mrc``.
     """
     from cryoem_mrc.__main__ import main as features_main
+    from cryoem_mrc.io import load_mrc
 
     if context is None:
         context = load_halfmap_pair_context(half1, half2)
@@ -108,37 +137,45 @@ def run_cryoridge(
     out_dir = Path(out_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    avg = context.avg
-    ref_path = out_dir / "avg_half.mrc"
-    save_volume_like_reference(half1, avg, ref_path)
+    avg_path = write_avg_half_map(context, out_dir)
+    contour_val = float(contour)
 
-    auto_contour = contour is None
-    contour_val = float(suggest_contour(avg) if auto_contour else contour)
-    n_mask = int(build_contour_mask(avg, contour_val).sum())
+    if reference_map is None:
+        mask_ref_path = avg_path
+        mask_volume = context.avg
+        feature_thr = 0.0
+    else:
+        mask_ref_path = Path(reference_map).expanduser().resolve()
+        if not mask_ref_path.is_file():
+            raise FileNotFoundError(f"reference map not found: {mask_ref_path}")
+        mask_volume = load_mrc(mask_ref_path, dtype=np.float32)
+        feature_thr = feature_start_threshold(context.avg, mask_volume, contour_val)
+
+    n_mask = int(build_contour_mask(mask_volume, contour_val).sum())
     if n_mask == 0:
         raise ValueError(
-            f"contour mask is empty at contour={contour_val:g}; "
-            "try a lower contour level"
+            f"contour mask is empty at contour={contour_val:g} on {mask_ref_path.name}; "
+            "lower the ChimeraX level or open the correct map"
         )
-    label_kind = "auto" if auto_contour else "user"
     print(
-        f"[cryoridge] {label_kind} contour {contour_val:.6g} ({n_mask:,} voxels in mask)",
+        f"[cryoridge] contour {contour_val:.6g} on {mask_ref_path.name} "
+        f"({n_mask:,} voxels in mask)",
         flush=True,
     )
 
     features_path = out_dir / "features.npz"
     rc = features_main(
         [
-            str(ref_path),
+            str(avg_path),
             "--float32",
             "--out",
             str(features_path),
             "--reference",
-            str(ref_path),
+            str(mask_ref_path),
             "--contour",
             str(contour_val),
             "--start-threshold",
-            "0",
+            str(feature_thr),
         ]
     )
     if rc != 0:
@@ -148,7 +185,7 @@ def run_cryoridge(
     rc = reliability_main(
         [
             "--reference",
-            str(ref_path),
+            str(mask_ref_path),
             "--half1",
             str(half1),
             "--half2",
@@ -168,7 +205,8 @@ def run_cryoridge(
 
     return {
         "out_dir": out_dir,
-        "avg_half": ref_path,
+        "avg_half": avg_path,
+        "reference_map": mask_ref_path,
         "features": features_path,
         "reliability_mrc": out_dir / f"{label}_reliability.mrc",
         "build_zones_mrc": out_dir / f"{label}_build_zones.mrc",
