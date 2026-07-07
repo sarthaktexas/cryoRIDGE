@@ -3,10 +3,11 @@
 **RIDGE** = **R**eliability **I**nferred from **D**ensity **G**radient **E**nergy
 
 [![PyPI version](https://img.shields.io/pypi/v/cryoridge)](https://pypi.org/project/cryoridge/)
-[![DOI](https://zenodo.org/badge/1262218538.svg)](https://doi.org/10.5281/zenodo.20618526)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Local **reliability scores** and **build zones** for cryo-EM maps from half-maps and density features. Python **3.10+**.
+
+<img width="772" height="681" alt="image" src="https://github.com/user-attachments/assets/d69251e6-bac9-4cb1-af28-5bacbad0b9f5" />
 
 ```bash
 pip install cryoridge
